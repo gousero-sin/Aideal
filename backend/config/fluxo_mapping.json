@@ -1,0 +1,113 @@
+{
+  "_descricao": "Mapeamento de colunas e regras para o fluxo de Caixa",
+  "_versao": "1.0.0",
+
+  "entrada": {
+    "formatos_aceitos": [".xls", ".xlsx"],
+    "aba_principal": null,
+    "aba_principal_detectar_por": "maior_numero_linhas",
+    "linha_cabecalho": 0,
+
+    "colunas": {
+      "data_movimento": {
+        "aliases": ["Data Mov.", "DATA MOV", "Data", "DATA", "Dt Mov", "Data Movimento", "DT MOVIMENTO"],
+        "tipo": "date",
+        "obrigatorio": true
+      },
+      "tipo": {
+        "aliases": ["Tipo", "TIPO", "Tp", "Natureza", "Tipo Mov"],
+        "tipo": "string",
+        "obrigatorio": false,
+        "inferir_de": "valor"
+      },
+      "descricao": {
+        "aliases": [
+          "Descrição",
+          "DESCRICAO",
+          "Descricao",
+          "Histórico",
+          "HISTORICO",
+          "Hist",
+          "Lançamento",
+          "LANCAMENTO",
+          "Desc. Mov.",
+          "Desc. Mov",
+          "Desc Mov",
+          "Desc. Doc."
+        ],
+        "tipo": "string",
+        "obrigatorio": true
+      },
+      "valor": {
+        "aliases": ["Valor", "VALOR", "Vlr", "Montante", "MONTANTE", "Valor (R$)"],
+        "tipo": "decimal",
+        "obrigatorio": true
+      },
+      "saldo": {
+        "aliases": ["Saldo", "SALDO", "Saldo Final", "SALDO FINAL", "Saldo Dia", "Saldo (R$)"],
+        "tipo": "decimal",
+        "obrigatorio": false
+      },
+      "classificacao": {
+        "aliases": [
+          "Classificação",
+          "CLASSIFICACAO",
+          "Classificacao",
+          "Conta Gerencial",
+          "Categoria",
+          "Conta Gerencial Mov",
+          "Conta Gerencial Doc."
+        ],
+        "tipo": "string",
+        "obrigatorio": false
+      }
+    },
+
+    "bancos_conhecidos": {
+      "itau_isolamento": {
+        "aliases": ["Itaú Isolamento", "ITAU ISOLAMENTO", "Itau Isolamento"],
+        "detectar_por_nome_arquivo": ["ITAU ISOLAMENTO", "ITAU ISOL", "itau isolamento", "itau isol"]
+      },
+      "itau": {
+        "aliases": ["Itaú", "ITAU", "Itau", "Banco Itaú"],
+        "detectar_por_nome_arquivo": ["ITAU", "itau", "Itaú", "itaú"]
+      },
+      "cef": {
+        "aliases": ["CEF", "Caixa", "Caixa Econômica", "CAIXA ECONOMICA"],
+        "detectar_por_nome_arquivo": ["CEF", "cef", "CAIXA", "caixa", "CAIX A", "caix a"]
+      },
+      "safra": {
+        "aliases": ["Safra", "SAFRA", "Banco Safra"],
+        "detectar_por_nome_arquivo": ["SAFRA", "safra"]
+      },
+      "mercantil": {
+        "aliases": ["Mercantil", "MERCANTIL", "Banco Mercantil"],
+        "detectar_por_nome_arquivo": ["MERCANTIL", "mercantil", "MARCANTIL", "marcantil"]
+      }
+    }
+  },
+
+  "consolidacao": {
+    "normalizar_tipo_movimento": {
+      "credito": ["C", "CR", "CRE", "CREDITO", "Crédito", "credito"],
+      "debito": ["D", "DB", "DEB", "DEBITO", "Débito", "debito"],
+      "transferencia": ["T", "TR", "TRANSF", "TRANSFERENCIA", "Transferência", "transferencia"]
+    },
+    "aliases_classificacao": {},
+    "_nota": "Aliases de classificação serão populados na Etapa 3 com dados reais"
+  },
+
+  "saida": {
+    "template": "Fluxo de Caixa A Ideal - 07 2025.xlsx",
+    "aba_dados": null,
+    "linha_inicio_dados": null,
+    "areas_atualizaveis": [],
+    "_nota": "Áreas de atualização serão mapeadas após análise do template na Etapa 3"
+  },
+
+  "validacao": {
+    "colunas_obrigatorias_minimas": ["data_movimento", "descricao", "valor"],
+    "bloquear_classificacao_nao_mapeada": true,
+    "exigir_banco_origem": true
+  }
+}

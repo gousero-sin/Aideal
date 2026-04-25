@@ -1,0 +1,823 @@
+"""AIDEAL GoFlowOS MVP — API FastAPI principal."""
+
+import logging
+import tempfile
+from pathlib import Path
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
+from .config import settings
+from .contracts.common import FlowType
+from .contracts.processamento import DREProcessamentoResponse
+from .db.manager import run_migrations
+from .ingestao.dre_ingestao import DREIngestaoService
+from .ingestao.fluxo_caixa_ingestao import FluxoCaixaIngestaoService
+from .ingestao.parser import ExcelParser
+from .processamento import DREProcessamentoService, FluxoCaixaProcessamentoService
+from .processamento.dre_geracao import DREGeracaoService
+from .processamento.dre_geracao_completa import DREGeracaoCompletaService
+from .processamento.fluxo_caixa_db import FluxoCaixaGeracaoService
+from .templates.writer import TemplateWriter
+from .validacao.validators import DREValidator, FluxoCaixaValidator
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.version,
+    description="Motor de consolidação financeira DRE e Fluxo de Caixa",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Inicializa serviços
+dre_service = DREProcessamentoService()
+fluxo_service = FluxoCaixaProcessamentoService()
+dre_ingestao_service = DREIngestaoService()
+dre_geracao_service = DREGeracaoService()
+dre_geracao_completa_service = DREGeracaoCompletaService()
+fluxo_ingestao_service = FluxoCaixaIngestaoService()
+fluxo_geracao_db_service = FluxoCaixaGeracaoService()
+
+
+# Executa migrações no startup
+@app.on_event("startup")
+async def startup_event():
+    """Executa migrações ao iniciar a aplicação."""
+    try:
+        run_migrations()
+        logger.info("Migrações executadas com sucesso")
+    except Exception as e:
+        logger.error("Erro ao executar migrações: %s", e)
+
+
+async def _salvar_upload_temporario(arquivo: UploadFile) -> Path:
+    """Salva o upload em disco temporariamente para processamento."""
+    suffix = Path(arquivo.filename).suffix
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=str(settings.temp_dir))
+    tmp_path = Path(tmp.name)
+    content = await arquivo.read()
+    tmp.write(content)
+    tmp.close()
+    return tmp_path
+
+
+@app.get("/")
+async def root():
+    return {
+        "app": settings.app_name,
+        "version": settings.version,
+        "fluxos": ["dre", "fluxo_caixa"],
+        "status": "operacional",
+    }
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.post("/api/validar/{fluxo}")
+async def validar_arquivo(
+    fluxo: FlowType,
+    arquivo: UploadFile = File(...),
+    competencia: str | None = Form(None),
+    modo_cumulativo: bool | None = Form(None),
+):
+    """Valida estrutura de um arquivo de entrada (DRE ou Fluxo de Caixa).
+
+    Retorna resultado detalhado com erros bloqueantes e warnings.
+    """
+    tmp_path = None
+    try:
+        tmp_path = await _salvar_upload_temporario(arquivo)
+
+        # Parse
+        flow_key = "dre" if fluxo == FlowType.DRE else "fluxo"
+        parser = ExcelParser(flow_key)
+        dados = parser.ler_arquivo(tmp_path)
+
+        # Validar
+        if fluxo == FlowType.DRE:
+            validator = DREValidator()
+            result = validator.validar(
+                dados,
+                competencia=competencia,
+                modo_cumulativo=modo_cumulativo,
+            )
+        else:
+            validator = FluxoCaixaValidator()
+            result = validator.validar(dados)
+
+        return result.model_dump(mode="json")
+
+    except Exception as e:
+        logger.error(f"Erro na validação: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink()
+
+
+@app.post("/api/processar/dre", response_model=DREProcessamentoResponse)
+async def processar_dre(
+    arquivo: UploadFile = File(...),
+    competencia: str = Form(...),
+    modo_cumulativo: bool | None = Form(None),
+):
+    """[LEGADO] Processa o DRE ponta a ponta e gera o arquivo final.
+
+    Mantido para compatibilidade temporária. Prefira:
+      POST /api/dre/ingestoes  — para persistir o mês no banco
+      POST /api/dre/gerar      — para gerar o DRE a partir do banco
+    """
+    logger.warning(
+        "LEGADO: /api/processar/dre chamado para competência=%s. "
+        "Migre para /api/dre/ingestoes + /api/dre/gerar.",
+        competencia,
+    )
+    tmp_path = None
+    try:
+        tmp_path = await _salvar_upload_temporario(arquivo)
+        resultado = dre_service.processar(
+            tmp_path,
+            arquivo.filename,
+            competencia,
+            modo_cumulativo=modo_cumulativo,
+        )
+        return resultado.model_dump(mode="json")
+    except Exception as exc:
+        logger.error(f"Erro no processamento DRE (legado): {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink()
+
+
+@app.post("/api/processar/fluxo_caixa", response_model=DREProcessamentoResponse)
+async def processar_fluxo_caixa(
+    arquivos: list[UploadFile] = File(...),
+    periodo: str = Form(..., description="Período no formato MM/AAAA (ex: 05/2025)"),
+):
+    """Processa lote de extratos bancários e gera Fluxo de Caixa consolidado."""
+    tmp_paths: list[Path] = []
+    try:
+        arquivos_lote: list[tuple[Path, str]] = []
+        for arquivo in arquivos:
+            tmp_path = await _salvar_upload_temporario(arquivo)
+            tmp_paths.append(tmp_path)
+            arquivos_lote.append((tmp_path, arquivo.filename or tmp_path.name))
+
+        resultado = fluxo_service.processar_lote(arquivos=arquivos_lote, periodo=periodo)
+        return resultado.model_dump(mode="json")
+
+    except Exception as exc:
+        logger.error(f"Erro no processamento Fluxo de Caixa: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        for path in tmp_paths:
+            if path.exists():
+                path.unlink()
+
+
+@app.post("/api/fluxo_caixa/gerar")
+async def gerar_fluxo_caixa(
+    arquivos: list[UploadFile] | None = File(
+        None,
+        description="Compatibilidade: se informado, gera diretamente do upload",
+    ),
+    periodo: str | None = Form(None, description="Período legado no formato MM/AAAA"),
+    competencia: str | None = Form(None, description="Competência alvo no formato MM/AAAA"),
+    modo_teste: bool = Form(False, description="Se True, apenas verifica sem gerar arquivo"),
+    meses_incluir: list[int] | None = Form(
+        None,
+        description="Lista opcional de meses (1..12) para incluir na geração",
+    ),
+    ano_todo: bool = Form(
+        False,
+        description="Se True, usa todos os meses disponíveis no banco para o ano",
+    ),
+):
+    """Gera Fluxo de Caixa a partir do banco, com fallback legado por upload."""
+    if arquivos:
+        if not periodo:
+            periodo = competencia
+        if not periodo:
+            raise HTTPException(status_code=400, detail="Informe 'periodo' ou 'competencia'.")
+        return await processar_fluxo_caixa(arquivos=arquivos, periodo=periodo)
+
+    if not competencia:
+        raise HTTPException(status_code=400, detail="Informe 'competencia' para gerar do banco.")
+
+    try:
+        verificacao = fluxo_geracao_db_service.verificar_dados(
+            competencia=competencia,
+            meses_incluir=meses_incluir,
+            ano_todo=ano_todo,
+        )
+        if not verificacao["valido"]:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": verificacao.get("error", "Dados insuficientes para geração"),
+                    "verificacao": verificacao,
+                },
+            )
+        if modo_teste:
+            return {
+                "modo_teste": True,
+                "verificacao": verificacao,
+                "message": "Verificação concluída. Use modo_teste=False para gerar arquivo.",
+            }
+
+        resultado = fluxo_geracao_db_service.gerar_arquivo(
+            competencia=competencia,
+            meses_incluir=meses_incluir,
+            ano_todo=ano_todo,
+        )
+        if "total_lancamentos" not in resultado and "total_movimentos" in resultado:
+            resultado["total_lancamentos"] = resultado["total_movimentos"]
+        return {
+            "success": True,
+            "competencia": competencia,
+            **resultado,
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as exc:
+        logger.error("Erro na geração Fluxo de Caixa do banco: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/validar/fluxo_caixa/lote")
+async def validar_lote_fluxo(
+    arquivos: list[UploadFile] = File(...),
+):
+    """Valida múltiplos arquivos do Fluxo de Caixa em lote."""
+    tmp_paths = []
+    try:
+        parser = ExcelParser("fluxo")
+        lista_dados = []
+
+        for arquivo in arquivos:
+            suffix = Path(arquivo.filename).suffix
+            tmp = tempfile.NamedTemporaryFile(
+                delete=False, suffix=suffix, dir=str(settings.temp_dir)
+            )
+            tmp_path = Path(tmp.name)
+            tmp_paths.append(tmp_path)
+            content = await arquivo.read()
+            tmp.write(content)
+            tmp.close()
+
+            dados = parser.ler_arquivo(tmp_path)
+            # Sobrescrever nome para preservar original
+            dados["arquivo"] = arquivo.filename
+            lista_dados.append(dados)
+
+        validator = FluxoCaixaValidator()
+        result = validator.validar_lote(lista_dados)
+        return result.model_dump(mode="json")
+
+    except Exception as e:
+        logger.error(f"Erro na validação de lote: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        for p in tmp_paths:
+            if p.exists():
+                p.unlink()
+
+
+@app.get("/api/templates/info/{fluxo}")
+async def info_template(fluxo: FlowType):
+    """Retorna informações estruturais do template oficial."""
+    try:
+        if fluxo == FlowType.DRE:
+            template_path = settings.template_dre_path
+        else:
+            template_path = settings.template_fluxo_path
+
+        if not template_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Template não encontrado: {template_path.name}",
+            )
+
+        writer = TemplateWriter(template_path)
+        writer.abrir()
+
+        sheets_info = []
+        for sheet in writer.listar_sheets():
+            sheets_info.append(writer.obter_info_sheet(sheet))
+
+        writer.fechar()
+
+        return {
+            "fluxo": fluxo.value,
+            "template": template_path.name,
+            "sheets": sheets_info,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao ler template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/config/{fluxo}")
+async def get_config(fluxo: FlowType):
+    """Retorna configuração de mapeamento do fluxo."""
+    import json
+
+    flow_key = "dre" if fluxo == FlowType.DRE else "fluxo"
+    mapping_path = settings.config_dir / f"{flow_key}_mapping.json"
+
+    if not mapping_path.exists():
+        raise HTTPException(status_code=404, detail="Configuração não encontrada")
+
+    with open(mapping_path, encoding="utf-8") as f:
+        config = json.load(f)
+
+    return config
+
+
+@app.get("/api/logs")
+async def listar_logs():
+    """Lista logs de processamento disponíveis."""
+    logs = []
+    if settings.logs_dir.exists():
+        for f in sorted(settings.logs_dir.glob("log_*.json"), reverse=True):
+            import json
+
+            with open(f, encoding="utf-8") as fh:
+                logs.append(json.load(fh))
+    return {"total": len(logs), "logs": logs[:50]}
+
+
+@app.get("/api/processamentos/{processamento_id}", response_model=DREProcessamentoResponse)
+async def obter_processamento(processamento_id: str):
+    """Consulta o status persistido de um processamento (DRE ou Fluxo)."""
+    resultado = dre_service.obter_processamento(processamento_id)
+    if not resultado:
+        resultado = fluxo_service.obter_processamento(processamento_id)
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Processamento nao encontrado")
+    return resultado.model_dump(mode="json")
+
+
+@app.get("/api/processamentos/{processamento_id}/download")
+async def download_processamento(processamento_id: str):
+    """Baixa o arquivo final gerado por um processamento (DRE ou Fluxo)."""
+    arquivo_saida = dre_service.obter_arquivo_saida(processamento_id)
+    if not arquivo_saida:
+        arquivo_saida = fluxo_service.obter_arquivo_saida(processamento_id)
+    if not arquivo_saida:
+        raise HTTPException(status_code=404, detail="Arquivo de saida nao encontrado")
+    return FileResponse(
+        path=str(arquivo_saida),
+        filename=arquivo_saida.name,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.get("/api/etapa1/status")
+async def status_etapa1():
+    """Resumo de prontidão da Etapa 1 (fundação e arquitetura)."""
+    baseline_dir = settings.config_dir / "template_baselines"
+    dre_baseline = baseline_dir / "dre_template_baseline.json"
+    fluxo_baseline = baseline_dir / "fluxo_template_baseline.json"
+
+    return {
+        "etapa": 1,
+        "fundacao_backend": {
+            "api_online": True,
+            "config_dre": (settings.config_dir / "dre_mapping.json").exists(),
+            "config_fluxo": (settings.config_dir / "fluxo_mapping.json").exists(),
+        },
+        "templates": {
+            "dre_template": settings.template_dre_path.exists(),
+            "fluxo_template": settings.template_fluxo_path.exists(),
+            "dre_baseline": dre_baseline.exists(),
+            "fluxo_baseline": fluxo_baseline.exists(),
+        },
+    }
+
+
+# ============================================================================
+# ENDPOINTS DE PERSISTÊNCIA DRE (NOVOS - Fase B/C)
+# ============================================================================
+
+
+@app.post("/api/dre/ingestoes")
+async def ingestao_dre(
+    arquivo: UploadFile = File(...),
+    competencia: str = Form(..., description="Competência no formato MM/AAAA (ex: 05/2025)"),
+    replace: bool = Form(True, description="Substituir competência existente se houver"),
+):
+    """
+    Ingestão mensal de DRE para persistência no banco.
+
+    - Valida o arquivo
+    - Persiste lançamentos no banco
+    - Substitui competência existente se replace=True
+    """
+    tmp_path = None
+    try:
+        tmp_path = await _salvar_upload_temporario(arquivo)
+
+        resultado = dre_ingestao_service.ingestar(
+            arquivo_path=tmp_path,
+            arquivo_nome=arquivo.filename or "arquivo.xls",
+            competencia=competencia,
+            replace=replace,
+        )
+
+        if not resultado["success"]:
+            status_code = 400 if resultado.get("status") == "validation_error" else 500
+            raise HTTPException(status_code=status_code, detail=resultado)
+
+        return resultado
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Erro na ingestão DRE: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if tmp_path and tmp_path.exists():
+            tmp_path.unlink()
+
+
+@app.get("/api/dre/ingestoes/{upload_id}")
+async def obter_status_ingestao(upload_id: str):
+    """Consulta o status de uma ingestão DRE."""
+    resultado = dre_ingestao_service.obter_status(upload_id)
+    if not resultado:
+        raise HTTPException(status_code=404, detail="Ingestão não encontrada")
+    return resultado
+
+
+@app.get("/api/dre/ingestoes")
+async def listar_ingestoes(
+    ano: int | None = None,
+    mes: int | None = None,
+    limit: int = 100,
+):
+    """Lista ingestões DRE com filtros opcionais."""
+    ingestoes = dre_ingestao_service.listar_ingestoes(ano, mes, limit)
+    return {
+        "total": len(ingestoes),
+        "ingestoes": ingestoes,
+    }
+
+
+@app.post("/api/dre/admin/limpar")
+async def limpar_base_dre(
+    ano: int | None = Form(None, description="Ano opcional (ex: 2025)"),
+    mes: int | None = Form(None, description="Mês opcional 1..12 (requer ano)"),
+):
+    """Limpa dados persistidos de DRE (global, por ano, ou por competência)."""
+    try:
+        if mes is not None and ano is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Parametro 'mes' exige o parametro 'ano'.",
+            )
+        if mes is not None and (mes < 1 or mes > 12):
+            raise HTTPException(
+                status_code=400,
+                detail="Parametro 'mes' deve estar entre 1 e 12.",
+            )
+
+        resultado = dre_geracao_service.repository.limpar_dados(ano=ano, mes=mes)
+        return {
+            "success": True,
+            "ano": ano,
+            "mes": mes,
+            **resultado,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Erro ao limpar base DRE: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ============================================================================
+# ENDPOINTS DE PERSISTÊNCIA FLUXO DE CAIXA
+# ============================================================================
+
+
+@app.post("/api/fluxo_caixa/ingestoes")
+async def ingestao_fluxo_caixa(
+    arquivos: list[UploadFile] = File(...),
+    competencia: str = Form(..., description="Competência no formato MM/AAAA (ex: 08/2025)"),
+    replace: bool = Form(True, description="Substituir competência existente se houver"),
+):
+    """Ingestão mensal de extratos do Fluxo de Caixa para persistência no banco."""
+    tmp_paths: list[Path] = []
+    try:
+        arquivos_lote: list[tuple[Path, str]] = []
+        for arquivo in arquivos:
+            tmp_path = await _salvar_upload_temporario(arquivo)
+            tmp_paths.append(tmp_path)
+            arquivos_lote.append((tmp_path, arquivo.filename or tmp_path.name))
+
+        resultado = fluxo_ingestao_service.ingestar_lote(
+            arquivos=arquivos_lote,
+            competencia=competencia,
+            replace=replace,
+        )
+        if not resultado["success"]:
+            status_code = 400 if resultado.get("status") == "validation_error" else 500
+            raise HTTPException(status_code=status_code, detail=resultado)
+        return resultado
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Erro na ingestão Fluxo de Caixa: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        for path in tmp_paths:
+            if path.exists():
+                path.unlink()
+
+
+@app.get("/api/fluxo_caixa/ingestoes")
+async def listar_ingestoes_fluxo_caixa(
+    ano: int | None = None,
+    mes: int | None = None,
+    limit: int = 100,
+):
+    """Lista ingestões do Fluxo de Caixa com filtros opcionais."""
+    ingestoes = fluxo_ingestao_service.listar_ingestoes(ano, mes, limit)
+    return {
+        "total": len(ingestoes),
+        "ingestoes": ingestoes,
+    }
+
+
+@app.post("/api/fluxo_caixa/admin/limpar")
+async def limpar_base_fluxo_caixa(
+    ano: int | None = Form(None, description="Ano opcional (ex: 2025)"),
+    mes: int | None = Form(None, description="Mês opcional 1..12 (requer ano)"),
+):
+    """Limpa dados persistidos de Fluxo de Caixa."""
+    try:
+        if mes is not None and ano is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Parametro 'mes' exige o parametro 'ano'.",
+            )
+        if mes is not None and (mes < 1 or mes > 12):
+            raise HTTPException(
+                status_code=400,
+                detail="Parametro 'mes' deve estar entre 1 e 12.",
+            )
+
+        resultado = fluxo_ingestao_service.repository.limpar_dados(ano=ano, mes=mes)
+        return {
+            "success": True,
+            "ano": ano,
+            "mes": mes,
+            **resultado,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Erro ao limpar base Fluxo de Caixa: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/dre/gerar")
+async def gerar_dre_cumulativo(
+    competencia: str = Form(..., description="Competência alvo no formato MM/AAAA"),
+    centro_custo: str | None = Form(None, description="Filtrar por obra/centro de custo"),
+    modo_teste: bool = Form(False, description="Se True, apenas verifica sem gerar arquivo"),
+    meses_incluir: list[int] | None = Form(
+        None,
+        description="Lista opcional de meses (1..12) para incluir na geração",
+    ),
+    ano_todo: bool = Form(
+        False,
+        description=(
+            "Se True, ignora competência para meses e usa todos os meses disponíveis do ano"
+        ),
+    ),
+):
+    """
+    Gera DRE a partir do banco de dados (fonte de verdade).
+
+    - Não exige cumulativo completo mês a mês
+    - No modo padrão, usa meses disponíveis (<= competência) automaticamente
+    - Se ano_todo=True, usa todos os meses disponíveis do ano
+    - Se meses_incluir informado, usa somente os meses selecionados
+    - Preenche BD_FLUXO com lançamentos YTD dos meses disponíveis
+    - Reescreve APOIO com agregação mês a mês
+    - Oculta colunas de meses sem dados na aba DRE
+    """
+    try:
+        # 1. Verificar dados (inclui checagem de upload completed para mês alvo)
+        verificacao = dre_geracao_completa_service.verificar_dados(
+            competencia=competencia,
+            centro_custo=centro_custo,
+            meses_incluir=meses_incluir,
+            ano_todo=ano_todo,
+        )
+
+        if not verificacao["valido"]:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": verificacao.get("error", "Dados insuficientes para geração"),
+                    "verificacao": verificacao,
+                },
+            )
+
+        if modo_teste:
+            return {
+                "modo_teste": True,
+                "verificacao": verificacao,
+                "message": "Verificação concluída. Use modo_teste=False para gerar arquivo.",
+            }
+
+        # 2. Gerar arquivo
+        resultado = dre_geracao_completa_service.gerar_arquivo(
+            competencia=competencia,
+            centro_custo=centro_custo,
+            meses_incluir=meses_incluir,
+            ano_todo=ano_todo,
+        )
+
+        return {
+            "success": True,
+            "competencia": competencia,
+            "arquivo_saida": resultado["arquivo_saida"],
+            "download_url": f"/api/dre/download/{resultado['arquivo_saida']}",
+            "registros_reais": resultado.get("registros_reais", resultado["total_lancamentos"]),
+            "total_lancamentos": resultado["total_lancamentos"],
+            "total_credito": resultado["total_credito"],
+            "total_debito": resultado["total_debito"],
+            "saldo_liquido": resultado["saldo_liquido"],
+            "centro_custo": centro_custo,
+            "fonte_dados": resultado["fonte_dados"],
+            "estrategia_meses": resultado["estrategia_meses"],
+            "ano_todo": resultado["ano_todo"],
+            "meses_incluir": resultado["meses_incluir"],
+            "meses_disponiveis": resultado["meses_disponiveis"],
+            "meses_utilizados": resultado["meses_utilizados"],
+            "meses_solicitados": resultado["meses_solicitados"],
+            "meses_ocultos": resultado["meses_ocultos"],
+            "colunas_dre_visiveis": resultado["colunas_dre_visiveis"],
+            "aba_detalhamento": resultado.get("aba_detalhamento"),
+            "linhas_resumo_mensal": resultado.get("linhas_resumo_mensal", 0),
+            "linhas_resumo_agrupado": resultado.get("linhas_resumo_agrupado", 0),
+            "linhas_lancamentos_granulares": resultado.get("linhas_lancamentos_granulares", 0),
+        }
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as exc:
+        logger.error(f"Erro na geração DRE: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/dre/lancamentos")
+async def listar_lancamentos(
+    ano: int,
+    mes: int,
+    ate_mes: int | None = None,
+    centro_custo: str | None = None,
+    limit: int = 1000,
+):
+    """
+    Lista lançamentos DRE do banco.
+
+    - Se ate_mes informado: retorna acumulado YTD (jan até ate_mes)
+    - Se apenas mes informado: retorna apenas aquele mês
+    """
+    try:
+        if ate_mes:
+            # Modo YTD
+            from app.contracts.persistence import DRECompetenciaQuery
+
+            query = None
+            if centro_custo:
+                query = DRECompetenciaQuery(ano=ano, mes=ate_mes, centro_custo=centro_custo)
+
+            lancamentos = dre_geracao_service.repository.get_lancamentos_ytd(ano, ate_mes, query)
+            competencia_label = f"01-{ate_mes:02d}/{ano}"
+        else:
+            # Modo mês específico
+            lancamentos = dre_geracao_service.repository.lancamentos.get_by_competencia(
+                ano, mes, centro_custo
+            )
+            competencia_label = f"{mes:02d}/{ano}"
+
+        # Limitar resultados
+        lancamentos = lancamentos[:limit]
+
+        return {
+            "competencia": competencia_label,
+            "ano": ano,
+            "mes": mes,
+            "ate_mes": ate_mes,
+            "centro_custo": centro_custo,
+            "total": len(lancamentos),
+            "lancamentos": [
+                {
+                    "id": lanc.id,
+                    "data": lanc.data_lancamento,
+                    "historico": lanc.historico,
+                    "credito": float(lanc.credito),
+                    "debito": float(lanc.debito),
+                    "natureza": lanc.natureza_norm or lanc.natureza_raw,
+                    "centro_custo": lanc.centro_custo,
+                    "conta_pai": lanc.conta_pai,
+                }
+                for lanc in lancamentos
+            ],
+        }
+
+    except Exception as exc:
+        logger.error(f"Erro ao listar lançamentos: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/dre/resumo")
+async def resumo_dre(
+    ano: int,
+    mes: int | None = None,
+):
+    """
+    Retorna resumo acumulado do DRE.
+
+    - Se mes informado: resumo YTD até aquele mês
+    - Se mes não informado: resumo de todos os lançamentos do ano
+    """
+    try:
+        if mes:
+            resumo = dre_geracao_service.repository.get_resumo_ytd(ano, mes)
+            resumo["competencia"] = f"01-{mes:02d}/{ano}"
+        else:
+            # Resumo do ano completo
+            resumo = dre_geracao_service.repository.get_resumo_ytd(ano, 12)
+            resumo["competencia"] = f"{ano} (ano completo)"
+
+        # Converter Decimal para float para serialização JSON
+        for key in ["total_credito", "total_debito", "saldo_liquido"]:
+            if key in resumo:
+                resumo[key] = float(resumo[key])
+
+        return resumo
+
+    except Exception as exc:
+        logger.error(f"Erro ao obter resumo: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/dre/download/{arquivo_nome}")
+async def download_dre(arquivo_nome: str):
+    """Download de arquivo DRE gerado."""
+    arquivo_path = settings.base_dir / "output" / arquivo_nome
+    if not arquivo_path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+
+    return FileResponse(
+        path=str(arquivo_path),
+        filename=arquivo_nome,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.get("/api/fluxo_caixa/download/{arquivo_nome}")
+async def download_fluxo_caixa(arquivo_nome: str):
+    """Download de arquivo Fluxo de Caixa gerado."""
+    arquivo_path = settings.base_dir / "output" / arquivo_nome
+    if not arquivo_path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+
+    return FileResponse(
+        path=str(arquivo_path),
+        filename=arquivo_nome,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )

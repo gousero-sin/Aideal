@@ -1,0 +1,995 @@
+{
+  "workbook_name": "DRE AIDEAL - 05 2025  - obra.xlsx",
+  "captured_at_utc": "2026-03-31T18:34:49.723791+00:00",
+  "file_size_bytes": 1155347,
+  "file_sha256": "b54e34f31a06b08392ea59952ee85340e724d16a6e5c55c029d22a99ad44f808",
+  "entries": [
+    {
+      "name": "[Content_Types].xml",
+      "file_size": 9738,
+      "compress_size": 898,
+      "crc": 1279416716,
+      "sha256": "5b079b6064770ad37fdfa809e42aa5e5b63e8a6de80ca00bc377fb72e6184f44"
+    },
+    {
+      "name": "_rels/.rels",
+      "file_size": 588,
+      "compress_size": 244,
+      "crc": 590370229,
+      "sha256": "73e5a29f48d5ab979eeda062493bc7e679265c1344ef936978b8becec5549497"
+    },
+    {
+      "name": "customXml/_rels/item1.xml.rels",
+      "file_size": 296,
+      "compress_size": 194,
+      "crc": 2050572148,
+      "sha256": "80482f86e196171d66001e0e74d1900408a3aaf2463e54005d251b5f2db9a0b0"
+    },
+    {
+      "name": "customXml/_rels/item10.xml.rels",
+      "file_size": 297,
+      "compress_size": 195,
+      "crc": 2873085983,
+      "sha256": "ad8ca1351b7be1a7eb4d5dd7578cc13fd3a90c3d1bfd584e69dbe9469280e0b3"
+    },
+    {
+      "name": "customXml/_rels/item11.xml.rels",
+      "file_size": 297,
+      "compress_size": 195,
+      "crc": 706393400,
+      "sha256": "67bec3e59e8ef51ae7e18d3d71eb886b0bbad0785b49b06944bcfdc363e657b6"
+    },
+    {
+      "name": "customXml/_rels/item12.xml.rels",
+      "file_size": 297,
+      "compress_size": 195,
+      "crc": 1912871952,
+      "sha256": "3d9fa23614757633a7c8f0c0e2336f2d364246d6c875baa9aebbc33b3ab6622a"
+    },
+    {
+      "name": "customXml/_rels/item13.xml.rels",
+      "file_size": 297,
+      "compress_size": 196,
+      "crc": 4079057207,
+      "sha256": "0041f449f79277b176f8fb61071750d6265695f52b67553f04b4fd3aa0de6f91"
+    },
+    {
+      "name": "customXml/_rels/item14.xml.rels",
+      "file_size": 297,
+      "compress_size": 196,
+      "crc": 3258535488,
+      "sha256": "f9f1b5f8518ccce2d0a5d030976bd9b64cd6ee63cfb1d1eadfee50fc2d0e67ee"
+    },
+    {
+      "name": "customXml/_rels/item15.xml.rels",
+      "file_size": 297,
+      "compress_size": 196,
+      "crc": 1125919591,
+      "sha256": "e6961863263bbda3be3c69d5b4216e24cd04e8f73e212d8ce5309c5c42a08bd5"
+    },
+    {
+      "name": "customXml/_rels/item16.xml.rels",
+      "file_size": 297,
+      "compress_size": 195,
+      "crc": 453149263,
+      "sha256": "2bbcf09bf0a7f17d70ba80e39dbb830b82a5c02a5bca16fd34c62a43f9b31158"
+    },
+    {
+      "name": "customXml/_rels/item17.xml.rels",
+      "file_size": 297,
+      "compress_size": 196,
+      "crc": 2586306408,
+      "sha256": "2e5a93eaeb8baef0ee1f319cb32a586830cafeda90220391a49cdd597b3bc022"
+    },
+    {
+      "name": "customXml/_rels/item18.xml.rels",
+      "file_size": 297,
+      "compress_size": 195,
+      "crc": 2033380513,
+      "sha256": "ad9aa28a8d30da2aee8e1315e9d7ddda706b67066b2ff610b316d7db60c6fa14"
+    },
+    {
+      "name": "customXml/_rels/item19.xml.rels",
+      "file_size": 297,
+      "compress_size": 196,
+      "crc": 4162292102,
+      "sha256": "3122934fc8e1790e50e4c6ec0ae3635744d74e85623d188c1e2e24f1f0382776"
+    },
+    {
+      "name": "customXml/_rels/item2.xml.rels",
+      "file_size": 296,
+      "compress_size": 195,
+      "crc": 573019740,
+      "sha256": "2a6aee4c8a9714223a3568077411a0c82d11b484b1c9ab93a19d50b99c57baa5"
+    },
+    {
+      "name": "customXml/_rels/item3.xml.rels",
+      "file_size": 296,
+      "compress_size": 195,
+      "crc": 2734879611,
+      "sha256": "3aa4054f7f463c6d441102c960783aa7f937d6945a0a885b624a66aafaeedb6c"
+    },
+    {
+      "name": "customXml/_rels/item4.xml.rels",
+      "file_size": 296,
+      "compress_size": 195,
+      "crc": 2451227660,
+      "sha256": "3c0d4d955517fe8112c945b1e56f63d5bef3c0005ccb627e40acda432e1cdc1d"
+    },
+    {
+      "name": "customXml/_rels/item5.xml.rels",
+      "file_size": 296,
+      "compress_size": 195,
+      "crc": 322937131,
+      "sha256": "fb008609ada31cc4b1c5c2f6dec6dfab38b6b703004219064e3501b8292e7ff7"
+    },
+    {
+      "name": "customXml/_rels/item6.xml.rels",
+      "file_size": 296,
+      "compress_size": 195,
+      "crc": 1260455939,
+      "sha256": "48f3c55a9e607cc98fba8d5317df36784eb3e9f82a25ec72ae0f54987dcde71b"
+    },
+    {
+      "name": "customXml/_rels/item7.xml.rels",
+      "file_size": 296,
+      "compress_size": 196,
+      "crc": 3389287716,
+      "sha256": "8f62efdac0e05c370f0916c1e42a55390b1d39923becddb9aea56007f2fb5553"
+    },
+    {
+      "name": "customXml/_rels/item8.xml.rels",
+      "file_size": 296,
+      "compress_size": 195,
+      "crc": 689006317,
+      "sha256": "a32009009edcdc12fdfa0d33405d2bbe24c5156d8a01258acc4b1d26bb74d6be"
+    },
+    {
+      "name": "customXml/_rels/item9.xml.rels",
+      "file_size": 296,
+      "compress_size": 196,
+      "crc": 2821981130,
+      "sha256": "4b2012a0d9ccdd43c9724fb64654346ab713d3e4f1921d21b6d1bfe84217be8a"
+    },
+    {
+      "name": "customXml/item1.xml",
+      "file_size": 4314,
+      "compress_size": 810,
+      "crc": 2890788874,
+      "sha256": "d790bb659dc8fec10a4a5cb87ee9841be2af3d64c958a31f584aabd094028652"
+    },
+    {
+      "name": "customXml/item10.xml",
+      "file_size": 1098,
+      "compress_size": 442,
+      "crc": 3714498668,
+      "sha256": "f0f34d6d7d5a2a0d3144421457e76caba22d8f8d1f274e0d2e9c15af1a3b841b"
+    },
+    {
+      "name": "customXml/item11.xml",
+      "file_size": 6422,
+      "compress_size": 898,
+      "crc": 1982419871,
+      "sha256": "dab7840d96a5c90b7a3bbc3d61a92fbc67925b66d68fd837c74a594d9932bcce"
+    },
+    {
+      "name": "customXml/item12.xml",
+      "file_size": 334,
+      "compress_size": 189,
+      "crc": 3045039143,
+      "sha256": "be8764f0b723ad351bd4f5b95645a144c36f37529f7587092fda9d7e64e03d7b"
+    },
+    {
+      "name": "customXml/item13.xml",
+      "file_size": 352,
+      "compress_size": 196,
+      "crc": 299199959,
+      "sha256": "82e2208728ae707a1de5191676e6f04263813964f6e8792470b539eddf2b4f04"
+    },
+    {
+      "name": "customXml/item14.xml",
+      "file_size": 746,
+      "compress_size": 332,
+      "crc": 2563290656,
+      "sha256": "67ddb0dfc01581c9faffd08ba105cda4c1d4e55a16b89f5f3df14be9c2620a87"
+    },
+    {
+      "name": "customXml/item15.xml",
+      "file_size": 5188,
+      "compress_size": 2218,
+      "crc": 2672143780,
+      "sha256": "7c852973c3eecd206cc4ab5ec49563e4b44a9ffbae381cbc23db9cc60d2e05da"
+    },
+    {
+      "name": "customXml/item16.xml",
+      "file_size": 2908,
+      "compress_size": 647,
+      "crc": 2745464606,
+      "sha256": "bf8dce6b411d6abd07c0ad3a8e9f44f9fa36dacb1ec027451bce29ea57290af5"
+    },
+    {
+      "name": "customXml/item17.xml",
+      "file_size": 356,
+      "compress_size": 203,
+      "crc": 1663210406,
+      "sha256": "c336a981f9fe59d69e52760531eeb0a2f6e185302de3d380aec059b5c483dbc4"
+    },
+    {
+      "name": "customXml/item18.xml",
+      "file_size": 101998,
+      "compress_size": 5821,
+      "crc": 904225458,
+      "sha256": "c4cd3147f34accea77f10e028280f252672be6e7222a357a6f3e71bc99282132"
+    },
+    {
+      "name": "customXml/item19.xml",
+      "file_size": 422,
+      "compress_size": 244,
+      "crc": 722175958,
+      "sha256": "d631e9f363012fe8d01125dae9a742b06052ed5e3a072a75e0053e301ff02b5a"
+    },
+    {
+      "name": "customXml/item2.xml",
+      "file_size": 334,
+      "compress_size": 194,
+      "crc": 318151982,
+      "sha256": "861a33290e10701850c3933eb59b779b7f0e1aa43b040019b4e89b041918651e"
+    },
+    {
+      "name": "customXml/item3.xml",
+      "file_size": 312,
+      "compress_size": 180,
+      "crc": 1205088874,
+      "sha256": "6d75402b5ba138d2a3b47638f0b61b74ba4e77ae13d07cfda7a20bb402b1f8e4"
+    },
+    {
+      "name": "customXml/item4.xml",
+      "file_size": 41964,
+      "compress_size": 2069,
+      "crc": 2657281688,
+      "sha256": "2babd12ed06dfb044bf7249046d4b512c39273a8457c98b3dd1bfc207d664791"
+    },
+    {
+      "name": "customXml/item5.xml",
+      "file_size": 322,
+      "compress_size": 182,
+      "crc": 2587855589,
+      "sha256": "81538453afbd8a62103199c406ff4b9d7c6777e78020e1112f3f147bca93f3b9"
+    },
+    {
+      "name": "customXml/item6.xml",
+      "file_size": 316,
+      "compress_size": 181,
+      "crc": 801426440,
+      "sha256": "1da9670959aa549bf8a54c25b7952e89447c21c63e095868c98c6fe872d98a33"
+    },
+    {
+      "name": "customXml/item7.xml",
+      "file_size": 528,
+      "compress_size": 302,
+      "crc": 1311137552,
+      "sha256": "2a24193b462823576cf8f9795d2d3adb336113c3fe67256ba593314ae17b5a96"
+    },
+    {
+      "name": "customXml/item8.xml",
+      "file_size": 2316,
+      "compress_size": 654,
+      "crc": 2058249378,
+      "sha256": "a82d84a7cd7f30ce5ad430bf659d1e0c6244b51acf63bf4edbf2934d24a8b415"
+    },
+    {
+      "name": "customXml/item9.xml",
+      "file_size": 324,
+      "compress_size": 187,
+      "crc": 3386179130,
+      "sha256": "a9a4b3c68c30175dbcc332d559d39e38fa4581aa7b758f4606e48a3dd0c224a6"
+    },
+    {
+      "name": "customXml/itemProps1.xml",
+      "file_size": 235,
+      "compress_size": 200,
+      "crc": 3514192178,
+      "sha256": "4cf85ebac076a3b748d46eaabebb6e533ea77a7f6dd2ddc11d3e1220991b58c8"
+    },
+    {
+      "name": "customXml/itemProps10.xml",
+      "file_size": 235,
+      "compress_size": 199,
+      "crc": 232517618,
+      "sha256": "ca167b60343a26296f4ff008d2ee605c705d5ed9ec046ba515c997ca734d0c44"
+    },
+    {
+      "name": "customXml/itemProps11.xml",
+      "file_size": 235,
+      "compress_size": 199,
+      "crc": 3146990072,
+      "sha256": "5cbf8f39deff041a6265a6c7732374892240a4d1a32c2c1b0770b79d95e9fb69"
+    },
+    {
+      "name": "customXml/itemProps12.xml",
+      "file_size": 235,
+      "compress_size": 200,
+      "crc": 2133900867,
+      "sha256": "60c89de968483f7c7a54b637346a0e1ae1853ec1db3ee34dd5ebfc321c79a17a"
+    },
+    {
+      "name": "customXml/itemProps13.xml",
+      "file_size": 235,
+      "compress_size": 199,
+      "crc": 718471447,
+      "sha256": "0a2c42ff335a2380c144bb4a469e5aa24c7fb7265a260b85de39c2bc8fb016c5"
+    },
+    {
+      "name": "customXml/itemProps14.xml",
+      "file_size": 235,
+      "compress_size": 199,
+      "crc": 1216375819,
+      "sha256": "3f99789a2af66b56d6344e3a34322bd521da7b721431c69a5cf0e2e6c5a41b3f"
+    },
+    {
+      "name": "customXml/itemProps15.xml",
+      "file_size": 314,
+      "compress_size": 230,
+      "crc": 2748177943,
+      "sha256": "ee6f50d3e599c7bef4f49a7598fc08f5e23f7376e78c4a556db4db52e2bdaf2a"
+    },
+    {
+      "name": "customXml/itemProps16.xml",
+      "file_size": 235,
+      "compress_size": 199,
+      "crc": 528241704,
+      "sha256": "1f939d900b20566bb3b50fffaf9618639a496f184a57944712a1697c1886cf79"
+    },
+    {
+      "name": "customXml/itemProps17.xml",
+      "file_size": 235,
+      "compress_size": 200,
+      "crc": 1873233151,
+      "sha256": "a868330cad88e60402e6eb1ec8c24c7b9b7b99bb51769bd30e427a0915d19f99"
+    },
+    {
+      "name": "customXml/itemProps18.xml",
+      "file_size": 235,
+      "compress_size": 198,
+      "crc": 1666294844,
+      "sha256": "15143b0278cca91aad00ec0c2ddc33b7e6f9aefc1fbca46e991d7828f2a6db18"
+    },
+    {
+      "name": "customXml/itemProps19.xml",
+      "file_size": 235,
+      "compress_size": 199,
+      "crc": 3563622967,
+      "sha256": "7b9de17e4102f4bf9fe9fedf2f0a7f79466a2f5ba1cdb42df2974141808ba5ae"
+    },
+    {
+      "name": "customXml/itemProps2.xml",
+      "file_size": 235,
+      "compress_size": 199,
+      "crc": 1163488557,
+      "sha256": "3d2229c20ea2f78c4c51ecf3260f175094770723663d120b4b6fea25f22eccfd"
+    },
+    {
+      "name": "customXml/itemProps3.xml",
+      "file_size": 235,
+      "compress_size": 199,
+      "crc": 677977086,
+      "sha256": "8188474b7a7ab8e7d0523af19dac2cbba90f8ddf686f03b90b46649e0623dff6"
+    },
+    {
+      "name": "customXml/itemProps4.xml",
+      "file_size": 235,
+      "compress_size": 200,
+      "crc": 2989195757,
+      "sha256": "fa648bdf777cefb44dccb09d458c9010b97ff7d4d48c7777ae2dff13e110e75c"
+    },
+    {
+      "name": "customXml/itemProps5.xml",
+      "file_size": 235,
+      "compress_size": 200,
+      "crc": 3524616655,
+      "sha256": "56dca841603b405669d2b60becac01245e9ce83b470cc5939a000840d5690aaa"
+    },
+    {
+      "name": "customXml/itemProps6.xml",
+      "file_size": 235,
+      "compress_size": 200,
+      "crc": 1180920136,
+      "sha256": "93a102750a63be8dc245472fa74aaf723c8a7c2cf2dafabb0d99bffbbc8d3a1f"
+    },
+    {
+      "name": "customXml/itemProps7.xml",
+      "file_size": 235,
+      "compress_size": 201,
+      "crc": 1221724888,
+      "sha256": "59fe5399e1fd7f7cfb3d1664fc4827fc9485da2178d8fad7d460d610fd9a41f9"
+    },
+    {
+      "name": "customXml/itemProps8.xml",
+      "file_size": 235,
+      "compress_size": 201,
+      "crc": 1004243773,
+      "sha256": "067957101bf86ac87b4bef7f275ffd3ed28e253789a5c1747d5d135c8224e86f"
+    },
+    {
+      "name": "customXml/itemProps9.xml",
+      "file_size": 235,
+      "compress_size": 199,
+      "crc": 335048077,
+      "sha256": "d882a5637b2db6b9d5f313a1446b213aec124c991511e63dae20399eab178a94"
+    },
+    {
+      "name": "docProps/app.xml",
+      "file_size": 896,
+      "compress_size": 430,
+      "crc": 2608048049,
+      "sha256": "67d68521828c848dbaf8aaccc77c0b0a06bd81c7826b47367e748196a1d5d20a"
+    },
+    {
+      "name": "docProps/core.xml",
+      "file_size": 682,
+      "compress_size": 376,
+      "crc": 96867716,
+      "sha256": "712f15e8a2925b2780ac1aac4115c34dd42152d53aad73522d0bd572dbefae5d"
+    },
+    {
+      "name": "xl/_rels/workbook.xml.rels",
+      "file_size": 4985,
+      "compress_size": 542,
+      "crc": 3256715649,
+      "sha256": "ce709abb8faed104ef4135a5f02317f79ec897a931ccc2ea780e2c4b6187e6f2"
+    },
+    {
+      "name": "xl/calcChain.xml",
+      "file_size": 1072902,
+      "compress_size": 142783,
+      "crc": 2380445122,
+      "sha256": "39263ac4da4bb5b236b78d0ec43ad44df916cea9bc5923b8a58519175eaaab09"
+    },
+    {
+      "name": "xl/charts/_rels/chart1.xml.rels",
+      "file_size": 550,
+      "compress_size": 245,
+      "crc": 897779363,
+      "sha256": "7559e65c9f9ae13288a2d37ebc0a86341dd9b1120b72a32c57b266138e08c67e"
+    },
+    {
+      "name": "xl/charts/_rels/chart2.xml.rels",
+      "file_size": 550,
+      "compress_size": 245,
+      "crc": 1601988331,
+      "sha256": "5075814bbfb999e34a4f85460a7c37bcbfe0cd29ba29207eeaf4ac3ef2fc88e1"
+    },
+    {
+      "name": "xl/charts/_rels/chart3.xml.rels",
+      "file_size": 550,
+      "compress_size": 245,
+      "crc": 2032748243,
+      "sha256": "d18be1b600d65e39c24543a47203e5160f2e25c138d11f7b68e3202a1bfbf4c5"
+    },
+    {
+      "name": "xl/charts/_rels/chart4.xml.rels",
+      "file_size": 550,
+      "compress_size": 245,
+      "crc": 2323818107,
+      "sha256": "2d058e3273efddc39e6c17f6101114a51e60a8a7e0bb9c42312d851df10db8c5"
+    },
+    {
+      "name": "xl/charts/_rels/chart5.xml.rels",
+      "file_size": 550,
+      "compress_size": 245,
+      "crc": 2899805763,
+      "sha256": "721bb448630f2fd1fb92f3796bc5109499f365e1bb2a2419e5a85979f32d8c11"
+    },
+    {
+      "name": "xl/charts/_rels/chart6.xml.rels",
+      "file_size": 550,
+      "compress_size": 245,
+      "crc": 3324569099,
+      "sha256": "b9a626053e588c02591f46ceb23ffa41825e74693e4b5eceede84d10644d9195"
+    },
+    {
+      "name": "xl/charts/chart1.xml",
+      "file_size": 8000,
+      "compress_size": 2319,
+      "crc": 828419053,
+      "sha256": "778a8df5ecf664ae7c4c627de2d6df7df37f634e51b35ae5c0c5555a7e9d2cd7"
+    },
+    {
+      "name": "xl/charts/chart2.xml",
+      "file_size": 13394,
+      "compress_size": 2835,
+      "crc": 3032928340,
+      "sha256": "3c126b1ee2360c86a9d5366a129f4c5ab076a9756cb65ba25864a731721d5a12"
+    },
+    {
+      "name": "xl/charts/chart3.xml",
+      "file_size": 13815,
+      "compress_size": 2889,
+      "crc": 886199918,
+      "sha256": "10d5325d7cb0908ff844c6c4629acc9f9dea56aa22c29fb57494e484a50c2b41"
+    },
+    {
+      "name": "xl/charts/chart4.xml",
+      "file_size": 13472,
+      "compress_size": 2800,
+      "crc": 991882017,
+      "sha256": "c492ee3296e5ddb7025dda2608b7f9c2880f852261e6babc56f6d9a0fda33b21"
+    },
+    {
+      "name": "xl/charts/chart5.xml",
+      "file_size": 12382,
+      "compress_size": 2621,
+      "crc": 2911286323,
+      "sha256": "6f14f6fa5cebe56f657f8bd69a6884bbd537acafad3cddf29937e511617eddfa"
+    },
+    {
+      "name": "xl/charts/chart6.xml",
+      "file_size": 22393,
+      "compress_size": 3687,
+      "crc": 3752746946,
+      "sha256": "38515adc7c83bbb5c567aaf9a454815777664aeae9b189282495d13a1d4ba27a"
+    },
+    {
+      "name": "xl/charts/colors1.xml",
+      "file_size": 878,
+      "compress_size": 253,
+      "crc": 2829521948,
+      "sha256": "04fefba7d31853fa0aa636e5c8b8e308fc3126a9b48a1f4490947fff91d5a92f"
+    },
+    {
+      "name": "xl/charts/colors2.xml",
+      "file_size": 878,
+      "compress_size": 253,
+      "crc": 2829521948,
+      "sha256": "04fefba7d31853fa0aa636e5c8b8e308fc3126a9b48a1f4490947fff91d5a92f"
+    },
+    {
+      "name": "xl/charts/colors3.xml",
+      "file_size": 878,
+      "compress_size": 253,
+      "crc": 2829521948,
+      "sha256": "04fefba7d31853fa0aa636e5c8b8e308fc3126a9b48a1f4490947fff91d5a92f"
+    },
+    {
+      "name": "xl/charts/colors4.xml",
+      "file_size": 878,
+      "compress_size": 253,
+      "crc": 2829521948,
+      "sha256": "04fefba7d31853fa0aa636e5c8b8e308fc3126a9b48a1f4490947fff91d5a92f"
+    },
+    {
+      "name": "xl/charts/colors5.xml",
+      "file_size": 878,
+      "compress_size": 253,
+      "crc": 2829521948,
+      "sha256": "04fefba7d31853fa0aa636e5c8b8e308fc3126a9b48a1f4490947fff91d5a92f"
+    },
+    {
+      "name": "xl/charts/colors6.xml",
+      "file_size": 878,
+      "compress_size": 253,
+      "crc": 2829521948,
+      "sha256": "04fefba7d31853fa0aa636e5c8b8e308fc3126a9b48a1f4490947fff91d5a92f"
+    },
+    {
+      "name": "xl/charts/style1.xml",
+      "file_size": 9666,
+      "compress_size": 1180,
+      "crc": 823668181,
+      "sha256": "0e0d24920cb1a4b3d5d0faf9a3232f79ce9db0f4f3fd8d59d302c5bd04305e60"
+    },
+    {
+      "name": "xl/charts/style2.xml",
+      "file_size": 9666,
+      "compress_size": 1180,
+      "crc": 823668181,
+      "sha256": "0e0d24920cb1a4b3d5d0faf9a3232f79ce9db0f4f3fd8d59d302c5bd04305e60"
+    },
+    {
+      "name": "xl/charts/style3.xml",
+      "file_size": 9666,
+      "compress_size": 1180,
+      "crc": 823668181,
+      "sha256": "0e0d24920cb1a4b3d5d0faf9a3232f79ce9db0f4f3fd8d59d302c5bd04305e60"
+    },
+    {
+      "name": "xl/charts/style4.xml",
+      "file_size": 9666,
+      "compress_size": 1180,
+      "crc": 823668181,
+      "sha256": "0e0d24920cb1a4b3d5d0faf9a3232f79ce9db0f4f3fd8d59d302c5bd04305e60"
+    },
+    {
+      "name": "xl/charts/style5.xml",
+      "file_size": 9666,
+      "compress_size": 1180,
+      "crc": 823668181,
+      "sha256": "0e0d24920cb1a4b3d5d0faf9a3232f79ce9db0f4f3fd8d59d302c5bd04305e60"
+    },
+    {
+      "name": "xl/charts/style6.xml",
+      "file_size": 9666,
+      "compress_size": 1180,
+      "crc": 823668181,
+      "sha256": "0e0d24920cb1a4b3d5d0faf9a3232f79ce9db0f4f3fd8d59d302c5bd04305e60"
+    },
+    {
+      "name": "xl/drawings/_rels/drawing1.xml.rels",
+      "file_size": 837,
+      "compress_size": 219,
+      "crc": 3226604047,
+      "sha256": "8b623b4aa71655c8768cb88c93de7eb1de24ab102d19b55021fc4ea6d7ce16d0"
+    },
+    {
+      "name": "xl/drawings/_rels/drawing2.xml.rels",
+      "file_size": 293,
+      "compress_size": 191,
+      "crc": 3019529390,
+      "sha256": "caf38c7456fc10111b545dfbaa1c8ef7fb667179a3cbf2d7fea286185d4a546e"
+    },
+    {
+      "name": "xl/drawings/_rels/drawing3.xml.rels",
+      "file_size": 563,
+      "compress_size": 224,
+      "crc": 2230512723,
+      "sha256": "00a94641092f50a94a28c83270019a39565bf6a98b5ef81cd51ed1442828b458"
+    },
+    {
+      "name": "xl/drawings/drawing1.xml",
+      "file_size": 13899,
+      "compress_size": 1968,
+      "crc": 1553836806,
+      "sha256": "3b3a0e8b1115fac968a4ab525d64ba50e2332817866a789d05faefd8674204d7"
+    },
+    {
+      "name": "xl/drawings/drawing2.xml",
+      "file_size": 3840,
+      "compress_size": 1490,
+      "crc": 2544608847,
+      "sha256": "de535e40b60bf5e8ceb3d849982d34d1b34d55786db59b0ac80757470972876f"
+    },
+    {
+      "name": "xl/drawings/drawing3.xml",
+      "file_size": 4759,
+      "compress_size": 1405,
+      "crc": 1634481438,
+      "sha256": "1ba85bab70491d0720c52012d67ff2449011309976a96c0aae953e8c7c8cd912"
+    },
+    {
+      "name": "xl/media/image1.png",
+      "file_size": 32545,
+      "compress_size": 32545,
+      "crc": 992722696,
+      "sha256": "1a74e4ca76a01af197a8d54e743d9c51b200fc64a8114ed706cdd334bebd7b09"
+    },
+    {
+      "name": "xl/media/image2.jpeg",
+      "file_size": 25797,
+      "compress_size": 25797,
+      "crc": 2576429449,
+      "sha256": "2072a3e01006a069548c4e78ff940a0f31cc74b72d649c5ca4e4316adb713083"
+    },
+    {
+      "name": "xl/media/image3.png",
+      "file_size": 4619,
+      "compress_size": 4619,
+      "crc": 3828601338,
+      "sha256": "af0c45676be3af60ccb9e85f2252108cb5b3b5c173bc61dbc3008625a63ae3de"
+    },
+    {
+      "name": "xl/media/image4.svg",
+      "file_size": 972,
+      "compress_size": 972,
+      "crc": 4055680356,
+      "sha256": "0f7e2f86e668f38971455da9171e3fa20e1826a55b6bf1275d2cf7e4594821f0"
+    },
+    {
+      "name": "xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels",
+      "file_size": 307,
+      "compress_size": 193,
+      "crc": 2071931874,
+      "sha256": "50932fefa05af7d439305a402207d007de878e1e9b81e5caabca45ee5c4a2508"
+    },
+    {
+      "name": "xl/pivotCache/pivotCacheDefinition1.xml",
+      "file_size": 9492,
+      "compress_size": 3201,
+      "crc": 178600437,
+      "sha256": "6b8886bc88b3b048acd53adfa1027cdea33ef13e0a819c4be9fea1643248585e"
+    },
+    {
+      "name": "xl/pivotCache/pivotCacheRecords1.xml",
+      "file_size": 1279485,
+      "compress_size": 142122,
+      "crc": 3415247246,
+      "sha256": "df0e37172488435a1624cd1f282f1f3ad03ce1dbed202ce0e7e435f1ab407bd3"
+    },
+    {
+      "name": "xl/pivotTables/_rels/pivotTable1.xml.rels",
+      "file_size": 327,
+      "compress_size": 196,
+      "crc": 3926671626,
+      "sha256": "55dcc4ac09f0b4828a5e4138ffe799fad22be0c8e8705431b0c6f79144510605"
+    },
+    {
+      "name": "xl/pivotTables/_rels/pivotTable2.xml.rels",
+      "file_size": 327,
+      "compress_size": 196,
+      "crc": 3926671626,
+      "sha256": "55dcc4ac09f0b4828a5e4138ffe799fad22be0c8e8705431b0c6f79144510605"
+    },
+    {
+      "name": "xl/pivotTables/_rels/pivotTable3.xml.rels",
+      "file_size": 327,
+      "compress_size": 196,
+      "crc": 3926671626,
+      "sha256": "55dcc4ac09f0b4828a5e4138ffe799fad22be0c8e8705431b0c6f79144510605"
+    },
+    {
+      "name": "xl/pivotTables/pivotTable1.xml",
+      "file_size": 4088,
+      "compress_size": 1360,
+      "crc": 4134189797,
+      "sha256": "7386cad94e899ee0d7d841a0a4d8f2d5d1e58ff9ba4d1e1ef68736c756ba33bf"
+    },
+    {
+      "name": "xl/pivotTables/pivotTable2.xml",
+      "file_size": 8140,
+      "compress_size": 2054,
+      "crc": 1140893638,
+      "sha256": "d7fc2223660d75ded0de3b7bef2462c3a5e4ff33ae42dd29297a58d3e69e1247"
+    },
+    {
+      "name": "xl/pivotTables/pivotTable3.xml",
+      "file_size": 4830,
+      "compress_size": 1431,
+      "crc": 1753764513,
+      "sha256": "63452ebc8cd44e8d035793dafa1d805a4d7e632c6563cf988658bd6be9668f7f"
+    },
+    {
+      "name": "xl/printerSettings/printerSettings1.bin",
+      "file_size": 1364,
+      "compress_size": 491,
+      "crc": 2885820439,
+      "sha256": "a6b7878280ec30872c0a225e975be7d8c6cf361e832406d1da11999c42268b8c"
+    },
+    {
+      "name": "xl/printerSettings/printerSettings2.bin",
+      "file_size": 2824,
+      "compress_size": 456,
+      "crc": 2439151556,
+      "sha256": "49296d67ab163e7f6f8d162d3eb6054d8492aacb23848a026630077b6a201469"
+    },
+    {
+      "name": "xl/printerSettings/printerSettings3.bin",
+      "file_size": 1364,
+      "compress_size": 489,
+      "crc": 3104337331,
+      "sha256": "d952dad1c36fe1557b4482286340118988f7bf745e14d68c6b90faba72849a76"
+    },
+    {
+      "name": "xl/printerSettings/printerSettings4.bin",
+      "file_size": 1364,
+      "compress_size": 489,
+      "crc": 3104337331,
+      "sha256": "d952dad1c36fe1557b4482286340118988f7bf745e14d68c6b90faba72849a76"
+    },
+    {
+      "name": "xl/sharedStrings.xml",
+      "file_size": 163050,
+      "compress_size": 31243,
+      "crc": 3405236728,
+      "sha256": "555e9ae76d6abcbc3bc6f14f3783a99d9343a106a825eed293c398d2e365db07"
+    },
+    {
+      "name": "xl/slicerCaches/slicerCache1.xml",
+      "file_size": 1104,
+      "compress_size": 539,
+      "crc": 1933183902,
+      "sha256": "ae104a9c9208053c5173dd2878b96f4ead9f2ecf74121394b832e4ff5dfd8f3c"
+    },
+    {
+      "name": "xl/slicerCaches/slicerCache2.xml",
+      "file_size": 1023,
+      "compress_size": 525,
+      "crc": 491977338,
+      "sha256": "8cc798995b69cbd384a9b717b9604e76fbf8c2b640d857b364ebb2218329daff"
+    },
+    {
+      "name": "xl/slicerCaches/slicerCache3.xml",
+      "file_size": 1221,
+      "compress_size": 557,
+      "crc": 3559090856,
+      "sha256": "4af5c71236107caae9fad27e8c543885519bf3225d90b51328a45a7e5bbd0a9f"
+    },
+    {
+      "name": "xl/slicerCaches/slicerCache4.xml",
+      "file_size": 1018,
+      "compress_size": 526,
+      "crc": 2684634221,
+      "sha256": "ef583602044adb1331b559ed65cce1a6d3356cc2533054e28fe7f85a80044e8d"
+    },
+    {
+      "name": "xl/slicerCaches/slicerCache5.xml",
+      "file_size": 1004,
+      "compress_size": 490,
+      "crc": 1497845685,
+      "sha256": "b66cb299d718419999c526e27eb5e95418f55eee89f553db34e2394a02a869e5"
+    },
+    {
+      "name": "xl/slicers/slicer1.xml",
+      "file_size": 999,
+      "compress_size": 481,
+      "crc": 3621864838,
+      "sha256": "81fbe4dad8942621d131a028b9b40975b9b2ac7b03d0ef13f4de894d52407682"
+    },
+    {
+      "name": "xl/slicers/slicer2.xml",
+      "file_size": 596,
+      "compress_size": 359,
+      "crc": 3933476567,
+      "sha256": "119048ad7b18cd89e9b25f4f909440ff66bf77ac4c160749f42413c244520e57"
+    },
+    {
+      "name": "xl/styles.xml",
+      "file_size": 47339,
+      "compress_size": 3363,
+      "crc": 2122292881,
+      "sha256": "3aa0f6cd0ffb6c40c4af8b354c387bfc4e0202ec11c429f25d49020eab3cbce8"
+    },
+    {
+      "name": "xl/tables/table1.xml",
+      "file_size": 5642,
+      "compress_size": 1914,
+      "crc": 4241790707,
+      "sha256": "cdf76f5a8a161d053e41011683b1fc30cb2d1b25036b2b42c3dc2296aac58041"
+    },
+    {
+      "name": "xl/tables/table2.xml",
+      "file_size": 3475,
+      "compress_size": 1371,
+      "crc": 3911235339,
+      "sha256": "0790d520208c8a65ffe0e978925210ba8d6aa907c24a6de37f7a7ccca0795a91"
+    },
+    {
+      "name": "xl/tables/table3.xml",
+      "file_size": 1199,
+      "compress_size": 622,
+      "crc": 1204605800,
+      "sha256": "941df2c347740b6123ecc8357bd04d2e3749d5d1bc9bb7c9476258b08e37b621"
+    },
+    {
+      "name": "xl/tables/table4.xml",
+      "file_size": 900,
+      "compress_size": 477,
+      "crc": 659862719,
+      "sha256": "d2e4e4a3ef93aebc38c30bc6ae74bd9873b05f36b35e8182dd3460a4fef0cf3d"
+    },
+    {
+      "name": "xl/theme/theme1.xml",
+      "file_size": 8391,
+      "compress_size": 1887,
+      "crc": 912257635,
+      "sha256": "35dd512bcf2921493dc3ae3455be2e9f00ada47694bc406fc0d32ed8da557b49"
+    },
+    {
+      "name": "xl/theme/themeOverride1.xml",
+      "file_size": 8042,
+      "compress_size": 1669,
+      "crc": 136096036,
+      "sha256": "51e4c6a141f9d000ec946252a7bd00f125bd3d9b1914437cd9520413c74f6c60"
+    },
+    {
+      "name": "xl/theme/themeOverride2.xml",
+      "file_size": 8042,
+      "compress_size": 1669,
+      "crc": 136096036,
+      "sha256": "51e4c6a141f9d000ec946252a7bd00f125bd3d9b1914437cd9520413c74f6c60"
+    },
+    {
+      "name": "xl/theme/themeOverride3.xml",
+      "file_size": 8042,
+      "compress_size": 1669,
+      "crc": 136096036,
+      "sha256": "51e4c6a141f9d000ec946252a7bd00f125bd3d9b1914437cd9520413c74f6c60"
+    },
+    {
+      "name": "xl/theme/themeOverride4.xml",
+      "file_size": 8042,
+      "compress_size": 1669,
+      "crc": 136096036,
+      "sha256": "51e4c6a141f9d000ec946252a7bd00f125bd3d9b1914437cd9520413c74f6c60"
+    },
+    {
+      "name": "xl/theme/themeOverride5.xml",
+      "file_size": 8042,
+      "compress_size": 1669,
+      "crc": 136096036,
+      "sha256": "51e4c6a141f9d000ec946252a7bd00f125bd3d9b1914437cd9520413c74f6c60"
+    },
+    {
+      "name": "xl/theme/themeOverride6.xml",
+      "file_size": 8042,
+      "compress_size": 1669,
+      "crc": 136096036,
+      "sha256": "51e4c6a141f9d000ec946252a7bd00f125bd3d9b1914437cd9520413c74f6c60"
+    },
+    {
+      "name": "xl/workbook.xml",
+      "file_size": 3676,
+      "compress_size": 1321,
+      "crc": 1078847378,
+      "sha256": "d315ac222cf40069c8bd453fe5dfd8c854da9fe4d6a85f44b60d5c763cca40c1"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet1.xml.rels",
+      "file_size": 560,
+      "compress_size": 248,
+      "crc": 247935360,
+      "sha256": "a0d48e231df037c774b1e2610918091f235499bfbdc6f165b3e865983c252b02"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet2.xml.rels",
+      "file_size": 726,
+      "compress_size": 272,
+      "crc": 2806883327,
+      "sha256": "008fd783d671052c5231c90f8896c6997d2b96e8f7a7e07425e24a6d6a98a2ba"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet3.xml.rels",
+      "file_size": 458,
+      "compress_size": 217,
+      "crc": 303954502,
+      "sha256": "9b991e9a0ba14418db929bc2116818da4b07d85afca59055e3de3ca2c18ef93c"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet4.xml.rels",
+      "file_size": 594,
+      "compress_size": 227,
+      "crc": 2160907055,
+      "sha256": "575a50d00ccaedb8191febeedec47dc29800ebd4aacc8a4d63f26c278056ac0e"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet5.xml.rels",
+      "file_size": 917,
+      "compress_size": 257,
+      "crc": 2712963811,
+      "sha256": "4c400ba66237d7725e067e47f803016afd34c05bcbc286c36b86db0833f8699d"
+    },
+    {
+      "name": "xl/worksheets/sheet1.xml",
+      "file_size": 3985,
+      "compress_size": 1113,
+      "crc": 2654120662,
+      "sha256": "d29f91af030390fb3b858d85f5ae354fc0c1e05b14879eeac4a197a2e2a7fccb"
+    },
+    {
+      "name": "xl/worksheets/sheet2.xml",
+      "file_size": 568521,
+      "compress_size": 68630,
+      "crc": 252821674,
+      "sha256": "96008f1258b3674acd7cafc68e40b9d077bfdf57e61f99d7474c9c9752a5f62b"
+    },
+    {
+      "name": "xl/worksheets/sheet3.xml",
+      "file_size": 5160874,
+      "compress_size": 564032,
+      "crc": 1388367593,
+      "sha256": "f7ad227029e6dfd2175779bbd96e5b69e5929e97831f68ceb55637323f266eae"
+    },
+    {
+      "name": "xl/worksheets/sheet4.xml",
+      "file_size": 44524,
+      "compress_size": 6811,
+      "crc": 3003103970,
+      "sha256": "810db96ad6118a626d71530a99e6c8b032a1c5705fd1cb51baee979f364feec9"
+    },
+    {
+      "name": "xl/worksheets/sheet5.xml",
+      "file_size": 72961,
+      "compress_size": 13208,
+      "crc": 71223317,
+      "sha256": "a82e6926823af85da703085ca37f472508f5f13ea6485987c0498c79a4361d79"
+    }
+  ]
+}

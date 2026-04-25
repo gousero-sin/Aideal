@@ -1,0 +1,22 @@
+{
+  "name": "aideal-goflowos-mvp",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "framer-motion": "^12.28.2",
+    "lucide-react": "^0.562.0",
+    "goflow-core": "file:../goflow-core/goflow-core-1.1.0.tgz"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
+    "vite": "^7.3.1"
+  }
+}

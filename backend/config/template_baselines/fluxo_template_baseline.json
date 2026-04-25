@@ -1,0 +1,477 @@
+{
+  "workbook_name": "Fluxo de Caixa A Ideal - 07 2025.xlsx",
+  "captured_at_utc": "2026-03-31T18:34:49.736322+00:00",
+  "file_size_bytes": 1078457,
+  "file_sha256": "dac125d2305ab3428f560294753612ec91b315d2da976c642020fb90abe4bd44",
+  "entries": [
+    {
+      "name": "[Content_Types].xml",
+      "file_size": 5686,
+      "compress_size": 716,
+      "crc": 2423193888,
+      "sha256": "20dbba721042ecdc37789904c8f4df1fb71b59a1e15c55a626d70fcabadf67ad"
+    },
+    {
+      "name": "_rels/.rels",
+      "file_size": 588,
+      "compress_size": 244,
+      "crc": 590370229,
+      "sha256": "73e5a29f48d5ab979eeda062493bc7e679265c1344ef936978b8becec5549497"
+    },
+    {
+      "name": "docProps/app.xml",
+      "file_size": 940,
+      "compress_size": 450,
+      "crc": 1865890239,
+      "sha256": "93883a3fc6c90b4fa1504b0db2dac18681f0c9a44e1c58023f3f0b9439e562a3"
+    },
+    {
+      "name": "docProps/core.xml",
+      "file_size": 673,
+      "compress_size": 365,
+      "crc": 3206446119,
+      "sha256": "533d4fd89a403e2b50778d0288bc2152de4e0a0327d214f88d554580d7914d17"
+    },
+    {
+      "name": "xl/_rels/workbook.xml.rels",
+      "file_size": 2122,
+      "compress_size": 376,
+      "crc": 2007599744,
+      "sha256": "a8fcd983b8d8cfa49dd4025f65e8a0dc77bc4526eec252e1fbfc73b72105b3e9"
+    },
+    {
+      "name": "xl/calcChain.xml",
+      "file_size": 507112,
+      "compress_size": 72890,
+      "crc": 211177832,
+      "sha256": "c17dd3ce074ab715c8523a8d9107651fbb9a798c82d456e03f184e434638e4b6"
+    },
+    {
+      "name": "xl/charts/_rels/chart1.xml.rels",
+      "file_size": 550,
+      "compress_size": 245,
+      "crc": 897779363,
+      "sha256": "7559e65c9f9ae13288a2d37ebc0a86341dd9b1120b72a32c57b266138e08c67e"
+    },
+    {
+      "name": "xl/charts/_rels/chart2.xml.rels",
+      "file_size": 550,
+      "compress_size": 245,
+      "crc": 1601988331,
+      "sha256": "5075814bbfb999e34a4f85460a7c37bcbfe0cd29ba29207eeaf4ac3ef2fc88e1"
+    },
+    {
+      "name": "xl/charts/_rels/chart3.xml.rels",
+      "file_size": 550,
+      "compress_size": 245,
+      "crc": 2032748243,
+      "sha256": "d18be1b600d65e39c24543a47203e5160f2e25c138d11f7b68e3202a1bfbf4c5"
+    },
+    {
+      "name": "xl/charts/_rels/chart4.xml.rels",
+      "file_size": 550,
+      "compress_size": 245,
+      "crc": 2323818107,
+      "sha256": "2d058e3273efddc39e6c17f6101114a51e60a8a7e0bb9c42312d851df10db8c5"
+    },
+    {
+      "name": "xl/charts/chart1.xml",
+      "file_size": 18143,
+      "compress_size": 3297,
+      "crc": 887194713,
+      "sha256": "a786857cd1b62acf9fa63744682320da00542c00fb844617ebf287f6cf966ac5"
+    },
+    {
+      "name": "xl/charts/chart2.xml",
+      "file_size": 21944,
+      "compress_size": 3626,
+      "crc": 3161336667,
+      "sha256": "3a7f6ff35bd73d49ab7e67cc7eee295ddcc917362f0218f8030858ac2f985827"
+    },
+    {
+      "name": "xl/charts/chart3.xml",
+      "file_size": 19349,
+      "compress_size": 3427,
+      "crc": 330222195,
+      "sha256": "c0b4900ba678385af57a523f87751e13c50f2eaac7451ac0ed275a5e6a7ae6b4"
+    },
+    {
+      "name": "xl/charts/chart4.xml",
+      "file_size": 23772,
+      "compress_size": 3885,
+      "crc": 1409801554,
+      "sha256": "a8817e61183a12d77e8d09644ce970b5c2d9a7d653ad928c0aed015a1a50d3ae"
+    },
+    {
+      "name": "xl/charts/colors1.xml",
+      "file_size": 878,
+      "compress_size": 253,
+      "crc": 2829521948,
+      "sha256": "04fefba7d31853fa0aa636e5c8b8e308fc3126a9b48a1f4490947fff91d5a92f"
+    },
+    {
+      "name": "xl/charts/colors2.xml",
+      "file_size": 878,
+      "compress_size": 253,
+      "crc": 2829521948,
+      "sha256": "04fefba7d31853fa0aa636e5c8b8e308fc3126a9b48a1f4490947fff91d5a92f"
+    },
+    {
+      "name": "xl/charts/colors3.xml",
+      "file_size": 878,
+      "compress_size": 253,
+      "crc": 2829521948,
+      "sha256": "04fefba7d31853fa0aa636e5c8b8e308fc3126a9b48a1f4490947fff91d5a92f"
+    },
+    {
+      "name": "xl/charts/colors4.xml",
+      "file_size": 878,
+      "compress_size": 253,
+      "crc": 2829521948,
+      "sha256": "04fefba7d31853fa0aa636e5c8b8e308fc3126a9b48a1f4490947fff91d5a92f"
+    },
+    {
+      "name": "xl/charts/style1.xml",
+      "file_size": 9666,
+      "compress_size": 1180,
+      "crc": 823668181,
+      "sha256": "0e0d24920cb1a4b3d5d0faf9a3232f79ce9db0f4f3fd8d59d302c5bd04305e60"
+    },
+    {
+      "name": "xl/charts/style2.xml",
+      "file_size": 9666,
+      "compress_size": 1180,
+      "crc": 823668181,
+      "sha256": "0e0d24920cb1a4b3d5d0faf9a3232f79ce9db0f4f3fd8d59d302c5bd04305e60"
+    },
+    {
+      "name": "xl/charts/style3.xml",
+      "file_size": 9666,
+      "compress_size": 1180,
+      "crc": 823668181,
+      "sha256": "0e0d24920cb1a4b3d5d0faf9a3232f79ce9db0f4f3fd8d59d302c5bd04305e60"
+    },
+    {
+      "name": "xl/charts/style4.xml",
+      "file_size": 9666,
+      "compress_size": 1180,
+      "crc": 823668181,
+      "sha256": "0e0d24920cb1a4b3d5d0faf9a3232f79ce9db0f4f3fd8d59d302c5bd04305e60"
+    },
+    {
+      "name": "xl/drawings/_rels/drawing1.xml.rels",
+      "file_size": 971,
+      "compress_size": 244,
+      "crc": 774098248,
+      "sha256": "788b404adf160d68a9a3793b1ada8b471dc3ae4de928238ed362b29b4cc8cf24"
+    },
+    {
+      "name": "xl/drawings/_rels/drawing2.xml.rels",
+      "file_size": 293,
+      "compress_size": 191,
+      "crc": 3626053640,
+      "sha256": "856d017c0e8dda4928c58977e927b9f393486fdc23e1b8f2c3cf562fc78823fb"
+    },
+    {
+      "name": "xl/drawings/drawing1.xml",
+      "file_size": 12127,
+      "compress_size": 2453,
+      "crc": 325448360,
+      "sha256": "57fc324c749e6a2451fada99b742b37b5ceca9fa147e6b0237a4f407c04c4972"
+    },
+    {
+      "name": "xl/drawings/drawing2.xml",
+      "file_size": 8003,
+      "compress_size": 1736,
+      "crc": 64652787,
+      "sha256": "424d696b2186cafe6672426898a4ef1b60553a889a45be9a6dcafc4e532d04ee"
+    },
+    {
+      "name": "xl/media/image1.png",
+      "file_size": 112447,
+      "compress_size": 112447,
+      "crc": 340113571,
+      "sha256": "a7e32a7dc30d6adb904d818ccce2e0ca532f0e8b261bd0c3009fbd23aa12a19d"
+    },
+    {
+      "name": "xl/media/image2.png",
+      "file_size": 9013,
+      "compress_size": 9013,
+      "crc": 1700369485,
+      "sha256": "0ea2dc88467b791774621d7f4d8c77235026c0f82ea4fba59efeb558e69e7cc3"
+    },
+    {
+      "name": "xl/media/image3.svg",
+      "file_size": 1259,
+      "compress_size": 1259,
+      "crc": 2546292494,
+      "sha256": "b068747b997ab53ee88abe570ed66cc62077a6b014dc1d0732ada6758e9912e7"
+    },
+    {
+      "name": "xl/media/image4.jpeg",
+      "file_size": 25797,
+      "compress_size": 25797,
+      "crc": 2576429449,
+      "sha256": "2072a3e01006a069548c4e78ff940a0f31cc74b72d649c5ca4e4316adb713083"
+    },
+    {
+      "name": "xl/pivotCache/_rels/pivotCacheDefinition1.xml.rels",
+      "file_size": 307,
+      "compress_size": 193,
+      "crc": 2071931874,
+      "sha256": "50932fefa05af7d439305a402207d007de878e1e9b81e5caabca45ee5c4a2508"
+    },
+    {
+      "name": "xl/pivotCache/pivotCacheDefinition1.xml",
+      "file_size": 11674,
+      "compress_size": 4056,
+      "crc": 3014166454,
+      "sha256": "d37e3f0aec5f2ea4f4d02e6c9af933cdf4d5545b401d7823362b3bbc0001c152"
+    },
+    {
+      "name": "xl/pivotCache/pivotCacheRecords1.xml",
+      "file_size": 1266217,
+      "compress_size": 200776,
+      "crc": 326526870,
+      "sha256": "c5be313ab5978f5c35ca3f8ef350247b8b55daccec5e0606fc36d15fb37ad517"
+    },
+    {
+      "name": "xl/pivotTables/_rels/pivotTable1.xml.rels",
+      "file_size": 327,
+      "compress_size": 196,
+      "crc": 3926671626,
+      "sha256": "55dcc4ac09f0b4828a5e4138ffe799fad22be0c8e8705431b0c6f79144510605"
+    },
+    {
+      "name": "xl/pivotTables/pivotTable1.xml",
+      "file_size": 10788,
+      "compress_size": 2472,
+      "crc": 12707046,
+      "sha256": "892213cccc6028134ea35a143b5ce408c433cbca29c7ee1b07451321ea61b48a"
+    },
+    {
+      "name": "xl/printerSettings/printerSettings1.bin",
+      "file_size": 2824,
+      "compress_size": 454,
+      "crc": 2875308958,
+      "sha256": "f7f09233d15506c3f8222bc051bdda01966b4ceadf73f0582323cbb1206f4b04"
+    },
+    {
+      "name": "xl/printerSettings/printerSettings2.bin",
+      "file_size": 3408,
+      "compress_size": 462,
+      "crc": 3434083672,
+      "sha256": "2a0e8c9ce049c9b6bd3e439ffc859b0dd63828a9931957e77cd5a05f850101e6"
+    },
+    {
+      "name": "xl/printerSettings/printerSettings3.bin",
+      "file_size": 2824,
+      "compress_size": 443,
+      "crc": 1229088521,
+      "sha256": "8f86316356e3b107fe11deefdd76ad8de103ddb8f2e2e303f1359bd29bfded3a"
+    },
+    {
+      "name": "xl/printerSettings/printerSettings4.bin",
+      "file_size": 928,
+      "compress_size": 153,
+      "crc": 1536319668,
+      "sha256": "bd22ff1978cf39476713086453beba5b05f9bb76111155cff8bdc077b293c728"
+    },
+    {
+      "name": "xl/sharedStrings.xml",
+      "file_size": 330019,
+      "compress_size": 70421,
+      "crc": 2628327417,
+      "sha256": "24e8407cdee0ab3ceff7ad3b3539a2a6f411de69aaf9a528f5cb9c7bbf68ab48"
+    },
+    {
+      "name": "xl/slicerCaches/slicerCache1.xml",
+      "file_size": 1015,
+      "compress_size": 516,
+      "crc": 492569924,
+      "sha256": "6069a6f4092ebdb0eee956536d8db87b2244d4c943827e2666d2c5021c538403"
+    },
+    {
+      "name": "xl/slicerCaches/slicerCache2.xml",
+      "file_size": 1069,
+      "compress_size": 532,
+      "crc": 2790212939,
+      "sha256": "c82239e4a9439b3157b1938ebd902f18518957bb0c0e79a909ddb7a31235f3f7"
+    },
+    {
+      "name": "xl/slicerCaches/slicerCache3.xml",
+      "file_size": 779,
+      "compress_size": 424,
+      "crc": 2027989863,
+      "sha256": "d7096e044a8e46500daa3bb87add3242a12c6baa261094cb684a071f403087d9"
+    },
+    {
+      "name": "xl/slicers/slicer1.xml",
+      "file_size": 724,
+      "compress_size": 394,
+      "crc": 2964047756,
+      "sha256": "57a50d70d79f1586d02df75eb1fbe6d7a2849c97b795688ad6508cedc9f3a5a4"
+    },
+    {
+      "name": "xl/slicers/slicer2.xml",
+      "file_size": 908,
+      "compress_size": 453,
+      "crc": 1890512468,
+      "sha256": "d03a959380cb400d8d8f37660e5efb8fe415cff30202f1efd34b8e87f119fc4f"
+    },
+    {
+      "name": "xl/styles.xml",
+      "file_size": 49284,
+      "compress_size": 4371,
+      "crc": 1927889539,
+      "sha256": "952f8419617c415f32fd6948377cc251667e61f27079309743102e4dd24da54d"
+    },
+    {
+      "name": "xl/tables/table1.xml",
+      "file_size": 2251,
+      "compress_size": 1024,
+      "crc": 2562035823,
+      "sha256": "f5af778d07bd99dff1e086982a3d2f2b2eb734431744097315e26784b7eb70ad"
+    },
+    {
+      "name": "xl/tables/table2.xml",
+      "file_size": 1042,
+      "compress_size": 517,
+      "crc": 3072929418,
+      "sha256": "0c565e225338cf1891c91595e1597b53cba916bebf40c033d86b25a5ddf7e177"
+    },
+    {
+      "name": "xl/tables/table3.xml",
+      "file_size": 969,
+      "compress_size": 503,
+      "crc": 563336721,
+      "sha256": "5694d04519e2001781bd25066887469ecc41f3b8ea9c3025a0e20a54e98aac1b"
+    },
+    {
+      "name": "xl/theme/theme1.xml",
+      "file_size": 8741,
+      "compress_size": 1881,
+      "crc": 3512746443,
+      "sha256": "3b0c15bf39fd33df9d8d45bc01de3d6027b5f3c154438817cad751daa237e3f4"
+    },
+    {
+      "name": "xl/theme/themeOverride1.xml",
+      "file_size": 8663,
+      "compress_size": 1821,
+      "crc": 1373664636,
+      "sha256": "c362f1f58fe9daf139c8a30a743176132923356ebb05b798385177b87ace5872"
+    },
+    {
+      "name": "xl/theme/themeOverride2.xml",
+      "file_size": 8663,
+      "compress_size": 1821,
+      "crc": 1373664636,
+      "sha256": "c362f1f58fe9daf139c8a30a743176132923356ebb05b798385177b87ace5872"
+    },
+    {
+      "name": "xl/theme/themeOverride3.xml",
+      "file_size": 8663,
+      "compress_size": 1821,
+      "crc": 1373664636,
+      "sha256": "c362f1f58fe9daf139c8a30a743176132923356ebb05b798385177b87ace5872"
+    },
+    {
+      "name": "xl/theme/themeOverride4.xml",
+      "file_size": 8663,
+      "compress_size": 1821,
+      "crc": 1373664636,
+      "sha256": "c362f1f58fe9daf139c8a30a743176132923356ebb05b798385177b87ace5872"
+    },
+    {
+      "name": "xl/workbook.xml",
+      "file_size": 3529,
+      "compress_size": 1292,
+      "crc": 1946328920,
+      "sha256": "704a6961100fe8ce5a0476d9db732ec6146339859c2f83e16564aba5678c2f12"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet1.xml.rels",
+      "file_size": 560,
+      "compress_size": 248,
+      "crc": 247935360,
+      "sha256": "a0d48e231df037c774b1e2610918091f235499bfbdc6f165b3e865983c252b02"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet2.xml.rels",
+      "file_size": 590,
+      "compress_size": 253,
+      "crc": 3661065370,
+      "sha256": "097eee46ccebbde14fb9c205fcf81f31763fcac2e7afd3a5bfdb1f2bc853208f"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet3.xml.rels",
+      "file_size": 458,
+      "compress_size": 217,
+      "crc": 954603113,
+      "sha256": "d162810a13311d01e6b0bd7c6f581e151933a3960a6ea27ba2b11a539e90df8c"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet4.xml.rels",
+      "file_size": 322,
+      "compress_size": 194,
+      "crc": 2450104628,
+      "sha256": "08bb3cc2258e8b92a5b8837d7580917fafdf0341a466d85361d3543a9960f1ef"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet5.xml.rels",
+      "file_size": 308,
+      "compress_size": 190,
+      "crc": 4206404040,
+      "sha256": "d9ce9dac22a848ed1333d64de9f1b8e804e339906b6d71fe2ba08cc27b7e3928"
+    },
+    {
+      "name": "xl/worksheets/_rels/sheet6.xml.rels",
+      "file_size": 594,
+      "compress_size": 227,
+      "crc": 3462019446,
+      "sha256": "0fdf0d7468173f90b93072f43189f3e76f29b8a720382ba61d119a6a7104a126"
+    },
+    {
+      "name": "xl/worksheets/sheet1.xml",
+      "file_size": 3517,
+      "compress_size": 1013,
+      "crc": 2676172477,
+      "sha256": "cfa35ae6ad4193cf6d327a805f25f097bd46d2d926b48debc609c8aa93a6e842"
+    },
+    {
+      "name": "xl/worksheets/sheet2.xml",
+      "file_size": 407084,
+      "compress_size": 35185,
+      "crc": 2325389672,
+      "sha256": "7453d948a55c602ab2903a2b0bf07fd094c265f2c7d18b0234450b3116fc9f4d"
+    },
+    {
+      "name": "xl/worksheets/sheet3.xml",
+      "file_size": 3305478,
+      "compress_size": 414435,
+      "crc": 2641055699,
+      "sha256": "24727ced4b766d8e202efaa5663bb171cb55e26e9cb494e32e03a0722f9bac14"
+    },
+    {
+      "name": "xl/worksheets/sheet4.xml",
+      "file_size": 269796,
+      "compress_size": 49353,
+      "crc": 1062355990,
+      "sha256": "3bc3f131fbc5e437dc6bfe97ced138a6923a15a2a516e22cf6d4fa4eb6e1b9f8"
+    },
+    {
+      "name": "xl/worksheets/sheet5.xml",
+      "file_size": 88135,
+      "compress_size": 16129,
+      "crc": 3853584727,
+      "sha256": "73a5bb54d99c3e3a085f081f2e20eb77c8409ab911b56c0ab7ca5ce42248b00e"
+    },
+    {
+      "name": "xl/worksheets/sheet6.xml",
+      "file_size": 17129,
+      "compress_size": 2624,
+      "crc": 783875425,
+      "sha256": "89049a0d05e1e25ef4f918e7eb454dddb0b5e026a4b298bbfc892a6da47a01c0"
+    }
+  ]
+}

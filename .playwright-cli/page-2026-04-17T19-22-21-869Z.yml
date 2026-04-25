@@ -1,0 +1,17 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - heading "AIDEAL GoFlowOS" [level=1] [ref=e6]
+      - paragraph [ref=e7]: Motor de consolidação financeira • MVP • Fase 2 operacional do DRE
+    - generic [ref=e8]: Cloudflare browser-first + local/server
+  - generic [ref=e9]:
+    - article [ref=e10]:
+      - generic [ref=e11]: DRE
+      - heading "Fluxo DRE" [level=2] [ref=e12]
+      - paragraph [ref=e13]: Importa planilha mensal bruta, valida a estrutura e prepara a geração do template AIDEAL.
+      - button "Selecionar DRE" [ref=e14] [cursor=pointer]
+    - article [ref=e15]:
+      - generic [ref=e16]: FC
+      - heading "Fluxo de Caixa" [level=2] [ref=e17]
+      - paragraph [ref=e18]: Importa lote bancário, valida consistência e prepara consolidação por origem.
+      - button "Selecionar Fluxo" [ref=e19] [cursor=pointer]

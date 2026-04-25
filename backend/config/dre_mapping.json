@@ -1,0 +1,159 @@
+{
+  "_descricao": "Mapeamento de colunas e regras para o fluxo DRE",
+  "_versao": "1.0.0",
+
+  "entrada": {
+    "formatos_aceitos": [".xls", ".xlsx"],
+    "aba_principal": null,
+    "aba_principal_detectar_por": "maior_numero_linhas",
+    "linha_cabecalho": 1,
+    "linhas_pular_antes_cabecalho": 1,
+
+    "colunas": {
+      "data": {
+        "aliases": ["Emissão", "EMISSAO", "Emissao", "Data", "DATA", "Dt", "Data Lanc", "Data Lançamento"],
+        "tipo": "date",
+        "obrigatorio": true
+      },
+      "historico": {
+        "aliases": ["Descri.", "Descrição", "DESCRICAO", "Descricao", "Histórico", "HISTORICO", "Hist", "Doc."],
+        "tipo": "string",
+        "obrigatorio": true
+      },
+      "credito": {
+        "aliases": ["Vlr.bruto (R$)", "Vlr.bruto", "Valor Bruto", "Crédito", "CREDITO", "Total líquido (R$)", "Total liquido"],
+        "tipo": "decimal",
+        "obrigatorio": true
+      },
+      "debito": {
+        "aliases": ["Débito", "DEBITO", "Debito", "Déb", "Valor Débito", "DB"],
+        "tipo": "decimal",
+        "obrigatorio": false
+      },
+      "natureza": {
+        "aliases": ["C. gerencial", "Conta Gerencial", "Natureza", "NATUREZA", "CLASSIFICAÇÃO", "Classificação", "CLASSIFICACAO"],
+        "tipo": "string",
+        "obrigatorio": true
+      },
+      "classificacao_entrada_saida": {
+        "aliases": ["CLASSIFICAÇÃO", "Classificação", "CLASSIFICACAO", "Classificacao", "Entrada/Saida", "ENTRADA_SAIDA"],
+        "tipo": "string",
+        "obrigatorio": false
+      },
+      "centro_custo": {
+        "aliases": ["Obra/\nCentro custo", "Obra/Centro custo", "Centro de Custo", "CENTRO DE CUSTO", "Centro Custo", "CC", "Obra", "OBRA", "Centro de Custo - Obra"],
+        "tipo": "string",
+        "obrigatorio": false
+      },
+      "rubrica": {
+        "aliases": ["C. gerencial", "Conta Gerencial", "Rubrica", "RUBRICA", "Conta", "CONTA"],
+        "tipo": "string",
+        "obrigatorio": false
+      },
+      "conta_pai": {
+        "aliases": ["Conta Pai", "CONTA PAI", "Grupo", "GRUPO", "Categoria"],
+        "tipo": "string",
+        "obrigatorio": false
+      },
+      "cliente": {
+        "aliases": ["Cliente", "CLIENTE"],
+        "tipo": "string",
+        "obrigatorio": false
+      },
+      "numero": {
+        "aliases": ["Número", "NUMERO", "Num"],
+        "tipo": "string",
+        "obrigatorio": false
+      },
+      "documento": {
+        "aliases": ["Doc.", "DOC", "Documento"],
+        "tipo": "string",
+        "obrigatorio": false
+      },
+      "observacao": {
+        "aliases": ["Obs.", "OBS", "Observação", "Observacao"],
+        "tipo": "string",
+        "obrigatorio": false
+      },
+      "ir": {
+        "aliases": ["IR (R$)", "IR"],
+        "tipo": "decimal",
+        "obrigatorio": false
+      },
+      "iss": {
+        "aliases": ["ISS (R$)", "ISS"],
+        "tipo": "decimal",
+        "obrigatorio": false
+      },
+      "inss": {
+        "aliases": ["INSS (R$)", "INSS"],
+        "tipo": "decimal",
+        "obrigatorio": false
+      },
+      "pis": {
+        "aliases": ["PIS (R$)", "PIS"],
+        "tipo": "decimal",
+        "obrigatorio": false
+      },
+      "cofins": {
+        "aliases": ["COFINS (R$)", "COFINS"],
+        "tipo": "decimal",
+        "obrigatorio": false
+      },
+      "csll": {
+        "aliases": ["CSLL (R$)", "CSLL"],
+        "tipo": "decimal",
+        "obrigatorio": false
+      },
+      "tarifa_antecipacao": {
+        "aliases": ["Tarifa de Antecipação (R$)", "Tarifa Antecipação", "Tarifa"],
+        "tipo": "decimal",
+        "obrigatorio": false
+      },
+      "total_liquido": {
+        "aliases": ["Total líquido (R$)", "Total Líquido", "Total liquido", "Vlr Liquido"],
+        "tipo": "decimal",
+        "obrigatorio": false
+      },
+      "fluxo_pagamento": {
+        "aliases": ["FLUXO DE PAGAMENTO", "Fluxo Pagamento", "Fluxo"],
+        "tipo": "string",
+        "obrigatorio": false
+      },
+      "classificacao": {
+        "aliases": ["CLASSIFICAÇÃO", "Classificação", "CLASSIFICACAO"],
+        "tipo": "string",
+        "obrigatorio": false
+      }
+    }
+  },
+
+  "saida": {
+    "template": "DRE AIDEAL - 05 2025  - obra.xlsx",
+    "aba_dados": "BD_FLUXO",
+    "linha_inicio_dados": 2,
+    "coluna_inicio_dados": 1,
+    "faixa_limpa": "A2:G4964",
+    "limpar_faixa_saida": true,
+    "limite_linhas_uteis": 4963,
+    "preservar_faixa_formulas": "H:R",
+    "ocultar_linhas_sem_lancamento": false,
+    "areas_atualizaveis": ["A2:G4964"],
+    "_nota": "Faixa de dados validada para a Etapa 2. Colunas H:R preservadas como estrutura e formulas do template. Com limpar_faixa_saida=true, a faixa A:G e limpa antes da escrita do lote cumulativo."
+  },
+
+  "validacao": {
+    "colunas_obrigatorias_minimas": ["data", "historico", "credito", "natureza"],
+    "bloquear_natureza_nao_mapeada": true,
+    "modo_cumulativo": true,
+    "exigir_meses_desde_janeiro": true,
+    "bloquear_meses_faltantes": true,
+    "bloquear_mes_superior_competencia": true,
+    "bloquear_ano_divergente_competencia": true,
+    "naturezas_mapeadas": {
+      "1 - ENTRADA": ["ENTRADA", "1-ENTRADA", "1 - ENTRADA"],
+      "2 - SAIDA": ["SAIDA", "SAÍDA", "2-SAIDA", "2 - SAIDA", "2 - SAÍDA"]
+    },
+    "tolerancia_arredondamento": 0.01
+  }
+}

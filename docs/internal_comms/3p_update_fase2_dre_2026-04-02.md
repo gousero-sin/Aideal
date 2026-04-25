@@ -1,0 +1,4 @@
+📊 AIDEAL DRE Fase 2 (2026-04-02)
+Progress: Consolidamos os diffs entre `obra` e o alternativo e confirmamos que a estrutura do workbook está preservada, mas a divergência real está concentrada em `BD_FLUXO` e `APOIO`. Também fechamos a regra operacional: modo cumulativo é o padrão oficial e modo não cumulativo fica apenas para teste técnico.
+Plans: A próxima frente é implementar persistência em banco para que cada relatório mensal seja salvo e o DRE de competência seja montado por consulta `jan..competência`. O template Excel passa a ser apenas visual, mantendo `DRE`, `BD_FLUXO`, `PLANO_CONTAS` e `APOIO` como casca de apresentação.
+Problems: O arquivo alternativo atual ainda carrega um dataset diferente do `obra`, o que quebra a leitura cumulativa de forma semântica mesmo quando a casca visual parece correta. Sem DB, a geração continua dependente de base embutida/cached e isso impede reprodutibilidade entre meses.
