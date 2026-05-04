@@ -11,6 +11,7 @@ from .common import ValidationError
 
 class TipoMovimento(str, Enum):
     """Tipo de movimentação bancária."""
+
     CREDITO = "credito"
     DEBITO = "debito"
     TRANSFERENCIA = "transferencia"

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 from xml.sax.saxutils import escape as _xml_escape
@@ -39,15 +39,22 @@ _ABA_ENTRADAS = "Sheet"
 _ABA_SAIDAS = "Planilha1"
 
 # Nomes abreviados dos 12 meses.
-_MESES_NOMES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-                "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+_MESES_NOMES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
 # Mapeamento dos pares (valor, %) por mês na aba DRE — espelha o template.
 _PARES_MENSAIS_DRE: dict[int, tuple[str, str]] = {
-    1: ("B", "C"), 2: ("D", "E"), 3: ("F", "G"),
-    4: ("J", "K"), 5: ("L", "M"), 6: ("N", "O"),
-    7: ("R", "S"), 8: ("T", "U"), 9: ("V", "W"),
-    10: ("Z", "AA"), 11: ("AB", "AC"), 12: ("AD", "AE"),
+    1: ("B", "C"),
+    2: ("D", "E"),
+    3: ("F", "G"),
+    4: ("J", "K"),
+    5: ("L", "M"),
+    6: ("N", "O"),
+    7: ("R", "S"),
+    8: ("T", "U"),
+    9: ("V", "W"),
+    10: ("Z", "AA"),
+    11: ("AB", "AC"),
+    12: ("AD", "AE"),
 }
 _COLUNAS_TRIMESTRE_DRE = ["H", "I", "P", "Q", "X", "Y", "AF", "AG"]
 _COLUNAS_ANO_DRE = ["AH", "AI"]
@@ -56,6 +63,7 @@ _COLUNAS_ANO_DRE = ["AH", "AI"]
 @dataclass(frozen=True)
 class LinhaBD:
     """Linha canônica do BD_FLUXO (colunas 1-7; 8-18 ficam como fórmula)."""
+
     data: datetime
     historico: str
     credito: float | None
@@ -67,6 +75,7 @@ class LinhaBD:
 # ---------------------------------------------------------------------------- #
 # Leitura e parsing do .xls                                                    #
 # ---------------------------------------------------------------------------- #
+
 
 def _xls_data_para_datetime(valor, datemode: int) -> datetime | None:
     """Converte célula de data (Excel serial float) em datetime."""
@@ -113,8 +122,7 @@ def _encontrar_header(sheet: xlrd.sheet.Sheet, palavras_chave: Iterable[str]) ->
     """Retorna o índice da linha de cabeçalho (contém todas as palavras-chave)."""
     alvo = {p.lower() for p in palavras_chave}
     for r in range(min(sheet.nrows, 20)):
-        valores = {_limpa_texto(sheet.cell_value(r, c)).lower()
-                   for c in range(sheet.ncols)}
+        valores = {_limpa_texto(sheet.cell_value(r, c)).lower() for c in range(sheet.ncols)}
         if alvo.issubset(valores):
             return r
     return None
@@ -148,8 +156,11 @@ def _parse_aba_entradas(sheet: xlrd.sheet.Sheet, datemode: int) -> list[LinhaBD]
     col_bruto = cols.get("Vlr.bruto (R$)")
 
     obrigatorias = {
-        "Cliente": col_cliente, "Número": col_numero, "Emissão": col_emissao,
-        "Obra/Centro custo": col_obra, "C. gerencial": col_natureza,
+        "Cliente": col_cliente,
+        "Número": col_numero,
+        "Emissão": col_emissao,
+        "Obra/Centro custo": col_obra,
+        "C. gerencial": col_natureza,
         "Vlr.bruto (R$)": col_bruto,
     }
     faltando = [k for k, v in obrigatorias.items() if v is None]
@@ -178,18 +189,30 @@ def _parse_aba_entradas(sheet: xlrd.sheet.Sheet, datemode: int) -> list[LinhaBD]
         bruto = _numero(sheet.cell_value(r, col_bruto))
 
         if bruto > 0 and natureza:
-            linhas.append(LinhaBD(
-                data=data_dt, historico=historico, credito=bruto, debito=None,
-                natureza=natureza, centro_custo=obra,
-            ))
+            linhas.append(
+                LinhaBD(
+                    data=data_dt,
+                    historico=historico,
+                    credito=bruto,
+                    debito=None,
+                    natureza=natureza,
+                    centro_custo=obra,
+                )
+            )
 
         for col_imposto, rotulo in impostos_idx:
             val = _numero(sheet.cell_value(r, col_imposto))
             if val > 0:
-                linhas.append(LinhaBD(
-                    data=data_dt, historico=historico, credito=None, debito=val,
-                    natureza=rotulo, centro_custo=obra,
-                ))
+                linhas.append(
+                    LinhaBD(
+                        data=data_dt,
+                        historico=historico,
+                        credito=None,
+                        debito=val,
+                        natureza=rotulo,
+                        centro_custo=obra,
+                    )
+                )
 
     return linhas
 
@@ -212,8 +235,10 @@ def _parse_aba_saidas(sheet: xlrd.sheet.Sheet, datemode: int) -> list[LinhaBD]:
     col_total = cols.get("Total líquido (R$)")
 
     obrigatorias = {
-        "Fornecedor": col_fornecedor, "Emissão": col_emissao,
-        "Obra/Centro custo": col_obra, "C. gerencial": col_natureza,
+        "Fornecedor": col_fornecedor,
+        "Emissão": col_emissao,
+        "Obra/Centro custo": col_obra,
+        "C. gerencial": col_natureza,
         "Total líquido (R$)": col_total,
     }
     faltando = [k for k, v in obrigatorias.items() if v is None]
@@ -236,10 +261,16 @@ def _parse_aba_saidas(sheet: xlrd.sheet.Sheet, datemode: int) -> list[LinhaBD]:
         total = _numero(sheet.cell_value(r, col_total))
         if total <= 0 or not natureza:
             continue
-        linhas.append(LinhaBD(
-            data=data_dt, historico=historico, credito=None, debito=total,
-            natureza=natureza, centro_custo=obra,
-        ))
+        linhas.append(
+            LinhaBD(
+                data=data_dt,
+                historico=historico,
+                credito=None,
+                debito=total,
+                natureza=natureza,
+                centro_custo=obra,
+            )
+        )
     return linhas
 
 
@@ -267,13 +298,13 @@ def ler_xls_mes(path: Path) -> list[LinhaBD]:
 _EXCEL_EPOCH = datetime(1899, 12, 30)
 
 # Style IDs extraídos do template BD_FLUXO row 2 (preservam formatação original).
-_S_DATA      = "19"   # A — data (formato dd/mm/aaaa)
-_S_TEXTO     = "16"   # B, J, K, L — texto geral
-_S_NUMERO    = "20"   # C, D, E — valores monetários
-_S_NATUREZA  = "1"    # F, G, N, O, P, Q, R — texto categorias/fórmulas
-_S_YEAR      = "63"   # H — YEAR()
-_S_MONTH     = "64"   # I — MONTH()
-_S_SALDO     = "6"    # M — saldo C-D
+_S_DATA = "19"  # A — data (formato dd/mm/aaaa)
+_S_TEXTO = "16"  # B, J, K, L — texto geral
+_S_NUMERO = "20"  # C, D, E — valores monetários
+_S_NATUREZA = "1"  # F, G, N, O, P, Q, R — texto categorias/fórmulas
+_S_YEAR = "63"  # H — YEAR()
+_S_MONTH = "64"  # I — MONTH()
+_S_SALDO = "6"  # M — saldo C-D
 
 
 def _dt_para_serial(dt: datetime) -> int:
@@ -313,26 +344,28 @@ def _gerar_sheetdata_bd_fluxo(linhas: list[LinhaBD]) -> str:
         credito = linha.credito
         debito = linha.debito
 
-        cells = "".join([
-            f'<c r="A{r}" s="{_S_DATA}"><v>{serial}</v></c>',
-            _cel_str(f"B{r}", _S_TEXTO, linha.historico),
-            _cel_num(f"C{r}", _S_NUMERO, credito),
-            _cel_num(f"D{r}", _S_NUMERO, debito),
-            f'<c r="E{r}" s="{_S_NUMERO}"/>',
-            _cel_str(f"F{r}", _S_NATUREZA, linha.natureza),
-            _cel_str(f"G{r}", _S_NATUREZA, linha.centro_custo),
-            _cel_formula(f"H{r}", _S_YEAR, f"YEAR(A{r})"),
-            _cel_formula(f"I{r}", _S_MONTH, f"MONTH(A{r})"),
-            _cel_formula(f"J{r}", _S_TEXTO, f"INDEX(Meses[],BD_FLUXO!I{r},2)"),
-            f'<c r="K{r}" s="{_S_TEXTO}"/>',
-            f'<c r="L{r}" s="{_S_TEXTO}"/>',
-            _cel_formula(f"M{r}", _S_SALDO, f"C{r}-D{r}"),
-            _cel_formula(f"N{r}", _S_NATUREZA, f"VLOOKUP(F{r},PLANO_CONTAS!A:D,2,0)"),
-            _cel_formula(f"O{r}", _S_NATUREZA, f"VLOOKUP(F{r},PLANO_CONTAS!$A:$D,3,FALSE)"),
-            _cel_formula(f"P{r}", _S_NATUREZA, f"VLOOKUP(F{r},PLANO_CONTAS!$A:$D,4,FALSE)"),
-            _cel_formula(f"Q{r}", _S_NATUREZA, f"VLOOKUP(F{r},PLANO_CONTAS!$A:$E,5,FALSE)"),
-            _cel_formula(f"R{r}", _S_NATUREZA, f"YEAR(BD_FLUXO1[[#This Row],[Data]])"),
-        ])
+        cells = "".join(
+            [
+                f'<c r="A{r}" s="{_S_DATA}"><v>{serial}</v></c>',
+                _cel_str(f"B{r}", _S_TEXTO, linha.historico),
+                _cel_num(f"C{r}", _S_NUMERO, credito),
+                _cel_num(f"D{r}", _S_NUMERO, debito),
+                f'<c r="E{r}" s="{_S_NUMERO}"/>',
+                _cel_str(f"F{r}", _S_NATUREZA, linha.natureza),
+                _cel_str(f"G{r}", _S_NATUREZA, linha.centro_custo),
+                _cel_formula(f"H{r}", _S_YEAR, f"YEAR(A{r})"),
+                _cel_formula(f"I{r}", _S_MONTH, f"MONTH(A{r})"),
+                _cel_formula(f"J{r}", _S_TEXTO, f"INDEX(Meses[],BD_FLUXO!I{r},2)"),
+                f'<c r="K{r}" s="{_S_TEXTO}"/>',
+                f'<c r="L{r}" s="{_S_TEXTO}"/>',
+                _cel_formula(f"M{r}", _S_SALDO, f"C{r}-D{r}"),
+                _cel_formula(f"N{r}", _S_NATUREZA, f"VLOOKUP(F{r},PLANO_CONTAS!A:D,2,0)"),
+                _cel_formula(f"O{r}", _S_NATUREZA, f"VLOOKUP(F{r},PLANO_CONTAS!$A:$D,3,FALSE)"),
+                _cel_formula(f"P{r}", _S_NATUREZA, f"VLOOKUP(F{r},PLANO_CONTAS!$A:$D,4,FALSE)"),
+                _cel_formula(f"Q{r}", _S_NATUREZA, f"VLOOKUP(F{r},PLANO_CONTAS!$A:$E,5,FALSE)"),
+                _cel_formula(f"R{r}", _S_NATUREZA, "YEAR(BD_FLUXO1[[#This Row],[Data]])"),
+            ]
+        )
         partes.append(f'<row r="{r}" spans="1:18" x14ac:dyDescent="0.3">{cells}</row>')
 
     return "".join(partes)
@@ -359,13 +392,14 @@ def _linha_para_18_colunas(linha: LinhaBD, row_idx: int) -> list:
         f"=VLOOKUP(F{r},PLANO_CONTAS!$A:$D,3,FALSE)",
         f"=VLOOKUP(F{r},PLANO_CONTAS!$A:$D,4,FALSE)",
         f"=VLOOKUP(F{r},PLANO_CONTAS!$A:$E,5,FALSE)",
-        f"=YEAR(BD_FLUXO1[[#This Row],[Data]])",
+        "=YEAR(BD_FLUXO1[[#This Row],[Data]])",
     ]
 
 
 # ---------------------------------------------------------------------------- #
 # Orquestração                                                                 #
 # ---------------------------------------------------------------------------- #
+
 
 def gerar_dre(
     arquivos_xls: list[Path],
@@ -386,19 +420,21 @@ def gerar_dre(
         todas_linhas.extend(ler_xls_mes(Path(p)))
 
     # Filtra por ano e ordena por data (igual ao template).
-    todas_linhas = [l for l in todas_linhas if l.data.year == ano]
-    todas_linhas.sort(key=lambda l: l.data)
+    todas_linhas = [linha for linha in todas_linhas if linha.data.year == ano]
+    todas_linhas.sort(key=lambda linha: linha.data)
 
-    meses_com_dados = sorted({l.data.month for l in todas_linhas})
-    logger.info("Meses com dados: %s (%d linhas totais)",
-                [_MESES_NOMES[m - 1] for m in meses_com_dados], len(todas_linhas))
+    meses_com_dados = sorted({linha.data.month for linha in todas_linhas})
+    logger.info(
+        "Meses com dados: %s (%d linhas totais)",
+        [_MESES_NOMES[m - 1] for m in meses_com_dados],
+        len(todas_linhas),
+    )
 
     writer = TemplateWriter(Path(template_path))
     writer.abrir()
     try:
         linhas_bd_18 = [
-            _linha_para_18_colunas(linha, idx + 2)
-            for idx, linha in enumerate(todas_linhas)
+            _linha_para_18_colunas(linha, idx + 2) for idx, linha in enumerate(todas_linhas)
         ]
         ultima_linha = 1 + len(linhas_bd_18) if linhas_bd_18 else 1
 
@@ -409,7 +445,9 @@ def gerar_dre(
             sheetdata_xml = _gerar_sheetdata_bd_fluxo(todas_linhas)
             writer.substituir_sheetdata_xml_puro("BD_FLUXO", sheetdata_xml)
             writer.ajustar_tabela_range(
-                "BD_FLUXO", "BD_FLUXO1", linha_fim=ultima_linha,
+                "BD_FLUXO",
+                "BD_FLUXO1",
+                linha_fim=ultima_linha,
             )
 
         # Remove slicers do pacote final e força rebuild de cache no próximo open.
@@ -427,9 +465,9 @@ def gerar_dre(
     return Path(output_path)
 
 
-
 def _ajustar_visibilidade_dre(
-    writer: TemplateWriter, meses_com_dados: list[int],
+    writer: TemplateWriter,
+    meses_com_dados: list[int],
 ) -> None:
     """Oculta na aba DRE as colunas dos meses que não têm dados."""
 
@@ -457,6 +495,7 @@ def _ajustar_visibilidade_dre(
 # CLI                                                                          #
 # ---------------------------------------------------------------------------- #
 
+
 def _main() -> None:
     import argparse
 
@@ -467,8 +506,9 @@ def _main() -> None:
     parser.add_argument("xls", nargs="+", type=Path, help="Arquivos .xls mensais")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    )
 
     gerar_dre(
         arquivos_xls=args.xls,

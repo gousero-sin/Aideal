@@ -14,31 +14,37 @@ def _criar_arquivo_fluxo(path: Path) -> None:
     ws.append(["Relatório de movimentos financeiros"])
     ws.append(["Conta:", "BANCO"])
     ws.append([])
-    ws.append([
-        "Data Mov.",
-        "Tipo",
-        "Desc. Mov.",
-        "Valor (R$)",
-        "Saldo (R$)",
-        "Conta Gerencial Mov",
-    ])
-    ws.append([
-        "01/05/2025",
-        "Crédito",
-        "Recebimento Cliente",
-        1000.0,
-        1000.0,
-        "Recebimento de Clientes",
-    ])
+    ws.append(
+        [
+            "Data Mov.",
+            "Tipo",
+            "Desc. Mov.",
+            "Valor (R$)",
+            "Saldo (R$)",
+            "Conta Gerencial Mov",
+        ]
+    )
+    ws.append(
+        [
+            "01/05/2025",
+            "Crédito",
+            "Recebimento Cliente",
+            1000.0,
+            1000.0,
+            "Recebimento de Clientes",
+        ]
+    )
     ws.append(["02/05/2025", "Débito", "Pagamento Fornecedor", 200.0, 800.0, "Fornecedores"])
-    ws.append([
-        "03/05/2025",
-        "Transferência - BANCO SAFRA",
-        "TRANSFERÊNCIA ENTRE BANCOS ITAÚ X SAFRA",
-        300.0,
-        500.0,
-        "Transferência entre Bancos",
-    ])
+    ws.append(
+        [
+            "03/05/2025",
+            "Transferência - BANCO SAFRA",
+            "TRANSFERÊNCIA ENTRE BANCOS ITAÚ X SAFRA",
+            300.0,
+            500.0,
+            "Transferência entre Bancos",
+        ]
+    )
     wb.save(path)
 
 
@@ -46,24 +52,28 @@ def _criar_arquivo_contas_atraso(path: Path) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = "Sheet"
-    ws.append([
-        "Fornecedor",
-        "Número",
-        "Doc.",
-        "Descri.",
-        "Venc.",
-        "C. gerencial",
-        "Total líquido (R$)",
-    ])
-    ws.append([
-        "PGFN",
-        "",
-        "001",
-        "Parcelamento",
-        "30/07/2025",
-        "17.1 - PARCELAMENTO",
-        1029.44,
-    ])
+    ws.append(
+        [
+            "Fornecedor",
+            "Número",
+            "Doc.",
+            "Descri.",
+            "Venc.",
+            "C. gerencial",
+            "Total líquido (R$)",
+        ]
+    )
+    ws.append(
+        [
+            "PGFN",
+            "",
+            "001",
+            "Parcelamento",
+            "30/07/2025",
+            "17.1 - PARCELAMENTO",
+            1029.44,
+        ]
+    )
     wb.save(path)
 
 

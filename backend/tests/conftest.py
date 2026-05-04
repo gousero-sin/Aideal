@@ -11,7 +11,6 @@ from app.config import settings
 from app.ingestao.parser import ExcelParser
 from app.processamento.dre import DREProcessamentoService
 
-
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -73,13 +72,15 @@ def arquivo_dre_cumulativo(tmp_path) -> Path:
     ws.append(["metadata"])
     ws.append(["Emissão", "Descri.", "Vlr.bruto (R$)", "CLASSIFICAÇÃO", "Obra/Centro custo"])
     for mes in range(1, 6):
-        ws.append([
-            f"01/{mes:02d}/2025",
-            f"Lancamento {mes}",
-            float(100 * mes),
-            "1 - ENTRADA" if mes % 2 else "2 - SAIDA",
-            "VLI PINTURA",
-        ])
+        ws.append(
+            [
+                f"01/{mes:02d}/2025",
+                f"Lancamento {mes}",
+                float(100 * mes),
+                "1 - ENTRADA" if mes % 2 else "2 - SAIDA",
+                "VLI PINTURA",
+            ]
+        )
     wb.save(path)
     return path
 
@@ -94,12 +95,14 @@ def arquivo_dre_mes_unico(tmp_path) -> Path:
     ws.append(["metadata"])
     ws.append(["Emissão", "Descri.", "Vlr.bruto (R$)", "CLASSIFICAÇÃO"])
     for dia in range(1, 4):
-        ws.append([
-            f"{dia:02d}/05/2025",
-            f"Lancamento dia {dia}",
-            float(1000 * dia),
-            "1 - ENTRADA",
-        ])
+        ws.append(
+            [
+                f"{dia:02d}/05/2025",
+                f"Lancamento dia {dia}",
+                float(1000 * dia),
+                "1 - ENTRADA",
+            ]
+        )
     wb.save(path)
     return path
 
@@ -107,20 +110,30 @@ def arquivo_dre_mes_unico(tmp_path) -> Path:
 @pytest.fixture
 def df_cumulativo_valido():
     """DataFrame com 5 meses cumulativos válidos."""
-    return pd.DataFrame({
-        "Emissão": [f"15/{m:02d}/2025" for m in range(1, 6)],
-        "Descri.": [f"Lancamento M{m}" for m in range(1, 6)],
-        "Vlr.bruto (R$)": [100.0 * m for m in range(1, 6)],
-        "CLASSIFICAÇÃO": ["1 - ENTRADA", "2 - SAÍDA", "1 - ENTRADA", "2 - SAIDA", "1 - ENTRADA"],
-    })
+    return pd.DataFrame(
+        {
+            "Emissão": [f"15/{m:02d}/2025" for m in range(1, 6)],
+            "Descri.": [f"Lancamento M{m}" for m in range(1, 6)],
+            "Vlr.bruto (R$)": [100.0 * m for m in range(1, 6)],
+            "CLASSIFICAÇÃO": [
+                "1 - ENTRADA",
+                "2 - SAÍDA",
+                "1 - ENTRADA",
+                "2 - SAIDA",
+                "1 - ENTRADA",
+            ],
+        }
+    )
 
 
 @pytest.fixture
 def df_mes_unico_mai():
     """DataFrame só com dados de maio."""
-    return pd.DataFrame({
-        "Emissão": ["01/05/2025", "15/05/2025", "31/05/2025"],
-        "Descri.": ["A", "B", "C"],
-        "Vlr.bruto (R$)": [100.0, 200.0, 300.0],
-        "CLASSIFICAÇÃO": ["1 - ENTRADA", "2 - SAÍDA", "1 - ENTRADA"],
-    })
+    return pd.DataFrame(
+        {
+            "Emissão": ["01/05/2025", "15/05/2025", "31/05/2025"],
+            "Descri.": ["A", "B", "C"],
+            "Vlr.bruto (R$)": [100.0, 200.0, 300.0],
+            "CLASSIFICAÇÃO": ["1 - ENTRADA", "2 - SAÍDA", "1 - ENTRADA"],
+        }
+    )

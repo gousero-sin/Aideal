@@ -25,8 +25,12 @@ class DRELancamento(BaseModel):
     historico: str = Field(..., description="Identificação textual do lançamento/documento")
     credito: Decimal = Field(default=Decimal("0"), description="Valor de entrada (crédito)")
     debito: Decimal = Field(default=Decimal("0"), description="Valor de saída (débito)")
-    natureza: str = Field(..., description="Código C. gerencial (ex: 1.1.1 - Recebimento de Clientes)")
-    classificacao_entrada_saida: str = Field(default="", description="Indicador ENTRADA/SAIDA da coluna CLASSIFICAÇÃO do relatório")
+    natureza: str = Field(
+        ..., description="Código C. gerencial (ex: 1.1.1 - Recebimento de Clientes)"
+    )
+    classificacao_entrada_saida: str = Field(
+        default="", description="Indicador ENTRADA/SAIDA da coluna CLASSIFICAÇÃO do relatório"
+    )
     centro_custo: str = Field(default="", description="Centro de custo / obra")
     rubrica: str = Field(default="", description="Rubrica ou conta pai para agrupamento")
     conta_pai: str = Field(default="", description="Agrupador gerencial superior")
@@ -50,11 +54,11 @@ class DRELote(BaseModel):
 
     @property
     def total_credito(self) -> Decimal:
-        return sum(l.credito for l in self.lancamentos)
+        return sum(lancamento.credito for lancamento in self.lancamentos)
 
     @property
     def total_debito(self) -> Decimal:
-        return sum(l.debito for l in self.lancamentos)
+        return sum(lancamento.debito for lancamento in self.lancamentos)
 
     @property
     def total_registros(self) -> int:

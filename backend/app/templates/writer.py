@@ -19,8 +19,8 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from openpyxl import load_workbook
-from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.workbook import Workbook
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from ..config import settings
 from .slicer_builder import (
@@ -70,7 +70,9 @@ class TemplateWriter:
     NS_XR2 = "http://schemas.microsoft.com/office/spreadsheetml/2015/revision2"
     NS_XR3 = "http://schemas.microsoft.com/office/spreadsheetml/2016/revision3"
     REL_TABLE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/table"
-    REL_PRINTER = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/printerSettings"
+    REL_PRINTER = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/printerSettings"
+    )
     REL_SLICER = "http://schemas.microsoft.com/office/2007/relationships/slicer"
     REL_SLICER_CACHE = "http://schemas.microsoft.com/office/2007/relationships/slicerCache"
     EXT_URI_SLICER_LIST_X15 = "{3A4CF648-6AED-40f4-86FF-DC5316D8AED3}"
@@ -135,8 +137,7 @@ class TemplateWriter:
         self._original_tables = self._listar_tabelas()
 
         logger.info(
-            f"Template aberto: {self.template_path.name} "
-            f"({len(self._original_sheets)} sheet(s))"
+            f"Template aberto: {self.template_path.name} ({len(self._original_sheets)} sheet(s))"
         )
 
     def listar_sheets(self) -> list[str]:
@@ -248,7 +249,7 @@ class TemplateWriter:
             logger.warning("Tabela '%s' não encontrada em '%s'", table_name, sheet_name)
             return
 
-        from openpyxl.utils import range_boundaries, get_column_letter
+        from openpyxl.utils import get_column_letter, range_boundaries
 
         min_col, min_row, max_col, _ = range_boundaries(tbl.ref)
         if coluna_fim is not None:
@@ -313,9 +314,7 @@ class TemplateWriter:
         # Garante que não colidimos com tabela existente em outra aba.
         for ws in self._wb.worksheets:
             if table_name in ws.tables and ws.title != sheet_name:
-                raise ValueError(
-                    f"Table '{table_name}' já existe na aba '{ws.title}'."
-                )
+                raise ValueError(f"Table '{table_name}' já existe na aba '{ws.title}'.")
 
         self._table_specs[table_name] = TableSpec(
             sheet_name=sheet_name,
@@ -830,7 +829,11 @@ class TemplateWriter:
                 nome_attr = re.search(r'name="([^"]*)"', dn_match.group(0))
                 valor = dn_match.group(2).strip()
                 nome = nome_attr.group(1) if nome_attr else ""
-                if valor in ("#N/A", "#REF!") or nome.startswith("SegmentaçãodeDados") or nome.startswith("SegmentacaodeDados"):
+                if (
+                    valor in ("#N/A", "#REF!")
+                    or nome.startswith("SegmentaçãodeDados")
+                    or nome.startswith("SegmentacaodeDados")
+                ):
                     return ""
                 return dn_match.group(0)
 
@@ -917,7 +920,8 @@ class TemplateWriter:
         next_id = max((int(i) for i in ids), default=0) + 1
         rel_node = (
             f'<Relationship Id="rId{next_id}" '
-            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+            'relationships/sharedStrings" '
             'Target="sharedStrings.xml"/>'
         )
         m_end = re.search(r"</(?:[A-Za-z0-9]+:)?Relationships>\s*$", rels_xml)
@@ -1019,7 +1023,7 @@ class TemplateWriter:
             tag = m_self.group(1)
             attrs = _normalize_calc_attrs(m_self.group(2))
             replaced = f"<{tag}{attrs}/>"
-            workbook_xml = workbook_xml[:m_self.start()] + replaced + workbook_xml[m_self.end():]
+            workbook_xml = workbook_xml[: m_self.start()] + replaced + workbook_xml[m_self.end() :]
 
         else:
             # 2) calcPr com abertura/fechamento: <calcPr ...>...</calcPr>
@@ -1028,14 +1032,18 @@ class TemplateWriter:
                 tag = m_open.group(1)
                 attrs = _normalize_calc_attrs(m_open.group(2))
                 replaced = f"<{tag}{attrs}>"
-                workbook_xml = workbook_xml[:m_open.start()] + replaced + workbook_xml[m_open.end():]
+                workbook_xml = (
+                    workbook_xml[: m_open.start()] + replaced + workbook_xml[m_open.end() :]
+                )
 
             else:
                 # 3) Sem calcPr: injeta antes do fechamento de workbook.
                 m_end = re.search(r"</(?:\w+:)?workbook>\s*$", workbook_xml)
                 if m_end:
                     calc_node = '<calcPr calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/>'
-                    workbook_xml = workbook_xml[:m_end.start()] + calc_node + workbook_xml[m_end.start():]
+                    workbook_xml = (
+                        workbook_xml[: m_end.start()] + calc_node + workbook_xml[m_end.start() :]
+                    )
                     # segue para normalizar workbookPr quando houver
 
         # 4) Não altera workbookPr para minimizar risco de incompatibilidade.
@@ -1064,13 +1072,13 @@ class TemplateWriter:
         if novo_ref:
             xml_novo = re.sub(
                 r'(<table\b[^>]*\bref=")[^"]*(")',
-                rf'\g<1>{novo_ref}\g<2>',
+                rf"\g<1>{novo_ref}\g<2>",
                 xml_novo,
                 count=1,
             )
             xml_novo = re.sub(
                 r'(<autoFilter\b[^>]*\bref=")[^"]*(")',
-                rf'\g<1>{novo_ref}\g<2>',
+                rf"\g<1>{novo_ref}\g<2>",
                 xml_novo,
                 count=1,
             )
@@ -1109,7 +1117,7 @@ class TemplateWriter:
         if self._pivot_cache_records_mode == "empty":
             attrs += ' recordCount="0"'
         replaced = f"<{tag}{attrs}>"
-        pivot_xml = pivot_xml[:m_open.start()] + replaced + pivot_xml[m_open.end():]
+        pivot_xml = pivot_xml[: m_open.start()] + replaced + pivot_xml[m_open.end() :]
         return pivot_xml.encode("utf-8")
 
     @staticmethod
@@ -1239,7 +1247,7 @@ class TemplateWriter:
                 return records_xml_bytes
             return updated.encode("utf-8")
 
-        updated = xml[:m_open.start()] + replacement + xml[m_close.end():]
+        updated = xml[: m_open.start()] + replacement + xml[m_close.end() :]
         return updated.encode("utf-8")
 
     def _aplicar_table_specs_workbook(self) -> None:
@@ -1390,8 +1398,7 @@ class TemplateWriter:
 
             if rid_slicer_tpl:
                 existe_slicer_edit = any(
-                    rel.attrib.get("Type") == self.REL_SLICER
-                    for rel in rels_por_id_edit.values()
+                    rel.attrib.get("Type") == self.REL_SLICER for rel in rels_por_id_edit.values()
                 )
                 if not existe_slicer_edit:
                     rel_tpl_slicer = rels_por_id_tpl[rid_slicer_tpl]
@@ -1425,10 +1432,9 @@ class TemplateWriter:
             sheet_edit.append(ext_clone)
 
         for rel in rel_edit.findall(f"{{{self.NS_REL_PKG}}}Relationship"):
-            rel_type = rel.attrib.get("Type", "")
             target = rel.attrib.get("Target", "")
             if target.startswith("/xl/"):
-                rel.attrib["Target"] = f"../{target[len('/xl/'):]}"
+                rel.attrib["Target"] = f"../{target[len('/xl/') :]}"
 
         rel_result: bytes | None
         if had_rel_edit or had_rel_tpl:
@@ -1521,7 +1527,7 @@ class TemplateWriter:
         novos_fragmentos: list[str] = []
         last = 0
         for m in col_re.finditer(cols_inner):
-            novos_fragmentos.append(cols_inner[last:m.start()])
+            novos_fragmentos.append(cols_inner[last : m.start()])
             last = m.end()
             attrs = m.group(1)
             min_m = re.search(r'\bmin="(\d+)"', attrs)
@@ -1583,7 +1589,7 @@ class TemplateWriter:
 
         def _inject(m: re.Match) -> str:
             attrs = m.group(1)
-            if 'xmlns:x14=' in attrs:
+            if "xmlns:x14=" in attrs:
                 return m.group(0)
             novo = attrs.rstrip() + f' xmlns:x14="{self.NS_X14}"'
             return f"<ext{novo}>"
@@ -1643,7 +1649,9 @@ class TemplateWriter:
         # modificadas usam sheetData-override, o template preserva os IDs de
         # estilo intactos — substituir styles.xml nesse caso descarta estilos
         # que a DRE e outras abas preservadas do template ainda referenciam.
-        sheets_raw = self._modified_sheets - self._sheet_data_overrides - set(self._sheetdata_xml_puro)
+        sheets_raw = (
+            self._modified_sheets - self._sheet_data_overrides - set(self._sheetdata_xml_puro)
+        )
         if sheets_raw:
             partes_substituir.add("xl/styles.xml")
 
@@ -1660,8 +1668,7 @@ class TemplateWriter:
             # Quando há novas sheets, workbook.xml/workbook.rels/[Content_Types]
             # precisam vir do pacote editado para manter o cadastro das partes.
             tem_sheet_nova = any(
-                parte_editada not in tpl_names
-                for parte_editada in partes_editado.values()
+                parte_editada not in tpl_names for parte_editada in partes_editado.values()
             )
             core_from_edit: set[str] = set()
             if tem_sheet_nova:
@@ -1715,7 +1722,9 @@ class TemplateWriter:
                     payload = self._normalizar_targets_sheet_rels(payload)
                 elif nome.startswith("xl/tables/") and nome.endswith(".xml"):
                     payload = self._aplicar_override_table_ref(payload)
-                elif nome.startswith("xl/pivotCache/pivotCacheDefinition") and nome.endswith(".xml"):
+                elif nome.startswith("xl/pivotCache/pivotCacheDefinition") and nome.endswith(
+                    ".xml"
+                ):
                     payload = self._forcar_refresh_pivot_cache_xml(payload)
                 elif (
                     self._pivot_cache_records_mode == "empty"
@@ -1730,11 +1739,23 @@ class TemplateWriter:
                 ):
                     payload = self._limpar_items_slicer_cache_xml(payload)
 
-                if self._strip_slicers and nome.startswith("xl/worksheets/") and nome.endswith(".xml"):
+                if (
+                    self._strip_slicers
+                    and nome.startswith("xl/worksheets/")
+                    and nome.endswith(".xml")
+                ):
                     payload = self._remover_slicer_ext_worksheet_xml(payload)
-                if self._strip_slicers and nome.startswith("xl/worksheets/_rels/") and nome.endswith(".rels"):
+                if (
+                    self._strip_slicers
+                    and nome.startswith("xl/worksheets/_rels/")
+                    and nome.endswith(".rels")
+                ):
                     payload = self._remover_rels_por_tipo_fragmento(payload, "/slicer")
-                if self._strip_slicers and nome.startswith("xl/drawings/drawing") and nome.endswith(".xml"):
+                if (
+                    self._strip_slicers
+                    and nome.startswith("xl/drawings/drawing")
+                    and nome.endswith(".xml")
+                ):
                     payload = self._remover_slicer_shapes_drawing_xml(payload)
                 if self._excel_safe_mode:
                     if nome.startswith("xl/worksheets/_rels/") and nome.endswith(".rels"):
@@ -1805,8 +1826,7 @@ class TemplateWriter:
                     continue
 
                 if self._pivot_cache_records_mode == "remove" and (
-                    nome.startswith("xl/pivotCache/pivotCacheRecords")
-                    and nome.endswith(".xml")
+                    nome.startswith("xl/pivotCache/pivotCacheRecords") and nome.endswith(".xml")
                 ):
                     continue
 
@@ -1844,8 +1864,7 @@ class TemplateWriter:
                 if self._excel_safe_mode and self._is_excel_safe_drop(nome):
                     continue
                 if self._pivot_cache_records_mode == "remove" and (
-                    nome.startswith("xl/pivotCache/pivotCacheRecords")
-                    and nome.endswith(".xml")
+                    nome.startswith("xl/pivotCache/pivotCacheRecords") and nome.endswith(".xml")
                 ):
                     continue
 
@@ -1920,10 +1939,7 @@ class TemplateWriter:
     ) -> str:
         if part_name in content_types_xml:
             return content_types_xml
-        override = (
-            f'<Override PartName="/{part_name}" '
-            f'ContentType="{content_type}"/>'
-        )
+        override = f'<Override PartName="/{part_name}" ContentType="{content_type}"/>'
         m = re.search(r"</(?:[A-Za-z0-9]+:)?Types>\s*$", content_types_xml)
         if not m:
             return content_types_xml
@@ -2036,7 +2052,11 @@ class TemplateWriter:
                     1,
                 )
             else:
-                block = "<definedNames>" + f'<definedName name="{cache_name}">#N/A</definedName>' + "</definedNames>"
+                block = (
+                    "<definedNames>"
+                    + f'<definedName name="{cache_name}">#N/A</definedName>'
+                    + "</definedNames>"
+                )
                 insert_at = workbook_xml.find("<calcPr")
                 if insert_at == -1:
                     insert_at = workbook_xml.rfind("</workbook>")
@@ -2045,7 +2065,9 @@ class TemplateWriter:
 
         caches_nodes = "".join([f'<x14:slicerCache r:id="{rid}"/>' for rid in cache_rids])
         ext_pattern = (
-            r'(<ext\b[^>]*uri="' + re.escape(self.EXT_URI_SLICER_CACHES_X15) + r'"[^>]*>)(.*?)(</ext>)'
+            r'(<ext\b[^>]*uri="'
+            + re.escape(self.EXT_URI_SLICER_CACHES_X15)
+            + r'"[^>]*>)(.*?)(</ext>)'
         )
         ext_match = re.search(ext_pattern, workbook_xml, flags=re.DOTALL)
         if ext_match:
@@ -2077,7 +2099,9 @@ class TemplateWriter:
         if "<extLst>" in workbook_xml:
             workbook_xml = workbook_xml.replace("</extLst>", ext_block + "</extLst>", 1)
         else:
-            workbook_xml = workbook_xml.replace("</workbook>", f"<extLst>{ext_block}</extLst></workbook>", 1)
+            workbook_xml = workbook_xml.replace(
+                "</workbook>", f"<extLst>{ext_block}</extLst></workbook>", 1
+            )
         return workbook_xml
 
     def _injetar_slicer_list_sheet_xml(self, sheet_xml: str, rid_slicer: str) -> str:
@@ -2109,7 +2133,9 @@ class TemplateWriter:
             "utf-8",
             errors="ignore",
         )
-        max_id = max([int(v) for v in re.findall(r'<xdr:cNvPr\b[^>]*\bid="(\d+)"', drawing_xml)] or [1])
+        max_id = max(
+            [int(v) for v in re.findall(r'<xdr:cNvPr\b[^>]*\bid="(\d+)"', drawing_xml)] or [1]
+        )
         # Grid simples (2 colunas) no topo da aba.
         positions = [
             (0, 0),
@@ -2170,7 +2196,9 @@ class TemplateWriter:
 
         sheet_destinos = {s.sheet_destino for s in self._slicer_specs}
         if len(sheet_destinos) != 1:
-            raise ValueError("Implementação atual suporta slicers em uma única sheet destino por geração.")
+            raise ValueError(
+                "Implementação atual suporta slicers em uma única sheet destino por geração."
+            )
         sheet_destino = next(iter(sheet_destinos))
 
         part_sheet_map = self._mapear_sheets_partes_from_parts(parts)

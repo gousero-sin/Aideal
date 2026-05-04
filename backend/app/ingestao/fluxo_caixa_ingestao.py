@@ -46,9 +46,7 @@ class FluxoCaixaIngestaoService:
         mes = int(parts[0])
         ano = int(parts[1])
         if mes < 1 or mes > 12:
-            raise ValueError(
-                f"Mês da competência inválido: {mes:02d}. Use valores entre 01 e 12."
-            )
+            raise ValueError(f"Mês da competência inválido: {mes:02d}. Use valores entre 01 e 12.")
         return ano, mes
 
     @staticmethod
@@ -56,8 +54,7 @@ class FluxoCaixaIngestaoService:
         return ValidationError(
             campo="arquivo",
             mensagem=(
-                f"Arquivo '{arquivo}' foi ignorado por não possuir estrutura de "
-                "movimento bancário."
+                f"Arquivo '{arquivo}' foi ignorado por não possuir estrutura de movimento bancário."
             ),
             severidade=ErrorSeverity.WARNING,
             sugestao=(
@@ -143,10 +140,12 @@ class FluxoCaixaIngestaoService:
             validacao = self.validator.validar(dados)
             if validacao.erros:
                 if self.validator._deve_ignorar_arquivo_por_estrutura(validacao.erros):
-                    arquivos_ignorados.append({
-                        "arquivo": arquivo_nome,
-                        "motivo": "arquivo_sem_colunas_de_movimento_bancario",
-                    })
+                    arquivos_ignorados.append(
+                        {
+                            "arquivo": arquivo_nome,
+                            "motivo": "arquivo_sem_colunas_de_movimento_bancario",
+                        }
+                    )
                     warnings.append(self._warning_arquivo_ignorado(arquivo_nome))
                     continue
 
@@ -175,16 +174,17 @@ class FluxoCaixaIngestaoService:
             linhas_rejeitadas += rejeitadas_outro_mes
 
             if not movimentos_mes:
-                arquivos_ignorados.append({
-                    "arquivo": arquivo_nome,
-                    "motivo": "sem_movimentos_na_competencia",
-                })
+                arquivos_ignorados.append(
+                    {
+                        "arquivo": arquivo_nome,
+                        "motivo": "sem_movimentos_na_competencia",
+                    }
+                )
                 warnings.append(
                     ValidationError(
                         campo="arquivo",
                         mensagem=(
-                            f"Arquivo '{arquivo_nome}' não possui movimentos em "
-                            f"{mes:02d}/{ano}."
+                            f"Arquivo '{arquivo_nome}' não possui movimentos em {mes:02d}/{ano}."
                         ),
                         severidade=ErrorSeverity.WARNING,
                         sugestao="Confira a competência selecionada para este extrato.",
@@ -206,8 +206,7 @@ class FluxoCaixaIngestaoService:
                 linhas_rejeitadas=rejeitadas_outro_mes,
             )
             movimentos_db = [
-                self._movimento_to_db(mov, upload_id, ano, mes)
-                for mov in movimentos_mes
+                self._movimento_to_db(mov, upload_id, ano, mes) for mov in movimentos_mes
             ]
             uploads_movimentos.append((upload, movimentos_db))
 

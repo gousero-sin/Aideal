@@ -1,6 +1,6 @@
+import re
 import shutil
 import zipfile
-import re
 from xml.etree import ElementTree as ET
 
 from app.config import settings
@@ -21,7 +21,9 @@ def test_limpar_area_preserva_formulas_e_tabela(tmp_path):
 
         writer.limpar_area("BD_FLUXO", 2, 4964, 1, 7)
 
-        assert all(ws.cell(row=row, column=col).value is None for row in (2, 3) for col in range(1, 8))
+        assert all(
+            ws.cell(row=row, column=col).value is None for row in (2, 3) for col in range(1, 8)
+        )
         assert ws["H2"].value == original_h2
         assert "BD_FLUXO1" in ws.tables.keys()
         assert writer.validar_integridade() == []
@@ -97,8 +99,8 @@ def test_forcar_recalculo_preserva_prefixos_originais_do_workbook(tmp_path):
         assert "mc:Ignorable=" in ajustado
         assert "xmlns:x15=" in ajustado
         assert 'Requires="x15"' in ajustado
-        assert "fullCalcOnLoad=\"1\"" in ajustado
-        assert "forceFullCalc=\"1\"" in ajustado
+        assert 'fullCalcOnLoad="1"' in ajustado
+        assert 'forceFullCalc="1"' in ajustado
 
 
 def test_forcar_refresh_pivot_cache_preserva_prefixos(tmp_path):
@@ -155,7 +157,7 @@ def test_remove_content_type_pivot_cache_records(tmp_path):
 def test_excel_safe_limpar_sheet_xml_remove_drawing_com_xmlns_rid():
     sheet_xml = (
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<sheetData/>'
+        "<sheetData/>"
         '<drawing xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
         'r:id="rId1" />'
         "</worksheet>"
@@ -192,7 +194,9 @@ def test_limpar_items_slicer_cache_xml_zera_count_e_remove_itens(tmp_path):
         with zipfile.ZipFile(template_copy, "r") as zf:
             slicer_xml = zf.read("xl/slicerCaches/slicerCache3.xml")
 
-        ajustado = writer._limpar_items_slicer_cache_xml(slicer_xml).decode("utf-8", errors="ignore")
+        ajustado = writer._limpar_items_slicer_cache_xml(slicer_xml).decode(
+            "utf-8", errors="ignore"
+        )
         assert "slicerCacheDefinition" in ajustado
         assert 'count="0"' in ajustado
         assert "<i " not in ajustado
@@ -228,11 +232,13 @@ def test_aplicar_sheet_data_override_preserva_estrutura_template(tmp_path):
         assert sheet_data_tpl is not None
         sheet_data_edit = (
             "<sheetData>"
-            "<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>HDR</t></is></c></row>"
-            "<row r=\"2\"><c r=\"A2\"><v>123</v></c></row>"
+            '<row r="1"><c r="A1" t="inlineStr"><is><t>HDR</t></is></c></row>'
+            '<row r="2"><c r="A2"><v>123</v></c></row>'
             "</sheetData>"
         )
-        sheet_edit = sheet_tpl_text.replace(sheet_data_tpl.group(0), sheet_data_edit, 1).encode("utf-8")
+        sheet_edit = sheet_tpl_text.replace(sheet_data_tpl.group(0), sheet_data_edit, 1).encode(
+            "utf-8"
+        )
 
         ajustado = writer._aplicar_sheet_data_override(sheet_tpl, sheet_edit).decode(
             "utf-8",
@@ -262,7 +268,9 @@ def test_remover_slicers_remove_partes_e_referencias_no_pacote_final(tmp_path):
         workbook_xml = zf.read("xl/workbook.xml").decode("utf-8", errors="ignore")
         workbook_rels = zf.read("xl/_rels/workbook.xml.rels").decode("utf-8", errors="ignore")
         sheet2_xml = zf.read("xl/worksheets/sheet2.xml").decode("utf-8", errors="ignore")
-        sheet2_rels = zf.read("xl/worksheets/_rels/sheet2.xml.rels").decode("utf-8", errors="ignore")
+        sheet2_rels = zf.read("xl/worksheets/_rels/sheet2.xml.rels").decode(
+            "utf-8", errors="ignore"
+        )
         content_types = zf.read("[Content_Types].xml").decode("utf-8", errors="ignore")
 
         assert "slicerCaches" not in workbook_xml
@@ -452,8 +460,12 @@ def test_registrar_slicer_sobre_table_gera_partes_e_referencias(tmp_path):
         workbook_xml = zf.read("xl/workbook.xml").decode("utf-8", errors="ignore")
         workbook_rels = zf.read("xl/_rels/workbook.xml.rels").decode("utf-8", errors="ignore")
         sheet2_xml = zf.read("xl/worksheets/sheet2.xml").decode("utf-8", errors="ignore")
-        sheet2_rels = zf.read("xl/worksheets/_rels/sheet2.xml.rels").decode("utf-8", errors="ignore")
-        sheet6_rels = zf.read("xl/worksheets/_rels/sheet6.xml.rels").decode("utf-8", errors="ignore")
+        sheet2_rels = zf.read("xl/worksheets/_rels/sheet2.xml.rels").decode(
+            "utf-8", errors="ignore"
+        )
+        sheet6_rels = zf.read("xl/worksheets/_rels/sheet6.xml.rels").decode(
+            "utf-8", errors="ignore"
+        )
         content_types = zf.read("[Content_Types].xml").decode("utf-8", errors="ignore")
         drawing2_xml = zf.read("xl/drawings/drawing2.xml").decode("utf-8", errors="ignore")
 
@@ -482,4 +494,6 @@ def test_salvar_preserva_nova_aba_criada_por_openpyxl(tmp_path):
     with zipfile.ZipFile(output, "r") as zf:
         workbook_xml = zf.read("xl/workbook.xml").decode("utf-8", errors="ignore")
         assert "NOVA_ABA_TESTE" in workbook_xml
-        assert any(n.startswith("xl/worksheets/sheet") and n.endswith(".xml") for n in zf.namelist())
+        assert any(
+            n.startswith("xl/worksheets/sheet") and n.endswith(".xml") for n in zf.namelist()
+        )

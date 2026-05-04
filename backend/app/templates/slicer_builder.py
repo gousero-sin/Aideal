@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from uuid import uuid4
 
-
 EXT_URI_SLICER_CACHE_DEFINITION = "{2F2917AC-EB37-4324-AD4E-5DD8C200BD13}"
 
 
@@ -38,7 +37,7 @@ def build_slicer_cache_xml(spec: ResolvedSlicerSpec) -> bytes:
     """Monta XML de `xl/slicerCaches/slicerCacheN.xml` para table slicer."""
     xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<slicerCacheDefinition '
+        "<slicerCacheDefinition "
         'xmlns="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main" '
         'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
         'xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
@@ -71,7 +70,7 @@ def build_slicers_xml(specs: list[ResolvedSlicerSpec]) -> bytes:
     xml = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<slicers xmlns="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main">'
-        f'{"".join(rows)}'
+        f"{''.join(rows)}"
         "</slicers>"
     )
     return xml.encode("utf-8")
@@ -95,7 +94,7 @@ def build_drawing_slicer_anchor(
         "<xdr:rowOff>90715</xdr:rowOff>"
         "</xdr:from>"
         '<xdr:ext cx="3429000" cy="1714500"/>'
-        '<mc:AlternateContent '
+        "<mc:AlternateContent "
         'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '
         'xmlns:sle15="http://schemas.microsoft.com/office/drawing/2012/slicer">'
         '<mc:Choice Requires="sle15">'
@@ -111,7 +110,7 @@ def build_drawing_slicer_anchor(
         "</xdr:cNvPr>"
         "<xdr:cNvGraphicFramePr/>"
         "</xdr:nvGraphicFramePr>"
-        "<xdr:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/></xdr:xfrm>"
+        '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>'
         "<a:graphic>"
         '<a:graphicData uri="http://schemas.microsoft.com/office/drawing/2010/slicer">'
         '<sle:slicer xmlns:sle="http://schemas.microsoft.com/office/drawing/2010/slicer" '
@@ -139,7 +138,7 @@ def build_drawing_slicer_anchor(
         "<xdr:txBody>"
         '<a:bodyPr vertOverflow="clip" horzOverflow="clip"/>'
         "<a:lstStyle/>"
-        "<a:p><a:r><a:rPr lang=\"en-US\" sz=\"1000\"/>"
+        '<a:p><a:r><a:rPr lang="en-US" sz="1000"/>'
         "<a:t>This shape represents a table slicer.</a:t></a:r></a:p>"
         "</xdr:txBody>"
         "</xdr:sp>"

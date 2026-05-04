@@ -42,30 +42,36 @@ def _criar_arquivo_fluxo(path: Path, mes: int = 8) -> None:
     ws.append(["Relatório de movimentos financeiros"])
     ws.append(["Conta:", "BANCO ITAU"])
     ws.append([])
-    ws.append([
-        "Data Mov.",
-        "Tipo",
-        "Desc. Mov.",
-        "Valor (R$)",
-        "Saldo (R$)",
-        "Conta Gerencial Mov",
-    ])
-    ws.append([
-        f"04/{mes:02d}/2025",
-        "Crédito",
-        "Recebimento Cliente",
-        1000.0,
-        1000.0,
-        "Recebimento de Clientes",
-    ])
-    ws.append([
-        f"05/{mes:02d}/2025",
-        "Débito",
-        "Pagamento Fornecedor",
-        200.0,
-        800.0,
-        "Fornecedores",
-    ])
+    ws.append(
+        [
+            "Data Mov.",
+            "Tipo",
+            "Desc. Mov.",
+            "Valor (R$)",
+            "Saldo (R$)",
+            "Conta Gerencial Mov",
+        ]
+    )
+    ws.append(
+        [
+            f"04/{mes:02d}/2025",
+            "Crédito",
+            "Recebimento Cliente",
+            1000.0,
+            1000.0,
+            "Recebimento de Clientes",
+        ]
+    )
+    ws.append(
+        [
+            f"05/{mes:02d}/2025",
+            "Débito",
+            "Pagamento Fornecedor",
+            200.0,
+            800.0,
+            "Fornecedores",
+        ]
+    )
     wb.save(path)
 
 
@@ -74,19 +80,21 @@ def _criar_template_fluxo(path: Path) -> None:
     ws = wb.active
     ws.title = "Consolidado"
     ws.append(HEADERS)
-    ws.append([
-        date(2025, 7, 1),
-        "linha antiga de julho",
-        1,
-        None,
-        101,
-        "Antiga",
-        "=YEAR(A2)",
-        "=MONTH(A2)",
-        "=INDEX(mês[],Consolidado!H2,2)",
-        "ITAU",
-        "A IDEAL",
-    ])
+    ws.append(
+        [
+            date(2025, 7, 1),
+            "linha antiga de julho",
+            1,
+            None,
+            101,
+            "Antiga",
+            "=YEAR(A2)",
+            "=MONTH(A2)",
+            "=INDEX(mês[],Consolidado!H2,2)",
+            "ITAU",
+            "A IDEAL",
+        ]
+    )
     table = Table(displayName="FluxoConsol", ref="A1:K2")
     table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
     ws.add_table(table)
@@ -164,9 +172,7 @@ def test_fluxo_salva_mes_no_banco_e_gera_somente_mes_selecionado(tmp_path):
     wb = load_workbook(resultado_geracao["output_path"], data_only=False)
     consolidado = wb["Consolidado"]
     meses_consolidado = {
-        cell.value.month
-        for cell in consolidado["A"][1:]
-        if getattr(cell.value, "month", None)
+        cell.value.month for cell in consolidado["A"][1:] if getattr(cell.value, "month", None)
     }
     assert meses_consolidado == {8}
     assert wb["Apresentação GMP"].column_dimensions["J"].hidden is False

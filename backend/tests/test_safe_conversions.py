@@ -12,7 +12,6 @@ from app.transformacao.engine import (
     classificar_valores,
 )
 
-
 # ── _safe_decimal ────────────────────────────────────────────────────────────
 
 
@@ -43,7 +42,6 @@ class TestSafeDecimal:
         assert _safe_decimal(None) == Decimal("0")
 
     def test_nan(self):
-        import math
         assert _safe_decimal(float("nan")) == Decimal("0")
 
     def test_vazio(self):
@@ -74,6 +72,7 @@ class TestSafeDate:
 
     def test_datetime_object(self):
         from datetime import datetime
+
         dt = datetime(2025, 5, 15, 10, 30)
         assert _safe_date(dt) == date(2025, 5, 15)
 
@@ -81,7 +80,6 @@ class TestSafeDate:
         assert _safe_date(None) is None
 
     def test_nan(self):
-        import math
         assert _safe_date(float("nan")) is None
 
     def test_invalido(self):
@@ -104,7 +102,6 @@ class TestSafeStr:
         assert _safe_str(None) == ""
 
     def test_nan(self):
-        import math
         assert _safe_str(float("nan")) == ""
 
     def test_numero(self):

@@ -28,9 +28,7 @@ class FluxoCaixaMerger:
             consolidado.movimentos.extend(lote.movimentos)
 
         # Ordenar por data e banco
-        consolidado.movimentos.sort(
-            key=lambda m: (m.data_movimento, m.banco_origem)
-        )
+        consolidado.movimentos.sort(key=lambda m: (m.data_movimento, m.banco_origem))
 
         # Deduplica bancos
         consolidado.bancos = list(set(consolidado.bancos))

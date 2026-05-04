@@ -63,6 +63,7 @@ def test_ingestao_persiste_linhas_com_data_fora_da_competencia(tmp_path):
     arquivo = tmp_path / "relatorio_mes_05.xlsx"
     # Relatório de maio mas com linha datada de junho (caso VLI MULTIMODAL real).
     from openpyxl import Workbook
+
     wb = Workbook()
     ws = wb.active
     ws.title = "RELATORIO"

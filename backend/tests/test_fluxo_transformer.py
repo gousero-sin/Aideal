@@ -19,12 +19,14 @@ def _dados_fluxo(df, aba="Sheet"):
 
 
 def test_transferencia_com_banco_destino_vira_debito():
-    df = pd.DataFrame({
-        "Data Mov.": ["07/05/2025"],
-        "Tipo": ["Transferência - BANCO SAFRA"],
-        "Desc. Mov.": ["TRANSFERÊNCIA ENTRE BANCOS ITAÚ X SAFRA"],
-        "Valor (R$)": [25000.0],
-    })
+    df = pd.DataFrame(
+        {
+            "Data Mov.": ["07/05/2025"],
+            "Tipo": ["Transferência - BANCO SAFRA"],
+            "Desc. Mov.": ["TRANSFERÊNCIA ENTRE BANCOS ITAÚ X SAFRA"],
+            "Valor (R$)": [25000.0],
+        }
+    )
 
     transformer = FluxoCaixaTransformer()
     lote = transformer.transformar(_dados_fluxo(df), banco_origem="itau", periodo="05/2025")
@@ -36,12 +38,14 @@ def test_transferencia_com_banco_destino_vira_debito():
 
 
 def test_transferencia_sem_banco_destino_vira_credito():
-    df = pd.DataFrame({
-        "Data Mov.": ["07/05/2025"],
-        "Tipo": ["Transferência - "],
-        "Desc. Mov.": ["TRANSFERÊNCIA ENTRE BANCOS CEF X ITAÚ"],
-        "Valor (R$)": [25000.0],
-    })
+    df = pd.DataFrame(
+        {
+            "Data Mov.": ["07/05/2025"],
+            "Tipo": ["Transferência - "],
+            "Desc. Mov.": ["TRANSFERÊNCIA ENTRE BANCOS CEF X ITAÚ"],
+            "Valor (R$)": [25000.0],
+        }
+    )
 
     transformer = FluxoCaixaTransformer()
     lote = transformer.transformar(_dados_fluxo(df), banco_origem="itau", periodo="05/2025")
@@ -53,13 +57,15 @@ def test_transferencia_sem_banco_destino_vira_credito():
 
 
 def test_transferencia_itau_para_outro_banco_vira_debito_pela_descricao():
-    df = pd.DataFrame({
-        "Data Mov.": ["22/07/2025"],
-        "Tipo": ["Transferência"],
-        "Desc. Mov.": ["TRANSFERÊNCIA ENTRE BANCOS ITAÚ X SAFRA"],
-        "Valor (R$)": [79602.49],
-        "Conta Gerencial Mov": ["Transferência entre Bancos"],
-    })
+    df = pd.DataFrame(
+        {
+            "Data Mov.": ["22/07/2025"],
+            "Tipo": ["Transferência"],
+            "Desc. Mov.": ["TRANSFERÊNCIA ENTRE BANCOS ITAÚ X SAFRA"],
+            "Valor (R$)": [79602.49],
+            "Conta Gerencial Mov": ["Transferência entre Bancos"],
+        }
+    )
 
     transformer = FluxoCaixaTransformer()
     lote = transformer.transformar(_dados_fluxo(df), banco_origem="itau", periodo="07/2025")
@@ -72,13 +78,15 @@ def test_transferencia_itau_para_outro_banco_vira_debito_pela_descricao():
 
 
 def test_transferencia_outro_banco_para_itau_vira_credito_pela_descricao():
-    df = pd.DataFrame({
-        "Data Mov.": ["25/07/2025"],
-        "Tipo": ["Transferência"],
-        "Desc. Mov.": ["TRANSFERÊNCIA ENTRE BANCOS SAFRA X ITAÚ"],
-        "Valor (R$)": [50000.0],
-        "Conta Gerencial Mov": ["Transferência entre Bancos"],
-    })
+    df = pd.DataFrame(
+        {
+            "Data Mov.": ["25/07/2025"],
+            "Tipo": ["Transferência"],
+            "Desc. Mov.": ["TRANSFERÊNCIA ENTRE BANCOS SAFRA X ITAÚ"],
+            "Valor (R$)": [50000.0],
+            "Conta Gerencial Mov": ["Transferência entre Bancos"],
+        }
+    )
 
     transformer = FluxoCaixaTransformer()
     lote = transformer.transformar(_dados_fluxo(df), banco_origem="itau", periodo="07/2025")

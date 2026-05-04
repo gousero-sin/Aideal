@@ -49,9 +49,7 @@ class FluxoCaixaGeracaoService:
         mes = int(parts[0])
         ano = int(parts[1])
         if mes < 1 or mes > 12:
-            raise ValueError(
-                f"Mês da competência inválido: {mes:02d}. Use valores entre 01 e 12."
-            )
+            raise ValueError(f"Mês da competência inválido: {mes:02d}. Use valores entre 01 e 12.")
         return ano, mes
 
     @staticmethod
@@ -141,9 +139,9 @@ class FluxoCaixaGeracaoService:
         movimentos = [mov.to_movimento() for mov in movimentos_db]
         lote = FCLote(
             periodo=competencia,
-            arquivos_origem=sorted({
-                mov.arquivo_origem for mov in movimentos if mov.arquivo_origem
-            }),
+            arquivos_origem=sorted(
+                {mov.arquivo_origem for mov in movimentos if mov.arquivo_origem}
+            ),
             bancos=sorted({mov.banco_origem for mov in movimentos}),
             movimentos=movimentos,
         )
@@ -160,12 +158,8 @@ class FluxoCaixaGeracaoService:
             preservar_historico=False,
         )
 
-        total_creditos = sum(
-            mov.valor for mov in movimentos if mov.tipo == TipoMovimento.CREDITO
-        )
-        total_debitos = sum(
-            mov.valor for mov in movimentos if mov.tipo == TipoMovimento.DEBITO
-        )
+        total_creditos = sum(mov.valor for mov in movimentos if mov.tipo == TipoMovimento.CREDITO)
+        total_debitos = sum(mov.valor for mov in movimentos if mov.tipo == TipoMovimento.DEBITO)
         meses_ocultos = [m for m in range(1, 13) if m not in meses_utilizados]
 
         return {

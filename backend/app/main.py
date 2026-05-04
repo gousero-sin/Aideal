@@ -2,9 +2,10 @@
 
 import logging
 import tempfile
+from datetime import date
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
@@ -16,9 +17,12 @@ from .ingestao.dre_ingestao import DREIngestaoService
 from .ingestao.fluxo_caixa_ingestao import FluxoCaixaIngestaoService
 from .ingestao.parser import ExcelParser
 from .processamento import DREProcessamentoService, FluxoCaixaProcessamentoService
+from .processamento.competencia import CompetenciaDetectorService
+from .processamento.dashboard import DashboardResumoService
 from .processamento.dre_geracao import DREGeracaoService
 from .processamento.dre_geracao_completa import DREGeracaoCompletaService
 from .processamento.fluxo_caixa_db import FluxoCaixaGeracaoService
+from .processamento.paineis import PainelDREService, PainelFluxoCaixaService
 from .templates.writer import TemplateWriter
 from .validacao.validators import DREValidator, FluxoCaixaValidator
 
@@ -50,6 +54,10 @@ dre_geracao_service = DREGeracaoService()
 dre_geracao_completa_service = DREGeracaoCompletaService()
 fluxo_ingestao_service = FluxoCaixaIngestaoService()
 fluxo_geracao_db_service = FluxoCaixaGeracaoService()
+dashboard_resumo_service = DashboardResumoService()
+dre_painel_service = PainelDREService()
+fluxo_painel_service = PainelFluxoCaixaService()
+competencia_detector_service = CompetenciaDetectorService()
 
 
 # Executa migrações no startup
@@ -87,6 +95,109 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/dashboard/resumo")
+async def dashboard_resumo(
+    ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
+    mes: int | None = Query(None, description="Mês de referência 1..12"),
+):
+    """Retorna o resumo executivo do dashboard GoFlowOS."""
+    try:
+        if ano is None and mes is None:
+            ano_ref, mes_ref = dashboard_resumo_service.obter_periodo_padrao()
+        else:
+            hoje = date.today()
+            ano_ref = ano or hoje.year
+            mes_ref = mes or hoje.month
+        return dashboard_resumo_service.obter_resumo(ano=ano_ref, mes=mes_ref)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Erro ao obter resumo do dashboard: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/dre/painel")
+async def painel_dre(
+    ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
+    meses: list[int] | None = Query(None, description="Meses a incluir, repetível"),
+    centro_custo: list[str] | None = Query(None, description="Obras/centros de custo"),
+    natureza: list[str] | None = Query(None, description="Naturezas normalizadas"),
+):
+    """Retorna a página analítica completa do DRE."""
+    try:
+        return dre_painel_service.obter_painel(
+            ano=ano,
+            meses=meses,
+            centro_custo=centro_custo,
+            natureza=natureza,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Erro ao obter painel DRE: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/fluxo_caixa/painel")
+async def painel_fluxo_caixa(
+    ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
+    meses: list[int] | None = Query(None, description="Meses a incluir, repetível"),
+    banco: list[str] | None = Query(None, description="Bancos de origem"),
+    tipo: list[str] | None = Query(None, description="Tipos de movimento"),
+    classificacao: list[str] | None = Query(None, description="Classificações/contas gerenciais"),
+):
+    """Retorna a página analítica completa do Fluxo de Caixa."""
+    try:
+        return fluxo_painel_service.obter_painel(
+            ano=ano,
+            meses=meses,
+            banco=banco,
+            tipo=tipo,
+            classificacao=classificacao,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Erro ao obter painel Fluxo de Caixa: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/api/detectar-competencia/{fluxo}")
+async def detectar_competencia(
+    fluxo: FlowType,
+    arquivo: UploadFile | None = File(None),
+    arquivos: list[UploadFile] | None = File(None),
+):
+    """Detecta automaticamente a competência pelo conteúdo do(s) arquivo(s)."""
+    tmp_paths: list[Path] = []
+    try:
+        uploads = arquivos or ([arquivo] if arquivo is not None else [])
+        if not uploads:
+            raise HTTPException(status_code=400, detail="Envie ao menos um arquivo.")
+
+        arquivos_detector: list[tuple[Path, str]] = []
+        for upload in uploads:
+            tmp_path = await _salvar_upload_temporario(upload)
+            tmp_paths.append(tmp_path)
+            arquivos_detector.append((tmp_path, upload.filename or tmp_path.name))
+
+        return competencia_detector_service.detectar(
+            fluxo=fluxo.value,
+            arquivos=arquivos_detector,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Erro ao detectar competência: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        for path in tmp_paths:
+            if path.exists():
+                path.unlink()
 
 
 @app.post("/api/validar/{fluxo}")

@@ -1,7 +1,7 @@
 import pandas as pd
 
-from app.contracts.common import ErrorSeverity
 from app.config import settings
+from app.contracts.common import ErrorSeverity
 from app.ingestao.parser import ExcelParser
 from app.validacao.validators import DREValidator
 
@@ -30,8 +30,7 @@ def test_validacao_bloqueia_natureza_nao_mapeada():
 
     assert result.valido is False
     assert any(
-        e.campo == "natureza" and e.severidade == ErrorSeverity.BLOQUEANTE
-        for e in result.erros
+        e.campo == "natureza" and e.severidade == ErrorSeverity.BLOQUEANTE for e in result.erros
     )
 
 
@@ -77,7 +76,13 @@ def test_validacao_cumulativa_aceita_janeiro_ate_competencia():
             ],
             "Descri.": ["M1", "M2", "M3", "M4", "M5"],
             "Vlr.bruto (R$)": [100, 110, 120, 130, 140],
-            "CLASSIFICAÇÃO": ["1 - ENTRADA", "2 - SAÍDA", "1 - ENTRADA", "2 - SAIDA", "1 - ENTRADA"],
+            "CLASSIFICAÇÃO": [
+                "1 - ENTRADA",
+                "2 - SAÍDA",
+                "1 - ENTRADA",
+                "2 - SAIDA",
+                "1 - ENTRADA",
+            ],
         }
     )
 

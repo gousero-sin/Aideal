@@ -1,16 +1,14 @@
 """Testes para Exporter (exportacao/exporter.py)."""
 
-import json
-
-import pytest
-
-from app.contracts.common import FlowType, ProcessingLog, ProcessingStatus
+from app.contracts.common import FlowType, ProcessingStatus
 from app.exportacao.exporter import Exporter
 
 
 class TestExporterCriarLog:
     def test_cria_log_com_id(self, tmp_path):
-        exp = Exporter(logs_dir=tmp_path / "logs", temp_dir=tmp_path / "tmp", output_dir=tmp_path / "out")
+        exp = Exporter(
+            logs_dir=tmp_path / "logs", temp_dir=tmp_path / "tmp", output_dir=tmp_path / "out"
+        )
         log = exp.criar_log(FlowType.DRE, ["arquivo.xls"])
         assert log.id
         assert log.fluxo == FlowType.DRE
@@ -34,7 +32,9 @@ class TestExporterNomeSaida:
 
 class TestExporterSalvarCarregar:
     def test_salvar_e_carregar_log(self, tmp_path):
-        exp = Exporter(logs_dir=tmp_path / "logs", temp_dir=tmp_path / "tmp", output_dir=tmp_path / "out")
+        exp = Exporter(
+            logs_dir=tmp_path / "logs", temp_dir=tmp_path / "tmp", output_dir=tmp_path / "out"
+        )
         log = exp.criar_log(FlowType.DRE, ["input.xls"])
         log.finalizar(ProcessingStatus.COMPLETED, arquivo_saida="output.xlsx")
         log.total_registros = 42
@@ -49,7 +49,9 @@ class TestExporterSalvarCarregar:
         assert loaded.arquivo_saida == "output.xlsx"
 
     def test_carregar_log_inexistente(self, tmp_path):
-        exp = Exporter(logs_dir=tmp_path / "logs", temp_dir=tmp_path / "tmp", output_dir=tmp_path / "out")
+        exp = Exporter(
+            logs_dir=tmp_path / "logs", temp_dir=tmp_path / "tmp", output_dir=tmp_path / "out"
+        )
         assert exp.carregar_log("id_que_nao_existe") is None
 
 

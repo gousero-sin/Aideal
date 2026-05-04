@@ -133,10 +133,7 @@ class ExcelParser:
                 logger.warning(f"Erro ao ler aba '{aba}' de '{filepath.name}': {e}")
                 dados[aba] = pd.DataFrame()
 
-        logger.info(
-            f"Arquivo '{filepath.name}' lido: {len(abas)} aba(s), "
-            f"formato {ext}"
-        )
+        logger.info(f"Arquivo '{filepath.name}' lido: {len(abas)} aba(s), formato {ext}")
 
         return {
             "abas": abas,

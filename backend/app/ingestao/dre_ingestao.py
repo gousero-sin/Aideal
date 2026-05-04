@@ -45,9 +45,7 @@ class DREIngestaoService:
         mes = int(mes_str)
         ano = int(ano_str)
         if mes < 1 or mes > 12:
-            raise ValueError(
-                f"Mês da competência inválido: {mes:02d}. Use valores entre 01 e 12."
-            )
+            raise ValueError(f"Mês da competência inválido: {mes:02d}. Use valores entre 01 e 12.")
         return ano, mes
 
     def _lancamento_to_db(
@@ -122,10 +120,7 @@ class DREIngestaoService:
         como receita do mês do relatório). Retornamos apenas contagem para
         fins de observabilidade.
         """
-        return sum(
-            1 for lanc in lancamentos
-            if lanc.data.year != ano or lanc.data.month != mes
-        )
+        return sum(1 for lanc in lancamentos if lanc.data.year != ano or lanc.data.month != mes)
 
     def ingestar(
         self,
@@ -175,8 +170,7 @@ class DREIngestaoService:
                 "success": True,
                 "upload_id": upload_existente.id,
                 "competencia": (
-                    f"{upload_existente.competencia_mes:02d}"
-                    f"/{upload_existente.competencia_ano}"
+                    f"{upload_existente.competencia_mes:02d}/{upload_existente.competencia_ano}"
                 ),
                 "status": "already_processed",
                 "message": "Arquivo já foi processado anteriormente",
@@ -258,8 +252,11 @@ class DREIngestaoService:
         datas_fora = self._contar_datas_fora_competencia(lancamentos_filtrados, ano, mes)
         if datas_fora:
             logger.info(
-                "Ingestão %02d/%d: %d lançamento(s) com data fora da competência — mantidos no upload.",
-                mes, ano, datas_fora,
+                "Ingestão %02d/%d: %d lançamento(s) com data fora da competência"
+                " — mantidos no upload.",
+                mes,
+                ano,
+                datas_fora,
             )
 
         if not lancamentos_filtrados:

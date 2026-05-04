@@ -26,8 +26,7 @@ from ..templates.writer import TemplateWriter
 logger = logging.getLogger(__name__)
 
 # Nomes abreviados dos 12 meses (índice 0 = Janeiro)
-_MESES_NOMES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-                "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+_MESES_NOMES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 _EMPRESA_PADRAO = "AIDEAL"
 
 
@@ -40,9 +39,7 @@ def _parse_competencia(competencia: str) -> tuple[int, int]:
     mes = int(mes_str)
     ano = int(ano_str)
     if mes < 1 or mes > 12:
-        raise ValueError(
-            f"Mês da competência inválido: {mes:02d}. Use valores entre 01 e 12."
-        )
+        raise ValueError(f"Mês da competência inválido: {mes:02d}. Use valores entre 01 e 12.")
     return ano, mes
 
 
@@ -81,8 +78,7 @@ class DREGeracaoCompletaService:
         meses_invalidos = [m for m in meses_normalizados if m < 1 or m > 12]
         if meses_invalidos:
             raise ValueError(
-                f"Meses inválidos em meses_incluir: {meses_invalidos}. "
-                "Use valores entre 1 e 12."
+                f"Meses inválidos em meses_incluir: {meses_invalidos}. Use valores entre 1 e 12."
             )
         return meses_normalizados
 
@@ -309,13 +305,13 @@ class DREGeracaoCompletaService:
         debito = float(lanc.debito) if lanc.debito else None
 
         return [
-            data_val,                        # A - Data
-            lanc.historico,                  # B - Histórico
-            credito if credito else None,    # C - Crédito
-            debito if debito else None,      # D - Débito
-            None,                            # E - Saldo (fórmula externa)
-            lanc.natureza_raw or "",         # F - Natureza (C. gerencial para VLOOKUP)
-            lanc.centro_custo or "",         # G - Centro de Custo
+            data_val,  # A - Data
+            lanc.historico,  # B - Histórico
+            credito if credito else None,  # C - Crédito
+            debito if debito else None,  # D - Débito
+            None,  # E - Saldo (fórmula externa)
+            lanc.natureza_raw or "",  # F - Natureza (C. gerencial para VLOOKUP)
+            lanc.centro_custo or "",  # G - Centro de Custo
         ]
 
     def _converte_linha_bd_fluxo_expandida(
@@ -351,24 +347,24 @@ class DREGeracaoCompletaService:
         conta_pai_final = conta_pai or (lanc.conta_pai or "").strip() or None
 
         return [
-            data_val,                        # A - Data
-            lanc.historico,                  # B - Histórico
-            credito if credito else None,    # C - Crédito
-            debito if debito else None,      # D - Débito
-            valor if valor else None,        # E - Saldo
-            lanc.natureza_raw or "",         # F - Natureza
-            lanc.centro_custo or "",         # G - Centro de Custo - Obra
-            ano_fluxo,                       # H - Ano Fluxo
-            mes_fluxo,                       # I - C. Mês
-            mes_nome,                        # J - Mês
-            None,                            # K - Banco
-            None,                            # L - Empresa
-            valor if valor else None,        # M - Valor
-            rubrica_final,                   # N - Rubrica
-            conta_filho or None,             # O - Conta Filho
-            conta_pai_final,                 # P - Conta Pai
-            cod,                             # Q - Cod
-            ano_fluxo,                       # R - Ano
+            data_val,  # A - Data
+            lanc.historico,  # B - Histórico
+            credito if credito else None,  # C - Crédito
+            debito if debito else None,  # D - Débito
+            valor if valor else None,  # E - Saldo
+            lanc.natureza_raw or "",  # F - Natureza
+            lanc.centro_custo or "",  # G - Centro de Custo - Obra
+            ano_fluxo,  # H - Ano Fluxo
+            mes_fluxo,  # I - C. Mês
+            mes_nome,  # J - Mês
+            None,  # K - Banco
+            None,  # L - Empresa
+            valor if valor else None,  # M - Valor
+            rubrica_final,  # N - Rubrica
+            conta_filho or None,  # O - Conta Filho
+            conta_pai_final,  # P - Conta Pai
+            cod,  # Q - Cod
+            ano_fluxo,  # R - Ano
         ]
 
     def _limpar_bd_fluxo(self, writer: TemplateWriter) -> None:
@@ -545,7 +541,9 @@ class DREGeracaoCompletaService:
                 ws.auto_filter.ref = f"A{cab_row}:{chr(64 + min(len(cabecalho), 26))}{dados_fim}"
             return dados_fim + 2
 
-        ws.cell(row=1, column=1, value="DRE - Detalhamento mensal (gerado do banco)").font = title_font
+        ws.cell(
+            row=1, column=1, value="DRE - Detalhamento mensal (gerado do banco)"
+        ).font = title_font
         ws.cell(row=2, column=1, value=f"Competência: {competencia}")
         ws.cell(row=2, column=4, value=f"Estratégia: {estrategia_meses}")
         ws.cell(
@@ -670,9 +668,7 @@ class DREGeracaoCompletaService:
     ) -> dict[str, Any]:
         """Oculta/exibe pares de colunas (valor + %) de meses na aba DRE."""
         if "DRE" not in writer.listar_sheets():
-            logger.warning(
-                "Aba 'DRE' não encontrada no template; visibilidade de colunas ignorada"
-            )
+            logger.warning("Aba 'DRE' não encontrada no template; visibilidade de colunas ignorada")
             return {
                 "meses_visiveis": [],
                 "meses_ocultos": [],
@@ -832,8 +828,7 @@ class DREGeracaoCompletaService:
         lancamentos = self._get_lancamentos_ytd(ano, meses_utilizados, centro_custo)
         if not lancamentos:
             raise ValueError(
-                f"Nenhum lançamento encontrado para os meses "
-                f"{meses_utilizados} em {ano}."
+                f"Nenhum lançamento encontrado para os meses {meses_utilizados} em {ano}."
             )
 
         # 3. Caminho de saída
@@ -855,8 +850,7 @@ class DREGeracaoCompletaService:
             # 4a. Limpar e escrever BD_FLUXO (A:R) já com campos derivados
             # materializados. Isso remove dependência de recálculo intermediário.
             linhas_bd = [
-                self._converte_linha_bd_fluxo_expandida(lanc, plano)
-                for lanc in lancamentos
+                self._converte_linha_bd_fluxo_expandida(lanc, plano) for lanc in lancamentos
             ]
             writer.registrar_sheet_data_override(
                 "BD_FLUXO",
@@ -892,7 +886,9 @@ class DREGeracaoCompletaService:
                     logger.warning("Não foi possível preencher filtro de centro de custo: %s", e)
 
             # 4e. Controlar visibilidade de colunas na aba DRE
-            visibilidade = self._controlar_visibilidade_colunas_dre(writer, meses_utilizados_planilha)
+            visibilidade = self._controlar_visibilidade_colunas_dre(
+                writer, meses_utilizados_planilha
+            )
 
             # 4f. Aba de detalhamento para uso operacional no workspace/painel.
             detalhe_meta = self._escrever_aba_detalhamento_mensal(

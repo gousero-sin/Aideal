@@ -1,7 +1,7 @@
 """Repository module initialization."""
 
 from .base import Repository
-from .dre_repository import DREUploadRepository, DRELancamentoRepository, DRERepository
+from .dre_repository import DRELancamentoRepository, DRERepository, DREUploadRepository
 
 __all__ = [
     "Repository",

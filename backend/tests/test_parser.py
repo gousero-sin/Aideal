@@ -22,12 +22,14 @@ class TestExcelParserInit:
 class TestMapearColunas:
     def test_mapeia_aliases_dre_padrao(self):
         parser = ExcelParser("dre")
-        df = pd.DataFrame({
-            "Emissão": [],
-            "Descri.": [],
-            "Vlr.bruto (R$)": [],
-            "CLASSIFICAÇÃO": [],
-        })
+        df = pd.DataFrame(
+            {
+                "Emissão": [],
+                "Descri.": [],
+                "Vlr.bruto (R$)": [],
+                "CLASSIFICAÇÃO": [],
+            }
+        )
         mapeamento = parser.mapear_colunas(df)
         assert mapeamento["data"] == "Emissão"
         assert mapeamento["historico"] == "Descri."
@@ -36,13 +38,15 @@ class TestMapearColunas:
 
     def test_mapeia_alias_com_quebra_de_linha(self):
         parser = ExcelParser("dre")
-        df = pd.DataFrame({
-            "Emissão": [],
-            "Descri.\n": [],
-            "Vlr.bruto (R$)": [],
-            "CLASSIFICAÇÃO": [],
-            "Obra/\nCentro custo": [],
-        })
+        df = pd.DataFrame(
+            {
+                "Emissão": [],
+                "Descri.\n": [],
+                "Vlr.bruto (R$)": [],
+                "CLASSIFICAÇÃO": [],
+                "Obra/\nCentro custo": [],
+            }
+        )
         mapeamento = parser.mapear_colunas(df)
         assert mapeamento["centro_custo"] == "Obra/\nCentro custo"
 
@@ -55,12 +59,14 @@ class TestMapearColunas:
 
     def test_case_insensitive(self):
         parser = ExcelParser("dre")
-        df = pd.DataFrame({
-            "emissão": [],
-            "descri.": [],
-            "vlr.bruto (r$)": [],
-            "classificação": [],
-        })
+        df = pd.DataFrame(
+            {
+                "emissão": [],
+                "descri.": [],
+                "vlr.bruto (r$)": [],
+                "classificação": [],
+            }
+        )
         mapeamento = parser.mapear_colunas(df)
         assert mapeamento["data"] == "emissão"
         assert mapeamento["credito"] == "vlr.bruto (r$)"
@@ -120,8 +126,20 @@ class TestLerArquivo:
         ws.append(["Relatório gerencial"])
         ws.append(["Conta:", "BANCO ITAU"])
         ws.append([])
-        ws.append(["Data Mov.", None, "Tipo", "Desc. Mov.", "Valor (R$)", "Saldo (R$)", "Conta Gerencial Mov"])
-        ws.append(["01/05/2025", None, "Débito", "Pagamento fornecedor", 1500.0, 20000.0, "Fornecedores"])
+        ws.append(
+            [
+                "Data Mov.",
+                None,
+                "Tipo",
+                "Desc. Mov.",
+                "Valor (R$)",
+                "Saldo (R$)",
+                "Conta Gerencial Mov",
+            ]
+        )
+        ws.append(
+            ["01/05/2025", None, "Débito", "Pagamento fornecedor", 1500.0, 20000.0, "Fornecedores"]
+        )
         wb.save(path)
 
         resultado = parser.ler_arquivo(path)

@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from openpyxl import Workbook
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
 
 import app.main as main_module
 from app.processamento.dre import DREProcessamentoService

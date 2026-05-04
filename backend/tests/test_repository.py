@@ -1,6 +1,5 @@
 """Testes unitários para camada de persistência DRE."""
 
-import os
 import tempfile
 from decimal import Decimal
 from uuid import uuid4
@@ -8,7 +7,6 @@ from uuid import uuid4
 import pytest
 
 from app.contracts.persistence import (
-    DRECompetenciaQuery,
     DRELancamentoDB,
     DREUpload,
 )
@@ -512,7 +510,7 @@ class TestMigrationManager:
         manager = MigrationManager(temp_db)
 
         # Executa duas vezes
-        result1 = manager.migrate()
+        manager.migrate()
         result2 = manager.migrate()
 
         # Segunda vez não deve executar nada novo

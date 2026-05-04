@@ -1,10 +1,11 @@
 import React from 'react';
+import { ArrowRight, BarChart3, WalletCards } from 'lucide-react';
 
 export default function FlowSelector({ onSelect }) {
   const cards = [
       {
         key: 'dre',
-        icon: 'DRE',
+        icon: <BarChart3 size={24} aria-hidden="true" />,
         title: 'Fluxo DRE',
         description:
         'Importa planilha mensal bruta, valida a estrutura e prepara a geração do template AIDEAL.',
@@ -12,7 +13,7 @@ export default function FlowSelector({ onSelect }) {
       },
     {
       key: 'fluxo_caixa',
-      icon: 'FC',
+      icon: <WalletCards size={24} aria-hidden="true" />,
       title: 'Fluxo de Caixa',
       description:
         'Importa lote bancário, valida consistência e prepara consolidação por origem.',
@@ -23,33 +24,18 @@ export default function FlowSelector({ onSelect }) {
   return (
     <section className="aideal-grid-2">
       {cards.map((card) => (
-        <article key={card.key} className="aideal-card" style={{ padding: '18px' }}>
-          <div
-            style={{
-              width: '44px',
-              height: '44px',
-              borderRadius: '12px',
-              background: 'rgba(22, 135, 224, 0.12)',
-              color: 'var(--aideal-primary-dark)',
-              fontWeight: 700,
-              display: 'grid',
-              placeItems: 'center',
-              marginBottom: '12px',
-            }}
-          >
+        <article key={card.key} className="aideal-card aideal-flow-card">
+          <div className="aideal-card-icon">
             {card.icon}
           </div>
 
-          <h2 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--aideal-primary-dark)' }}>
-            {card.title}
-          </h2>
+          <h2>{card.title}</h2>
 
-          <p style={{ margin: '8px 0 14px', color: 'var(--aideal-text-soft)', fontSize: '0.9rem' }}>
-            {card.description}
-          </p>
+          <p>{card.description}</p>
 
           <button className="aideal-action aideal-action-primary" onClick={() => onSelect(card.key)}>
-            {card.cta}
+            <span>{card.cta}</span>
+            <ArrowRight size={16} aria-hidden="true" />
           </button>
         </article>
       ))}

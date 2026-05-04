@@ -17,6 +17,25 @@ const formatMeses = (meses) => {
     .join(', ');
 };
 
+function MessageGroup({ title, tone, items }) {
+  if (!items.length) return null;
+  const panelClass = tone === 'error' ? 'aideal-panel-error' : 'aideal-panel-warning';
+  const titleClass = tone === 'error' ? 'is-error' : 'is-warning';
+
+  return (
+    <article className={`aideal-panel ${panelClass} aideal-message-panel`}>
+      <h4 className={titleClass}>{title}</h4>
+      {items.map((item, index) => (
+        <div key={`${item.campo}-${index}`} className="aideal-message-row">
+          <div>{item.campo}</div>
+          <p>{item.mensagem}</p>
+          {item.sugestao && <em>Sugestão: {item.sugestao}</em>}
+        </div>
+      ))}
+    </article>
+  );
+}
+
 export default function StatusPanel({ validacao, processamento, fluxo }) {
   const fluxoLabel = fluxo === 'dre' ? 'DRE' : 'Fluxo de Caixa';
   const validationErrors = validacao?.erros || [];
@@ -40,8 +59,8 @@ export default function StatusPanel({ validacao, processamento, fluxo }) {
     processamento?.download_url || (processamento?.id ? `/api/processamentos/${processamento.id}/download` : null);
 
   return (
-    <section style={{ marginTop: '14px' }}>
-      <div className="aideal-grid-4" style={{ marginBottom: '12px' }}>
+    <section className="aideal-status-panel">
+      <div className="aideal-grid-4 aideal-status-grid">
         <article className="aideal-kpi">
           <p className="aideal-kpi-label">Validação</p>
           <p className={`aideal-kpi-value ${validationClass}`}>
@@ -65,86 +84,23 @@ export default function StatusPanel({ validacao, processamento, fluxo }) {
 
         <article className="aideal-kpi">
           <p className="aideal-kpi-label">Warnings</p>
-          <p className="aideal-kpi-value" style={{ color: totalWarnings > 0 ? '#aa7d00' : 'var(--aideal-text)' }}>
+          <p className={`aideal-kpi-value ${totalWarnings > 0 ? 'aideal-status-warning-value' : ''}`}>
             {totalWarnings}
           </p>
         </article>
       </div>
 
-      {validationErrors.length > 0 && (
-        <article className="aideal-panel aideal-panel-error" style={{ marginBottom: '10px' }}>
-          <h4 style={{ margin: '0 0 8px', color: 'var(--aideal-accent-red)' }}>Erros de validação</h4>
-          {validationErrors.map((e, i) => (
-            <div key={i} style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: '0.84rem', fontWeight: 700 }}>{e.campo}</div>
-              <div style={{ fontSize: '0.82rem', color: 'var(--aideal-text-soft)' }}>{e.mensagem}</div>
-              {e.sugestao && (
-                <div style={{ fontSize: '0.79rem', color: 'var(--aideal-primary-dark)', marginTop: '2px' }}>
-                  Sugestão: {e.sugestao}
-                </div>
-              )}
-            </div>
-          ))}
-        </article>
-      )}
-
-      {validationWarnings.length > 0 && (
-        <article className="aideal-panel aideal-panel-warning" style={{ marginBottom: '10px' }}>
-          <h4 style={{ margin: '0 0 8px', color: '#aa7d00' }}>Warnings de validação</h4>
-          {validationWarnings.map((w, i) => (
-            <div key={i} style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: '0.84rem', fontWeight: 700 }}>{w.campo}</div>
-              <div style={{ fontSize: '0.82rem', color: 'var(--aideal-text-soft)' }}>{w.mensagem}</div>
-              {w.sugestao && (
-                <div style={{ fontSize: '0.79rem', color: 'var(--aideal-primary-dark)', marginTop: '2px' }}>
-                  Sugestão: {w.sugestao}
-                </div>
-              )}
-            </div>
-          ))}
-        </article>
-      )}
-
-      {processWarnings.length > 0 && (
-        <article className="aideal-panel aideal-panel-warning" style={{ marginBottom: '10px' }}>
-          <h4 style={{ margin: '0 0 8px', color: '#aa7d00' }}>Warnings de processamento</h4>
-          {processWarnings.map((w, i) => (
-            <div key={i} style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: '0.84rem', fontWeight: 700 }}>{w.campo}</div>
-              <div style={{ fontSize: '0.82rem', color: 'var(--aideal-text-soft)' }}>{w.mensagem}</div>
-              {w.sugestao && (
-                <div style={{ fontSize: '0.79rem', color: 'var(--aideal-primary-dark)', marginTop: '2px' }}>
-                  Sugestão: {w.sugestao}
-                </div>
-              )}
-            </div>
-          ))}
-        </article>
-      )}
-
-      {processErrors.length > 0 && (
-        <article className="aideal-panel aideal-panel-error" style={{ marginBottom: '10px' }}>
-          <h4 style={{ margin: '0 0 8px', color: 'var(--aideal-accent-red)' }}>Erros de processamento</h4>
-          {processErrors.map((e, i) => (
-            <div key={i} style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: '0.84rem', fontWeight: 700 }}>{e.campo}</div>
-              <div style={{ fontSize: '0.82rem', color: 'var(--aideal-text-soft)' }}>{e.mensagem}</div>
-              {e.sugestao && (
-                <div style={{ fontSize: '0.79rem', color: 'var(--aideal-primary-dark)', marginTop: '2px' }}>
-                  Sugestão: {e.sugestao}
-                </div>
-              )}
-            </div>
-          ))}
-        </article>
-      )}
+      <MessageGroup title="Erros de validação" tone="error" items={validationErrors} />
+      <MessageGroup title="Warnings de validação" tone="warning" items={validationWarnings} />
+      <MessageGroup title="Warnings de processamento" tone="warning" items={processWarnings} />
+      <MessageGroup title="Erros de processamento" tone="error" items={processErrors} />
 
       {(validacao || processamento) && (
         <article className="aideal-panel aideal-panel-neutral">
-          <h4 style={{ margin: '0 0 8px', color: 'var(--aideal-primary-dark)' }}>
+          <h4 className="aideal-technical-title">
             Detalhes técnicos ({fluxo === 'dre' ? 'DRE' : 'Fluxo de Caixa'})
           </h4>
-          <div style={{ fontSize: '0.82rem', lineHeight: 1.7, color: 'var(--aideal-text-soft)' }}>
+          <div className="aideal-technical-list">
             {totalLinhasValidadas > 0 ? <div>Total de linhas validadas (arquivo bruto): {totalLinhasValidadas}</div> : null}
             {processamentoMeta?.bd_fluxo_range_fisico && (
               <div>BD_FLUXO (range físico): {processamentoMeta.bd_fluxo_range_fisico}</div>
@@ -177,7 +133,7 @@ export default function StatusPanel({ validacao, processamento, fluxo }) {
               <div>Modo cumulativo: ativo (jan até a competência).</div>
             )}
             {periodoMeta?.dre_periodo_modo_cumulativo === false && (
-              <div style={{ color: '#aa7d00' }}>Modo cumulativo: desativado (teste).</div>
+              <div className="aideal-status-warning-value">Modo cumulativo: desativado (teste).</div>
             )}
             {periodoMeta?.dre_periodo_competencia && (
               <div>Competência informada: {periodoMeta.dre_periodo_competencia}</div>
@@ -218,7 +174,7 @@ export default function StatusPanel({ validacao, processamento, fluxo }) {
             )}
             {Array.isArray(periodoMeta?.dre_periodo_meses_faltantes_ano_competencia) &&
               periodoMeta.dre_periodo_meses_faltantes_ano_competencia.length > 0 && (
-                <div style={{ color: 'var(--aideal-accent-red)' }}>
+                <div className="aideal-status-error">
                   Meses faltantes para cumulativo:{' '}
                   {formatMeses(periodoMeta.dre_periodo_meses_faltantes_ano_competencia)}
                 </div>

@@ -112,4 +112,3 @@ def compare_with_baseline(workbook_path: Path, baseline: WorkbookBaseline) -> di
         "changed_entries": changed,
         "is_identical": not (removed or added or changed),
     }
-

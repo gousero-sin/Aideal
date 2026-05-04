@@ -5,14 +5,12 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections import defaultdict
-from datetime import datetime
-from decimal import Decimal
 from pathlib import Path
 from uuid import uuid4
 
 from ..config import settings
 from ..contracts.common import ErrorSeverity, FlowType, ProcessingLog, ProcessingStatus
-from ..contracts.dre import DRELancamento, DRELote
+from ..contracts.dre import DRELote
 from ..contracts.persistence import DRELancamentoDB, DREUpload
 from ..contracts.processamento import DREProcessamentoResponse
 from ..db.connection import DatabaseConnection
@@ -379,7 +377,6 @@ class DREProcessamentoService:
                 agregado[(cod, conta_pai)][mes] += valor
 
         # Monta linhas (ordenadas por cod, depois label)
-        meses = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
         max_mes = max(meses_encontrados) if meses_encontrados else 5
 
         linhas = []

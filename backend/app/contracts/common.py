@@ -9,12 +9,14 @@ from pydantic import BaseModel, Field
 
 class FlowType(str, Enum):
     """Tipo de fluxo de processamento."""
+
     DRE = "dre"
     FLUXO_CAIXA = "fluxo_caixa"
 
 
 class ProcessingStatus(str, Enum):
     """Status do processamento."""
+
     PENDING = "pending"
     VALIDATING = "validating"
     PROCESSING = "processing"
@@ -24,12 +26,14 @@ class ProcessingStatus(str, Enum):
 
 class ErrorSeverity(str, Enum):
     """Severidade do erro."""
+
     BLOQUEANTE = "bloqueante"
     WARNING = "warning"
 
 
 class ValidationError(BaseModel):
     """Erro de validação estruturado."""
+
     campo: str = Field(..., description="Campo ou coluna com problema")
     mensagem: str = Field(..., description="Descrição clara do erro")
     severidade: ErrorSeverity = Field(..., description="Severidade: bloqueante ou warning")
@@ -40,6 +44,7 @@ class ValidationError(BaseModel):
 
 class ProcessingLog(BaseModel):
     """Log de execução do processamento."""
+
     id: str = Field(..., description="Identificador único do processamento")
     fluxo: FlowType
     status: ProcessingStatus

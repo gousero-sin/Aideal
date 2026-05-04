@@ -58,8 +58,7 @@ class BaseValidator:
                 ValidationError(
                     campo="abas",
                     mensagem=(
-                        f"Aba esperada '{aba_esperada}' não encontrada. "
-                        f"Abas: {abas_encontradas}"
+                        f"Aba esperada '{aba_esperada}' não encontrada. Abas: {abas_encontradas}"
                     ),
                     severidade=ErrorSeverity.WARNING,
                     sugestao="O sistema tentará detectar a aba principal automaticamente.",
@@ -154,11 +153,7 @@ class BaseValidator:
         """Marca valores vazios/placeholders que não devem gerar warning de tipo."""
         placeholders = {"", "-", "--", "n/a", "na", "none", "null", "nan"}
         texto = (
-            serie.fillna("")
-            .astype(str)
-            .str.replace("\n", " ", regex=False)
-            .str.strip()
-            .str.lower()
+            serie.fillna("").astype(str).str.replace("\n", " ", regex=False).str.strip().str.lower()
         )
         return texto.isin(placeholders)
 
@@ -166,11 +161,7 @@ class BaseValidator:
     def _mask_rotulo_estrutural(serie: pd.Series) -> pd.Series:
         """Marca rótulos de seção (ex.: '2 - SAIDA') em colunas numéricas opcionais."""
         texto = (
-            serie.fillna("")
-            .astype(str)
-            .str.replace("\n", " ", regex=False)
-            .str.strip()
-            .str.upper()
+            serie.fillna("").astype(str).str.replace("\n", " ", regex=False).str.strip().str.upper()
         )
         return texto.str.match(r"^\d+\s*-\s*[A-ZÀ-Ü ]+$", na=False)
 
@@ -179,12 +170,7 @@ class BaseValidator:
         """Converte série para numérico aceitando vírgula como separador decimal."""
         direto = pd.to_numeric(serie, errors="coerce")
 
-        texto = (
-            serie.fillna("")
-            .astype(str)
-            .str.replace(" ", "", regex=False)
-            .str.strip()
-        )
+        texto = serie.fillna("").astype(str).str.replace(" ", "", regex=False).str.strip()
         mask_milhar = texto.str.contains(",", na=False) & texto.str.contains(".", na=False)
         texto = texto.where(~mask_milhar, texto.str.replace(".", "", regex=False))
         texto = texto.str.replace(",", ".", regex=False)
@@ -220,9 +206,7 @@ class BaseValidator:
             obrigatorio = bool(config.get("obrigatorio", False))
             serie = df[coluna]
             mask_ignorar = (
-                self._mask_placeholder(serie)
-                | mask_cabecalho_repetido
-                | mask_rodape_relatorio
+                self._mask_placeholder(serie) | mask_cabecalho_repetido | mask_rodape_relatorio
             )
 
             if tipo == "decimal":
@@ -418,10 +402,7 @@ class DREValidator(BaseValidator):
             return metadata, [
                 ValidationError(
                     campo="competencia",
-                    mensagem=(
-                        "Competencia invalida para modo cumulativo. "
-                        "Use o formato MM/AAAA."
-                    ),
+                    mensagem=("Competencia invalida para modo cumulativo. Use o formato MM/AAAA."),
                     severidade=ErrorSeverity.BLOQUEANTE,
                     sugestao="Exemplo valido: 05/2025.",
                 )
@@ -497,8 +478,7 @@ class DREValidator(BaseValidator):
                 ValidationError(
                     campo="competencia",
                     mensagem=(
-                        f"Arquivo possui mes(es) acima da competencia {competencia}: "
-                        f"{detalhes}."
+                        f"Arquivo possui mes(es) acima da competencia {competencia}: {detalhes}."
                     ),
                     severidade=ErrorSeverity.BLOQUEANTE,
                     sugestao="Ajuste a competencia ou envie arquivo ate o mes informado.",
@@ -723,8 +703,7 @@ class FluxoCaixaValidator(BaseValidator):
         return ValidationError(
             campo="arquivo",
             mensagem=(
-                f"Arquivo '{arquivo}' foi ignorado por não possuir estrutura de "
-                "movimento bancário."
+                f"Arquivo '{arquivo}' foi ignorado por não possuir estrutura de movimento bancário."
             ),
             severidade=ErrorSeverity.WARNING,
             sugestao=(

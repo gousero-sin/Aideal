@@ -31,32 +31,36 @@ def _criar_template_fluxo(path: Path) -> None:
     ws = wb.active
     ws.title = "Consolidado"
     ws.append(HEADERS)
-    ws.append([
-        date(2025, 1, 1),
-        "Saldo Inicial CEF",
-        100,
-        None,
-        100,
-        "Saldo Inicial CEF",
-        "=YEAR(A2)",
-        "=MONTH(A2)",
-        "=INDEX(mês[],Consolidado!H2,2)",
-        "CEF",
-        "A IDEAL",
-    ])
-    ws.append([
-        date(2025, 7, 1),
-        "linha antiga de julho",
-        1,
-        None,
-        101,
-        "Antiga",
-        "=YEAR(A3)",
-        "=MONTH(A3)",
-        "=INDEX(mês[],Consolidado!H3,2)",
-        "ITAU",
-        "A IDEAL",
-    ])
+    ws.append(
+        [
+            date(2025, 1, 1),
+            "Saldo Inicial CEF",
+            100,
+            None,
+            100,
+            "Saldo Inicial CEF",
+            "=YEAR(A2)",
+            "=MONTH(A2)",
+            "=INDEX(mês[],Consolidado!H2,2)",
+            "CEF",
+            "A IDEAL",
+        ]
+    )
+    ws.append(
+        [
+            date(2025, 7, 1),
+            "linha antiga de julho",
+            1,
+            None,
+            101,
+            "Antiga",
+            "=YEAR(A3)",
+            "=MONTH(A3)",
+            "=INDEX(mês[],Consolidado!H3,2)",
+            "ITAU",
+            "A IDEAL",
+        ]
+    )
     table = Table(displayName="FluxoConsol", ref="A1:K3")
     table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
     ws.add_table(table)
@@ -288,9 +292,7 @@ def test_escrita_recalcula_apoio_e_exibe_apenas_mes_selecionado(tmp_path):
     wb = load_workbook(output, data_only=False)
     ws = wb["Consolidado"]
     meses_consolidado = {
-        cell.value.month
-        for cell in ws["A"][1:]
-        if getattr(cell.value, "month", None)
+        cell.value.month for cell in ws["A"][1:] if getattr(cell.value, "month", None)
     }
     assert meses_consolidado == {8}
 

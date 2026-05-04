@@ -266,9 +266,7 @@ class FluxoCaixaProcessamentoService:
             periodo = self._parse_periodo(lote.periodo)
             classificacoes_template = self._mapear_classificacoes_template(ws, limite_fim)
             linhas_existentes = (
-                self._linhas_fora_do_periodo(ws, limite_fim, periodo)
-                if preservar_historico
-                else []
+                self._linhas_fora_do_periodo(ws, limite_fim, periodo) if preservar_historico else []
             )
             linhas: list[list] = []
 
@@ -344,17 +342,17 @@ class FluxoCaixaProcessamentoService:
         descricao = self._formatar_descricao_consolidado(movimento)
 
         return [
-            movimento.data_movimento,      # A - Data
-            descricao,                     # B - Fornecedor/Histórico
-            self._valor_ou_vazio(credito), # C - Crédito
+            movimento.data_movimento,  # A - Data
+            descricao,  # B - Fornecedor/Histórico
+            self._valor_ou_vazio(credito),  # C - Crédito
             self._valor_ou_vazio(debito),  # D - Débito
-            float(saldo),                  # E - Saldo
-            classificacao,                 # F - Classificação
-            f"=YEAR(A{row_number})",       # G - Ano
-            f"=MONTH(A{row_number})",      # H - C.M.
-            f"=INDEX(mês[],Consolidado!H{row_number},2)", # I - Mês
-            self._rotulo_banco(movimento.banco_origem), # J - Banco
-            _EMPRESA_PADRAO,               # K - Empresa
+            float(saldo),  # E - Saldo
+            classificacao,  # F - Classificação
+            f"=YEAR(A{row_number})",  # G - Ano
+            f"=MONTH(A{row_number})",  # H - C.M.
+            f"=INDEX(mês[],Consolidado!H{row_number},2)",  # I - Mês
+            self._rotulo_banco(movimento.banco_origem),  # J - Banco
+            _EMPRESA_PADRAO,  # K - Empresa
         ]
 
     def _classificacao_canonica(
@@ -624,9 +622,7 @@ class FluxoCaixaProcessamentoService:
                 mapa.setdefault(chave_classificacao, classificacao)
 
             if isinstance(descricao, str) and "-" in descricao:
-                chave_descricao = self._normalizar_chave_classificacao(
-                    descricao.rsplit("-", 1)[1]
-                )
+                chave_descricao = self._normalizar_chave_classificacao(descricao.rsplit("-", 1)[1])
                 if chave_descricao:
                     mapa[chave_descricao] = classificacao
         return mapa
@@ -683,9 +679,7 @@ class FluxoCaixaProcessamentoService:
         datas = [mov.data_movimento for mov in grupo if mov.saldo is not None]
         data_final = max(datas)
         candidatos = [
-            mov
-            for mov in grupo
-            if mov.saldo is not None and mov.data_movimento == data_final
+            mov for mov in grupo if mov.saldo is not None and mov.data_movimento == data_final
         ]
         movimento_final = min(candidatos, key=lambda mov: mov.linha_origem or 0)
         return movimento_final.saldo or Decimal("0")

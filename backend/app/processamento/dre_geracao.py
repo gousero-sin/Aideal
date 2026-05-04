@@ -1,14 +1,12 @@
 """Serviço de geração cumulativa de DRE a partir do banco de dados."""
 
 import logging
-from pathlib import Path
 from typing import Any
 
 from ..contracts.dre import DRELancamento, DRELote
 from ..contracts.persistence import DRECompetenciaQuery, DRELancamentoDB
-from ..db.connection import DatabaseConnection, db
+from ..db.connection import DatabaseConnection
 from ..repository.dre_repository import DRERepository
-from ..templates.writer import TemplateWriter
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +28,7 @@ class DREGeracaoService:
         mes = int(mes_str)
         ano = int(ano_str)
         if mes < 1 or mes > 12:
-            raise ValueError(
-                f"Mês da competência inválido: {mes:02d}. Use valores entre 01 e 12."
-            )
+            raise ValueError(f"Mês da competência inválido: {mes:02d}. Use valores entre 01 e 12.")
         return ano, mes
 
     def _db_to_lancamento(self, db_lanc: DRELancamentoDB) -> DRELancamento:
@@ -130,7 +126,7 @@ class DREGeracaoService:
             )
 
         # Converte para domínio
-        lancamentos = [self._db_to_lancamento(l) for l in lancamentos_db]
+        lancamentos = [self._db_to_lancamento(lancamento) for lancamento in lancamentos_db]
 
         logger.info("Gerado lote cumulativo para %s: %d lançamentos", competencia, len(lancamentos))
 

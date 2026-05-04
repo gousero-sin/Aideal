@@ -238,7 +238,7 @@ class DRETransformer:
         col_data = mapeamento.get("data")
         col_hist = mapeamento.get("historico")  # Descri. — fallback only
         col_cred = mapeamento.get("credito")
-        col_nat = mapeamento.get("natureza")    # C. gerencial — o que vai na col F
+        col_nat = mapeamento.get("natureza")  # C. gerencial — o que vai na col F
         # CLASSIFICAÇÃO determina crédito/débito.
         col_classif = mapeamento.get("classificacao_entrada_saida")
         col_cliente = mapeamento.get("cliente")
@@ -287,14 +287,10 @@ class DRETransformer:
                 else None
             ),
             rubrica=_safe_str(
-                row.get(mapeamento.get("rubrica", ""))
-                if mapeamento.get("rubrica")
-                else None
+                row.get(mapeamento.get("rubrica", "")) if mapeamento.get("rubrica") else None
             ),
             conta_pai=_safe_str(
-                row.get(mapeamento.get("conta_pai", ""))
-                if mapeamento.get("conta_pai")
-                else None
+                row.get(mapeamento.get("conta_pai", "")) if mapeamento.get("conta_pai") else None
             ),
             linha_origem=idx + 2,
             aba_origem=aba,
@@ -373,8 +369,7 @@ class FluxoCaixaTransformer:
         for idx, row in df.iterrows():
             try:
                 movimento = self._converter_linha(
-                    row, mapeamento, idx, aba_principal,
-                    banco_origem, dados_arquivo["arquivo"]
+                    row, mapeamento, idx, aba_principal, banco_origem, dados_arquivo["arquivo"]
                 )
                 if movimento:
                     lote.movimentos.append(movimento)
@@ -396,8 +391,7 @@ class FluxoCaixaTransformer:
         return lote
 
     def _converter_linha(
-        self, row: pd.Series, mapeamento: dict, idx: int,
-        aba: str, banco: str, arquivo: str
+        self, row: pd.Series, mapeamento: dict, idx: int, aba: str, banco: str, arquivo: str
     ) -> FCMovimento | None:
         col_data = mapeamento.get("data_movimento")
         col_desc = mapeamento.get("descricao")
@@ -432,10 +426,9 @@ class FluxoCaixaTransformer:
             descricao=descricao,
             valor=valor,
             saldo=_safe_decimal(
-                row.get(mapeamento.get("saldo", ""))
-                if mapeamento.get("saldo")
-                else None
-            ) or None,
+                row.get(mapeamento.get("saldo", "")) if mapeamento.get("saldo") else None
+            )
+            or None,
             classificacao=classificacao,
             conta_gerencial=conta_gerencial,
             banco_origem=banco,

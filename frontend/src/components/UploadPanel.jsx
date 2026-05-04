@@ -1,4 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  CheckCircle2,
+  Database,
+  Download,
+  FileSpreadsheet,
+  Loader2,
+  ShieldCheck,
+  Trash2,
+  X,
+} from 'lucide-react';
 
 const pad = (value) => String(value).padStart(2, '0');
 
@@ -36,19 +46,26 @@ export default function UploadPanel({
   onProcess,
   processamento,
   validacao,
+  onBusyChange,
 }) {
   const [arquivos, setArquivos] = useState([]);
   const [loadingValidation, setLoadingValidation] = useState(false);
   const [loadingIngestao, setLoadingIngestao] = useState(false);
   const [loadingGeracao, setLoadingGeracao] = useState(false);
   const [loadingLimpeza, setLoadingLimpeza] = useState(false);
+  const [loadingCompetencia, setLoadingCompetencia] = useState(false);
   const [competencia, setCompetencia] = useState(defaultCompetencia());
+  const [competenciaStatus, setCompetenciaStatus] = useState({
+    type: 'idle',
+    message: 'Selecione um arquivo para detectar automaticamente.',
+  });
   const [mesesDisponiveis, setMesesDisponiveis] = useState([]);
   const [mesesSelecionados, setMesesSelecionados] = useState([]);
   const [anoTodo, setAnoTodo] = useState(false);
   const [loadingMeses, setLoadingMeses] = useState(false);
   const [erroMeses, setErroMeses] = useState(null);
   const fileInputRef = useRef(null);
+  const competenciaRequestRef = useRef(0);
 
   const isFluxoCaixa = fluxo === 'fluxo_caixa';
   const isMultiple = isFluxoCaixa;
@@ -136,6 +153,71 @@ export default function UploadPanel({
     setAnoTodo((prev) => !prev);
   };
 
+  const detectarCompetencia = async (files) => {
+    if (!usaBancoMensal || files.length === 0) {
+      setCompetenciaStatus({
+        type: 'idle',
+        message: 'Selecione um arquivo para detectar automaticamente.',
+      });
+      return;
+    }
+
+    const requestId = competenciaRequestRef.current + 1;
+    competenciaRequestRef.current = requestId;
+    setLoadingCompetencia(true);
+    setCompetenciaStatus({
+      type: 'loading',
+      message: 'Detectando competência pelo conteúdo do arquivo...',
+    });
+
+    try {
+      const formData = new FormData();
+      if (isDre) {
+        formData.append('arquivo', files[0]);
+      } else {
+        files.forEach((file) => formData.append('arquivos', file));
+      }
+
+      const response = await fetch(`${apiBase}/detectar-competencia/${fluxo}`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.detail || 'Não foi possível detectar a competência.');
+      }
+
+      const payload = await response.json();
+      if (competenciaRequestRef.current !== requestId) return;
+
+      if (payload?.detectado && payload?.competencia_input) {
+        setCompetencia(payload.competencia_input);
+        setMesesSelecionados([]);
+        setCompetenciaStatus({
+          type: 'success',
+          message: `Competência detectada: ${payload.competencia}. Você pode alterar manualmente.`,
+        });
+        return;
+      }
+
+      setCompetenciaStatus({
+        type: 'warning',
+        message: payload?.message || 'Competência não detectada. Ajuste manualmente.',
+      });
+    } catch (err) {
+      if (competenciaRequestRef.current !== requestId) return;
+      setCompetenciaStatus({
+        type: 'warning',
+        message: `${err.message} Ajuste manualmente.`,
+      });
+    } finally {
+      if (competenciaRequestRef.current === requestId) {
+        setLoadingCompetencia(false);
+      }
+    }
+  };
+
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
     setArquivos(files);
@@ -143,6 +225,7 @@ export default function UploadPanel({
     if (processamento) {
       onProcess?.(null);
     }
+    detectarCompetencia(files);
   };
 
   const handleValidar = async () => {
@@ -388,25 +471,35 @@ export default function UploadPanel({
   };
 
   const handleRemover = (index) => {
-    setArquivos((prev) => prev.filter((_, i) => i !== index));
+    const next = arquivos.filter((_, i) => i !== index);
+    setArquivos(next);
+    if (next.length === 0) {
+      competenciaRequestRef.current += 1;
+      setLoadingCompetencia(false);
+      setCompetenciaStatus({
+        type: 'idle',
+        message: 'Selecione um arquivo para detectar automaticamente.',
+      });
+      return;
+    }
+    detectarCompetencia(next);
   };
 
-  const gerarTravado = loadingValidation || loadingIngestao || loadingGeracao || loadingLimpeza;
+  const gerarTravado =
+    loadingCompetencia || loadingValidation || loadingIngestao || loadingGeracao || loadingLimpeza;
+
+  useEffect(() => {
+    onBusyChange?.(gerarTravado);
+  }, [gerarTravado, onBusyChange]);
 
   return (
-    <section className="aideal-card" style={{ padding: '14px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+    <section className="aideal-card aideal-upload-panel">
+      <div className="aideal-upload-header">
         <div>
-          <h3
-            style={{
-              margin: '0 0 8px',
-              fontSize: '0.96rem',
-              color: 'var(--aideal-primary-dark)',
-            }}
-          >
+          <h3>
             Upload de arquivo{isMultiple ? 's' : ''}
           </h3>
-          <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--aideal-text-soft)' }}>
+          <p>
             {isDre
               ? 'Fluxo DRE: 1) salvar mês no banco; 2) escolher meses de geração; 3) gerar DRE.'
               : 'Fluxo de Caixa: 1) salvar lote mensal no banco; 2) escolher meses; 3) gerar consolidado.'}
@@ -414,30 +507,22 @@ export default function UploadPanel({
         </div>
 
         {usaBancoMensal && (
-          <label
-            style={{
-              display: 'grid',
-              gap: '6px',
-              minWidth: '180px',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              color: 'var(--aideal-primary-dark)',
-            }}
-          >
+          <label className="aideal-field">
             Competência
             <input
               type="month"
               value={competencia}
-              onChange={(e) => setCompetencia(e.target.value)}
-              style={{
-                border: '1px solid var(--aideal-border)',
-                borderRadius: '10px',
-                padding: '9px 10px',
-                fontFamily: 'inherit',
-                color: 'var(--aideal-text)',
-                background: '#fff',
+              onChange={(e) => {
+                setCompetencia(e.target.value);
+                setCompetenciaStatus({
+                  type: 'manual',
+                  message: 'Competência ajustada manualmente.',
+                });
               }}
             />
+            <span className={`aideal-competencia-status is-${competenciaStatus.type}`}>
+              {loadingCompetencia ? 'Detectando...' : competenciaStatus.message}
+            </span>
           </label>
         )}
       </div>
@@ -445,36 +530,26 @@ export default function UploadPanel({
       {usaBancoMensal && (
         <article
           className="aideal-panel aideal-panel-neutral"
-          style={{ marginTop: '10px', marginBottom: '10px', padding: '10px 12px' }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-            <strong style={{ color: 'var(--aideal-primary-dark)', fontSize: '0.85rem' }}>
+          <div className="aideal-panel-title-row">
+            <strong>
               Meses a incluir
             </strong>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem' }}>
+            <label className="aideal-check-inline">
               <input type="checkbox" checked={anoTodo} onChange={handleAnoTodo} disabled={gerarTravado} />
               ANO TODO
             </label>
           </div>
 
-          <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-            {loadingMeses && <span style={{ fontSize: '0.8rem', color: 'var(--aideal-text-soft)' }}>Carregando meses...</span>}
+          <div className="aideal-month-grid">
+            {loadingMeses && <span className="aideal-muted-text">Carregando meses...</span>}
 
             {!loadingMeses &&
               mesesDisponiveis.map((mes) => (
                 <label
                   key={mes}
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '0.8rem',
-                    padding: '5px 8px',
-                    borderRadius: '8px',
-                    border: '1px solid var(--aideal-border)',
-                    opacity: anoTodo ? 0.55 : 1,
-                    background: mesesSelecionados.includes(mes) ? 'rgba(19, 61, 122, 0.08)' : '#fff',
-                  }}
+                  className={`aideal-month-pill ${mesesSelecionados.includes(mes) ? 'is-selected' : ''}`}
+                  data-disabled={anoTodo ? 'true' : 'false'}
                 >
                   <input
                     type="checkbox"
@@ -487,19 +562,19 @@ export default function UploadPanel({
               ))}
 
             {!loadingMeses && mesesDisponiveis.length === 0 && (
-              <span style={{ fontSize: '0.8rem', color: 'var(--aideal-text-soft)' }}>
+              <span className="aideal-muted-text">
                 Sem meses disponíveis no banco para {anoCompetencia || '-'}.
               </span>
             )}
           </div>
 
           {erroMeses && (
-            <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--aideal-accent-red)' }}>
+            <div className="aideal-inline-error">
               {erroMeses}
             </div>
           )}
 
-          <p style={{ margin: '8px 0 0', fontSize: '0.78rem', color: 'var(--aideal-text-soft)' }}>
+          <p className="aideal-helper-text">
             {anoTodo
               ? 'Modo ativo: geração com todos os meses disponíveis no banco para o ano da competência.'
               : mesesSelecionadosOrdenados.length > 0
@@ -510,7 +585,8 @@ export default function UploadPanel({
       )}
 
       <div className="aideal-input-drop" onClick={() => fileInputRef.current?.click()}>
-        <p style={{ margin: 0, fontSize: '0.9rem' }}>
+        <FileSpreadsheet size={28} aria-hidden="true" />
+        <p>
           {isMultiple
             ? 'Clique para selecionar arquivos bancários (.xls, .xlsx)'
             : 'Clique para selecionar arquivo DRE (.xls, .xlsx)'}
@@ -521,23 +597,24 @@ export default function UploadPanel({
           accept={acceptFormats}
           multiple={isMultiple}
           onChange={handleFileChange}
-          style={{ display: 'none' }}
+          className="aideal-file-input"
         />
       </div>
 
       {arquivos.length > 0 && (
-        <div style={{ marginTop: '10px', marginBottom: '10px', display: 'grid', gap: '8px' }}>
+        <div className="aideal-file-list">
           {arquivos.map((f, i) => (
             <div key={i} className="aideal-file-row">
-              <span style={{ fontSize: '0.84rem' }}>
+              <span>
                 {f.name} ({(f.size / 1024).toFixed(0)} KB)
               </span>
               <button
                 className="aideal-action aideal-action-secondary"
-                style={{ padding: '7px 10px', fontSize: '0.78rem' }}
                 onClick={() => handleRemover(i)}
+                title="Remover arquivo"
               >
-                Remover
+                <X size={15} aria-hidden="true" />
+                <span>Remover</span>
               </button>
             </div>
           ))}
@@ -550,7 +627,8 @@ export default function UploadPanel({
           onClick={handleValidar}
           disabled={arquivos.length === 0 || gerarTravado}
         >
-          {loadingValidation ? 'Validando...' : 'Validar estrutura'}
+          {loadingValidation ? <Loader2 size={16} aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}
+          <span>{loadingValidation ? 'Validando...' : 'Validar estrutura'}</span>
         </button>
 
         {usaBancoMensal && (
@@ -559,7 +637,8 @@ export default function UploadPanel({
             onClick={handleIngestao}
             disabled={arquivos.length === 0 || gerarTravado}
           >
-            {loadingIngestao ? 'Salvando mês...' : 'Salvar mês no banco'}
+            {loadingIngestao ? <Loader2 size={16} aria-hidden="true" /> : <Database size={16} aria-hidden="true" />}
+            <span>{loadingIngestao ? 'Salvando mês...' : 'Salvar mês no banco'}</span>
           </button>
         )}
 
@@ -569,7 +648,8 @@ export default function UploadPanel({
             onClick={handleGerarDoBanco}
             disabled={gerarTravado}
           >
-            {loadingGeracao ? `Gerando ${fluxoLabel}...` : `Gerar ${fluxoLabel} do banco`}
+            {loadingGeracao ? <Loader2 size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
+            <span>{loadingGeracao ? `Gerando ${fluxoLabel}...` : `Gerar ${fluxoLabel} do banco`}</span>
           </button>
         )}
 
@@ -579,7 +659,8 @@ export default function UploadPanel({
             onClick={handleGerarFluxo}
             disabled={arquivos.length === 0 || gerarTravado}
           >
-            {loadingGeracao ? 'Gerando Fluxo...' : 'Gerar Fluxo de Caixa'}
+            {loadingGeracao ? <Loader2 size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
+            <span>{loadingGeracao ? 'Gerando Fluxo...' : 'Gerar Fluxo de Caixa'}</span>
           </button>
         )}
 
@@ -590,7 +671,8 @@ export default function UploadPanel({
             disabled={gerarTravado}
             title={`Remove todos os uploads e lançamentos ${fluxoLabel} da base`}
           >
-            {loadingLimpeza ? 'Limpando base...' : `Limpar base ${fluxoLabel}`}
+            {loadingLimpeza ? <Loader2 size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}
+            <span>{loadingLimpeza ? 'Limpando base...' : `Limpar base ${fluxoLabel}`}</span>
           </button>
         )}
 
@@ -601,7 +683,8 @@ export default function UploadPanel({
             target="_blank"
             rel="noreferrer"
           >
-            Baixar resultado
+            <Download size={16} aria-hidden="true" />
+            <span>Baixar resultado</span>
           </a>
         )}
 
@@ -609,20 +692,20 @@ export default function UploadPanel({
       </div>
 
       {usaBancoMensal && !validacao?.valido && (
-        <p style={{ margin: '10px 0 0', fontSize: '0.8rem', color: 'var(--aideal-text-soft)' }}>
+        <p className="aideal-helper-text">
           Recomenda-se validar antes da ingestão. A geração final usa somente dados já no banco.
         </p>
       )}
 
       {arquivoPareceTemplate && (
-        <p style={{ margin: '8px 0 0', fontSize: '0.8rem', color: 'var(--aideal-accent-red)' }}>
+        <p className="aideal-inline-error">
           O arquivo selecionado parece ser template/saída final. Para processar DRE, use o relatório bruto
           de entrada (ex.: RELATORIO DRE MES 05.xls).
         </p>
       )}
 
       {usaBancoMensal && processamento?.arquivo_saida && (
-        <p style={{ margin: '8px 0 0', fontSize: '0.8rem', color: 'var(--aideal-text-soft)' }}>
+        <p className="aideal-helper-text">
           Saída gerada: <strong>{processamento.arquivo_saida}</strong>
         </p>
       )}
