@@ -23,7 +23,7 @@ Confirmar o estado real da Etapa 1 e consolidar melhorias necessárias antes da 
 - Adoção de tokens de tema corporativo:
   - `frontend/src/styles/corporate.css`
 - Automação no setup para gerar baseline padrão dos templates:
-  - `scripts/start.sh`
+  - `scripts/subir-producao.sh`
 
 ## Pendências intencionais (Etapa 2+)
 - Mapeamento final de áreas atualizáveis dos templates (DRE/Fluxo).

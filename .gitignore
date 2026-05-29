@@ -1,10 +1,15 @@
 # Python
 __pycache__/
+**/__pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
 backend/.venv/
 dist/
+.pytest_cache/
+.ruff_cache/
+backend/.pytest_cache/
+backend/.ruff_cache/
 
 # Node
 node_modules/
@@ -24,8 +29,13 @@ Thumbs.db
 # Projeto
 logs/
 output/
+tmp/
 *.tmp
 backend/logs/
+backend/aideal.db
+*.db-shm
+*.db-wal
+.playwright-cli/
 
 # Segurança
 .env

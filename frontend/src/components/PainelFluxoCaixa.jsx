@@ -47,6 +47,51 @@ const emptyFilters = {
   classificacao: [],
 };
 
+function HighlightBalanceCard({ equilibrio }) {
+  const totalDestaques = Number(equilibrio?.total_contas_destaque || 0);
+  const outrasSaidas = Number(equilibrio?.outras_saidas || 0);
+  const participacao = Number(equilibrio?.participacao_saidas_percentual || 0);
+  const cobertura = Number(equilibrio?.cobertura_entradas_percentual || 0);
+  const saldo = Number(equilibrio?.saldo_liquido || 0);
+  const saldoDestaques = Number(equilibrio?.saldo_apos_contas_destaque || 0);
+  const meterWidth = Math.max(0, Math.min(100, participacao));
+
+  return (
+    <div className="aideal-balance-panel">
+      <div className="aideal-balance-primary">
+        <span>Concentração nas 5 contas</span>
+        <strong>{formatPercent(participacao)}</strong>
+        <p>{formatCurrency(totalDestaques)} das saídas mapeadas</p>
+      </div>
+      <div className="aideal-balance-meter" aria-label="Participação das contas em destaque nas saídas">
+        <i style={{ width: `${meterWidth}%` }} />
+      </div>
+      <div className="aideal-balance-grid">
+        <div>
+          <span>Outras saídas</span>
+          <strong>{formatCurrency(outrasSaidas)}</strong>
+        </div>
+        <div>
+          <span>Cobertura por entradas</span>
+          <strong>{formatPercent(cobertura)}</strong>
+        </div>
+        <div>
+          <span>Saldo total</span>
+          <strong className={saldo >= 0 ? 'is-positive' : 'is-negative'}>
+            {formatSignedCurrency(saldo)}
+          </strong>
+        </div>
+        <div>
+          <span>Saldo vs. 5 contas</span>
+          <strong className={saldoDestaques >= 0 ? 'is-positive' : 'is-negative'}>
+            {formatSignedCurrency(saldoDestaques)}
+          </strong>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PainelFluxoCaixa({ apiBase, onNotify, onBusyChange }) {
   const [filters, setFilters] = useState(emptyFilters);
   const [data, setData] = useState(null);
@@ -137,7 +182,10 @@ export default function PainelFluxoCaixa({ apiBase, onNotify, onBusyChange }) {
       return;
     }
     if (result?._stage === 'limpeza') {
-      onNotify?.({ type: 'success', message: 'Base Fluxo de Caixa limpa e painel atualizado.' });
+      onNotify?.({
+        type: 'success',
+        message: `Mês Fluxo de Caixa ${result?._competenciaLabel || ''} excluído e painel atualizado.`,
+      });
       return;
     }
     onNotify?.({ type: 'success', message: `Fluxo de Caixa gerado com ${formatNumber(total)} movimento(s).` });
@@ -145,6 +193,16 @@ export default function PainelFluxoCaixa({ apiBase, onNotify, onBusyChange }) {
 
   const kpis = data?.kpis || {};
   const filtros = data?.filtros_disponiveis || {};
+  const contasDestaque = Array.isArray(data?.contas_destaque) ? data.contas_destaque : [];
+  const equilibrioDestaques = data?.equilibrio_contas_destaque || {};
+  const composicaoDestaques = useMemo(
+    () => contasDestaque.map((grupo) => ({
+      nome: grupo.nome,
+      saldo: grupo.total,
+      movimentos: grupo.movimentos,
+    })),
+    [contasDestaque],
+  );
   const activeFilterCount = countSelectedFilters(filters, ['meses', 'banco', 'tipo', 'classificacao']);
   const filterSummary = buildFilterSummary(filters, [
     { key: 'meses', label: 'Mês' },
@@ -279,6 +337,15 @@ export default function PainelFluxoCaixa({ apiBase, onNotify, onBusyChange }) {
           </section>
 
           <SituationGrid items={situations} />
+
+          <section className="aideal-analytics-grid aideal-flow-focus-grid" aria-label="Contas em destaque do fluxo de caixa">
+            <ChartCard title="5 contas em destaque" subtitle={data?.periodo?.label}>
+              <CompositionDonut data={composicaoDestaques} />
+            </ChartCard>
+            <ChartCard title="Equilíbrio das saídas" subtitle="5 contas x fluxo total">
+              <HighlightBalanceCard equilibrio={equilibrioDestaques} />
+            </ChartCard>
+          </section>
 
           <section className="aideal-analytics-grid">
             <ChartCard title="Evolução mensal" subtitle={data?.periodo?.label} className="is-wide">

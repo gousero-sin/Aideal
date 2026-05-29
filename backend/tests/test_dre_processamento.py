@@ -146,7 +146,7 @@ def test_processamento_dre_bloqueia_arquivo_nao_cumulativo(tmp_path):
         temp_dir=tmp_path / "tmp",
     )
 
-    arquivo = settings.base_dir / "RELATORIO DRE MES 05.xls"
+    arquivo = settings.base_dir / "exemplos" / "dre" / "RELATORIO DRE MES 05.xls"
     resultado = service.processar(arquivo, arquivo.name, "05/2025")
 
     assert resultado.valido is False
@@ -161,7 +161,7 @@ def test_processamento_dre_permite_modo_nao_cumulativo_para_teste(tmp_path):
         temp_dir=tmp_path / "tmp",
     )
 
-    arquivo = settings.base_dir / "RELATORIO DRE MES 05.xls"
+    arquivo = settings.base_dir / "exemplos" / "dre" / "RELATORIO DRE MES 05.xls"
     resultado = service.processar(
         arquivo,
         arquivo.name,

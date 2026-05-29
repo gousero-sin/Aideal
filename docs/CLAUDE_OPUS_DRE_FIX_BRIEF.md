@@ -14,7 +14,7 @@ Hoje o backend gera arquivo com sucesso pela API, mas o usuário reporta que o E
 - Template base:
   - `/Users/gousero/Abiente Dev/ScriptPyAiDeal/templates/dre/DRE AIDEAL - 05 2025  - obra.xlsx`
 - Arquivo bruto de ingestão (caso de teste principal):
-  - `/Users/gousero/Abiente Dev/ScriptPyAiDeal/Base de dados para geração de planilha/DRE/MES 06 - DRE /Relatorio DRE MES 06-2025.xls`
+  - `/Users/gousero/Abiente Dev/ScriptPyAiDeal/exemplos/base_dados_planilhas/dre/MES 06 - DRE /Relatorio DRE MES 06-2025.xls`
 
 ---
 
@@ -58,7 +58,7 @@ curl -sS -X POST 'http://127.0.0.1:8000/api/dre/admin/limpar' -F 'confirmar=true
 2. Reingestir bruto:
 ```bash
 curl -sS -X POST 'http://127.0.0.1:8000/api/dre/ingestoes' \
-  -F "arquivo=@/Users/gousero/Abiente Dev/ScriptPyAiDeal/Base de dados para geração de planilha/DRE/MES 06 - DRE /Relatorio DRE MES 06-2025.xls" \
+  -F "arquivo=@/Users/gousero/Abiente Dev/ScriptPyAiDeal/exemplos/base_dados_planilhas/dre/MES 06 - DRE /Relatorio DRE MES 06-2025.xls" \
   -F 'competencia=06/2025' -F 'replace=true'
 ```
 

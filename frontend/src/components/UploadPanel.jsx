@@ -434,26 +434,47 @@ export default function UploadPanel({
 
   const handleLimparBase = async () => {
     if (!usaBancoMensal) return;
+    if (!anoCompetencia || !mesCompetencia) {
+      onProcess?.({
+        status: 'error',
+        valido: false,
+        _stage: 'limpeza',
+        erros: [{ campo: 'limpeza', mensagem: 'Selecione uma competência válida.', severidade: 'bloqueante' }],
+        warnings: [],
+      });
+      return;
+    }
+
+    const competenciaLabel = competenciaParaExibicao(competencia);
+    const confirmado = window.confirm(
+      `Excluir somente os dados de ${competenciaLabel} em ${fluxoLabel}? Os demais meses serão preservados.`,
+    );
+    if (!confirmado) return;
 
     setLoadingLimpeza(true);
     try {
       const recurso = isDre ? 'dre' : 'fluxo_caixa';
+      const formData = new FormData();
+      formData.append('ano', String(anoCompetencia));
+      formData.append('mes', String(mesCompetencia));
+      formData.append('confirmar', 'true');
+
       const response = await fetch(`${apiBase}/${recurso}/admin/limpar`, {
         method: 'POST',
-        body: new FormData(),
+        body: formData,
       });
 
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
-        throw new Error(err?.detail || `Erro ao limpar base ${fluxoLabel}`);
+        throw new Error(err?.detail || `Erro ao excluir mês ${fluxoLabel}`);
       }
 
       const result = await response.json();
-      setMesesDisponiveis([]);
-      setMesesSelecionados([]);
+      await carregarMesesDisponiveis(anoCompetencia, mesCompetencia);
       setAnoTodo(false);
       onProcess?.({
         _stage: 'limpeza',
+        _competenciaLabel: competenciaLabel,
         status: 'completed',
         ...result,
       });
@@ -669,10 +690,10 @@ export default function UploadPanel({
             className="aideal-action aideal-action-secondary"
             onClick={handleLimparBase}
             disabled={gerarTravado}
-            title={`Remove todos os uploads e lançamentos ${fluxoLabel} da base`}
+            title={`Remove somente os dados ${fluxoLabel} da competência selecionada`}
           >
             {loadingLimpeza ? <Loader2 size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}
-            <span>{loadingLimpeza ? 'Limpando base...' : `Limpar base ${fluxoLabel}`}</span>
+            <span>{loadingLimpeza ? 'Excluindo mês...' : 'Excluir mês selecionado'}</span>
           </button>
         )}
 

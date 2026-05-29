@@ -2,16 +2,19 @@
 
 import logging
 import tempfile
+from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .contracts.common import FlowType
 from .contracts.processamento import DREProcessamentoResponse
+from .db.connection import db
 from .db.manager import run_migrations
 from .ingestao.dre_ingestao import DREIngestaoService
 from .ingestao.fluxo_caixa_ingestao import FluxoCaixaIngestaoService
@@ -32,17 +35,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _ensure_runtime_dirs() -> None:
+    """Cria diretórios operacionais necessários para produção."""
+    for path in (settings.logs_dir, settings.temp_dir, settings.output_dir, settings.data_dir):
+        path.mkdir(parents=True, exist_ok=True)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Inicialização de produção: diretórios e migrações devem estar íntegros."""
+    _ensure_runtime_dirs()
+    run_migrations()
+    logger.info("Migrações executadas com sucesso")
+    yield
+
+
 app = FastAPI(
     title=settings.app_name,
     version=settings.version,
     description="Motor de consolidação financeira DRE e Fluxo de Caixa",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -60,30 +83,112 @@ fluxo_painel_service = PainelFluxoCaixaService()
 competencia_detector_service = CompetenciaDetectorService()
 
 
-# Executa migrações no startup
-@app.on_event("startup")
-async def startup_event():
-    """Executa migrações ao iniciar a aplicação."""
-    try:
-        run_migrations()
-        logger.info("Migrações executadas com sucesso")
-    except Exception as e:
-        logger.error("Erro ao executar migrações: %s", e)
+def _nome_upload_seguro(arquivo: UploadFile) -> str:
+    """Extrai apenas o nome base do upload enviado pelo navegador."""
+    raw_name = arquivo.filename or ""
+    name = raw_name.replace("\\", "/").split("/")[-1].strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nome de arquivo não informado.")
+    return name
+
+
+def _validar_extensao_upload(filename: str) -> str:
+    suffix = Path(filename).suffix.lower()
+    if suffix not in settings.allowed_upload_extensions_set:
+        allowed = ", ".join(sorted(settings.allowed_upload_extensions_set))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato de arquivo não permitido: {suffix or 'sem extensão'}. Use {allowed}.",
+        )
+    return suffix
+
+
+def _validar_quantidade_uploads(uploads: list[UploadFile]) -> None:
+    if len(uploads) > settings.max_files_per_batch:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Quantidade máxima de arquivos excedida: "
+                f"{settings.max_files_per_batch} por lote."
+            ),
+        )
 
 
 async def _salvar_upload_temporario(arquivo: UploadFile) -> Path:
-    """Salva o upload em disco temporariamente para processamento."""
-    suffix = Path(arquivo.filename).suffix
+    """Salva upload em chunks, validando extensão e tamanho máximo."""
+    filename = _nome_upload_seguro(arquivo)
+    suffix = _validar_extensao_upload(filename)
+    settings.temp_dir.mkdir(parents=True, exist_ok=True)
+
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=str(settings.temp_dir))
     tmp_path = Path(tmp.name)
-    content = await arquivo.read()
-    tmp.write(content)
+    total_bytes = 0
+    try:
+        while True:
+            chunk = await arquivo.read(settings.upload_chunk_size_bytes)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > settings.max_upload_size_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        "Arquivo excede o limite de "
+                        f"{settings.max_upload_size_mb} MB por arquivo."
+                    ),
+                )
+            tmp.write(chunk)
+    except Exception:
+        tmp.close()
+        tmp_path.unlink(missing_ok=True)
+        raise
     tmp.close()
     return tmp_path
 
 
+def _exigir_confirmacao(confirmar: bool) -> None:
+    if not confirmar:
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmação explícita obrigatória para limpar dados.",
+        )
+
+
+def _resolver_output_xlsx(arquivo_nome: str) -> Path:
+    nome = arquivo_nome.replace("\\", "/")
+    candidato = Path(nome)
+    if candidato.is_absolute() or candidato.name != nome or ".." in candidato.parts:
+        raise HTTPException(status_code=400, detail="Nome de arquivo inválido.")
+    if candidato.suffix.lower() != ".xlsx":
+        raise HTTPException(status_code=400, detail="Download permitido apenas para .xlsx.")
+
+    output_dir = settings.output_dir.resolve()
+    arquivo_path = (output_dir / candidato.name).resolve()
+    try:
+        arquivo_path.relative_to(output_dir)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Nome de arquivo inválido.")
+
+    if not arquivo_path.exists():
+        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    return arquivo_path
+
+
+def _excel_file_response(path: Path, filename: str | None = None) -> FileResponse:
+    if path.suffix.lower() != ".xlsx":
+        raise HTTPException(status_code=400, detail="Download permitido apenas para .xlsx.")
+    return FileResponse(
+        path=str(path),
+        filename=filename or path.name,
+        media_type=EXCEL_MEDIA_TYPE,
+    )
+
+
 @app.get("/")
 async def root():
+    index_path = settings.frontend_dist_dir / "index.html"
+    if index_path.exists():
+        return FileResponse(path=str(index_path), media_type="text/html")
     return {
         "app": settings.app_name,
         "version": settings.version,
@@ -95,6 +200,34 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/ready")
+async def ready():
+    checks = {
+        "database": False,
+        "templates": False,
+        "directories": False,
+    }
+    try:
+        with db.get_connection() as conn:
+            conn.execute("SELECT 1").fetchone()
+        checks["database"] = True
+    except Exception as exc:
+        logger.error("Readiness database check failed: %s", exc)
+
+    checks["templates"] = (
+        settings.template_dre_path.exists()
+        and settings.template_fluxo_path.exists()
+    )
+    checks["directories"] = all(
+        path.exists() and path.is_dir()
+        for path in (settings.logs_dir, settings.temp_dir, settings.output_dir, settings.data_dir)
+    )
+
+    if not all(checks.values()):
+        raise HTTPException(status_code=503, detail={"status": "not_ready", "checks": checks})
+    return {"status": "ready", "checks": checks}
 
 
 @app.get("/api/dashboard/resumo")
@@ -124,6 +257,10 @@ async def painel_dre(
     meses: list[int] | None = Query(None, description="Meses a incluir, repetível"),
     centro_custo: list[str] | None = Query(None, description="Obras/centros de custo"),
     natureza: list[str] | None = Query(None, description="Naturezas normalizadas"),
+    escopo_periodo: str | None = Query(
+        None,
+        description="Use 'projeto_completo' para ignorar ano/meses quando houver obra filtrada",
+    ),
 ):
     """Retorna a página analítica completa do DRE."""
     try:
@@ -132,6 +269,7 @@ async def painel_dre(
             meses=meses,
             centro_custo=centro_custo,
             natureza=natureza,
+            escopo_periodo=escopo_periodo,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -176,12 +314,13 @@ async def detectar_competencia(
         uploads = arquivos or ([arquivo] if arquivo is not None else [])
         if not uploads:
             raise HTTPException(status_code=400, detail="Envie ao menos um arquivo.")
+        _validar_quantidade_uploads(uploads)
 
         arquivos_detector: list[tuple[Path, str]] = []
         for upload in uploads:
             tmp_path = await _salvar_upload_temporario(upload)
             tmp_paths.append(tmp_path)
-            arquivos_detector.append((tmp_path, upload.filename or tmp_path.name))
+            arquivos_detector.append((tmp_path, _nome_upload_seguro(upload)))
 
         return competencia_detector_service.detectar(
             fluxo=fluxo.value,
@@ -234,6 +373,8 @@ async def validar_arquivo(
 
         return result.model_dump(mode="json")
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Erro na validação: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -264,11 +405,13 @@ async def processar_dre(
         tmp_path = await _salvar_upload_temporario(arquivo)
         resultado = dre_service.processar(
             tmp_path,
-            arquivo.filename,
+            _nome_upload_seguro(arquivo),
             competencia,
             modo_cumulativo=modo_cumulativo,
         )
         return resultado.model_dump(mode="json")
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(f"Erro no processamento DRE (legado): {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -285,15 +428,18 @@ async def processar_fluxo_caixa(
     """Processa lote de extratos bancários e gera Fluxo de Caixa consolidado."""
     tmp_paths: list[Path] = []
     try:
+        _validar_quantidade_uploads(arquivos)
         arquivos_lote: list[tuple[Path, str]] = []
         for arquivo in arquivos:
             tmp_path = await _salvar_upload_temporario(arquivo)
             tmp_paths.append(tmp_path)
-            arquivos_lote.append((tmp_path, arquivo.filename or tmp_path.name))
+            arquivos_lote.append((tmp_path, _nome_upload_seguro(arquivo)))
 
         resultado = fluxo_service.processar_lote(arquivos=arquivos_lote, periodo=periodo)
         return resultado.model_dump(mode="json")
 
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(f"Erro no processamento Fluxo de Caixa: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
@@ -382,29 +528,25 @@ async def validar_lote_fluxo(
     """Valida múltiplos arquivos do Fluxo de Caixa em lote."""
     tmp_paths = []
     try:
+        _validar_quantidade_uploads(arquivos)
         parser = ExcelParser("fluxo")
         lista_dados = []
 
         for arquivo in arquivos:
-            suffix = Path(arquivo.filename).suffix
-            tmp = tempfile.NamedTemporaryFile(
-                delete=False, suffix=suffix, dir=str(settings.temp_dir)
-            )
-            tmp_path = Path(tmp.name)
+            tmp_path = await _salvar_upload_temporario(arquivo)
             tmp_paths.append(tmp_path)
-            content = await arquivo.read()
-            tmp.write(content)
-            tmp.close()
 
             dados = parser.ler_arquivo(tmp_path)
             # Sobrescrever nome para preservar original
-            dados["arquivo"] = arquivo.filename
+            dados["arquivo"] = _nome_upload_seguro(arquivo)
             lista_dados.append(dados)
 
         validator = FluxoCaixaValidator()
         result = validator.validar_lote(lista_dados)
         return result.model_dump(mode="json")
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Erro na validação de lote: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -500,11 +642,7 @@ async def download_processamento(processamento_id: str):
         arquivo_saida = fluxo_service.obter_arquivo_saida(processamento_id)
     if not arquivo_saida:
         raise HTTPException(status_code=404, detail="Arquivo de saida nao encontrado")
-    return FileResponse(
-        path=str(arquivo_saida),
-        filename=arquivo_saida.name,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    return _excel_file_response(arquivo_saida)
 
 
 @app.get("/api/etapa1/status")
@@ -554,7 +692,7 @@ async def ingestao_dre(
 
         resultado = dre_ingestao_service.ingestar(
             arquivo_path=tmp_path,
-            arquivo_nome=arquivo.filename or "arquivo.xls",
+            arquivo_nome=_nome_upload_seguro(arquivo),
             competencia=competencia,
             replace=replace,
         )
@@ -602,9 +740,11 @@ async def listar_ingestoes(
 async def limpar_base_dre(
     ano: int | None = Form(None, description="Ano opcional (ex: 2025)"),
     mes: int | None = Form(None, description="Mês opcional 1..12 (requer ano)"),
+    confirmar: bool = Form(False, description="Confirmação explícita da limpeza"),
 ):
     """Limpa dados persistidos de DRE (global, por ano, ou por competência)."""
     try:
+        _exigir_confirmacao(confirmar)
         if mes is not None and ano is None:
             raise HTTPException(
                 status_code=400,
@@ -644,11 +784,12 @@ async def ingestao_fluxo_caixa(
     """Ingestão mensal de extratos do Fluxo de Caixa para persistência no banco."""
     tmp_paths: list[Path] = []
     try:
+        _validar_quantidade_uploads(arquivos)
         arquivos_lote: list[tuple[Path, str]] = []
         for arquivo in arquivos:
             tmp_path = await _salvar_upload_temporario(arquivo)
             tmp_paths.append(tmp_path)
-            arquivos_lote.append((tmp_path, arquivo.filename or tmp_path.name))
+            arquivos_lote.append((tmp_path, _nome_upload_seguro(arquivo)))
 
         resultado = fluxo_ingestao_service.ingestar_lote(
             arquivos=arquivos_lote,
@@ -689,9 +830,11 @@ async def listar_ingestoes_fluxo_caixa(
 async def limpar_base_fluxo_caixa(
     ano: int | None = Form(None, description="Ano opcional (ex: 2025)"),
     mes: int | None = Form(None, description="Mês opcional 1..12 (requer ano)"),
+    confirmar: bool = Form(False, description="Confirmação explícita da limpeza"),
 ):
     """Limpa dados persistidos de Fluxo de Caixa."""
     try:
+        _exigir_confirmacao(confirmar)
         if mes is not None and ano is None:
             raise HTTPException(
                 status_code=400,
@@ -906,29 +1049,23 @@ async def resumo_dre(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/dre/download/{arquivo_nome}")
+@app.get("/api/dre/download/{arquivo_nome:path}")
 async def download_dre(arquivo_nome: str):
     """Download de arquivo DRE gerado."""
-    arquivo_path = settings.base_dir / "output" / arquivo_nome
-    if not arquivo_path.exists():
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
-
-    return FileResponse(
-        path=str(arquivo_path),
-        filename=arquivo_nome,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+    arquivo_path = _resolver_output_xlsx(arquivo_nome)
+    return _excel_file_response(arquivo_path, arquivo_path.name)
 
 
-@app.get("/api/fluxo_caixa/download/{arquivo_nome}")
+@app.get("/api/fluxo_caixa/download/{arquivo_nome:path}")
 async def download_fluxo_caixa(arquivo_nome: str):
     """Download de arquivo Fluxo de Caixa gerado."""
-    arquivo_path = settings.base_dir / "output" / arquivo_nome
-    if not arquivo_path.exists():
-        raise HTTPException(status_code=404, detail="Arquivo não encontrado")
+    arquivo_path = _resolver_output_xlsx(arquivo_nome)
+    return _excel_file_response(arquivo_path, arquivo_path.name)
 
-    return FileResponse(
-        path=str(arquivo_path),
-        filename=arquivo_nome,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+
+if settings.frontend_dist_dir.exists():
+    app.mount(
+        "/",
+        StaticFiles(directory=str(settings.frontend_dist_dir), html=True),
+        name="frontend",
     )

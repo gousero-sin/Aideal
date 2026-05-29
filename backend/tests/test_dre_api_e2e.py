@@ -80,7 +80,12 @@ def test_api_dre_processamento_aceita_modo_nao_cumulativo(tmp_path, monkeypatch)
     monkeypatch.setattr(main_module, "dre_service", service)
 
     client = TestClient(main_module.app)
-    arquivo = main_module.settings.base_dir / "RELATORIO DRE MES 05.xls"
+    arquivo = (
+        main_module.settings.base_dir
+        / "exemplos"
+        / "dre"
+        / "RELATORIO DRE MES 05.xls"
+    )
 
     with open(arquivo, "rb") as fh:
         resp = client.post(

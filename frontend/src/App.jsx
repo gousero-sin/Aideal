@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { BarChart3, WalletCards } from 'lucide-react';
 import {
-  LiquidIntelligenceLoader,
   WaveBar,
   useLiquidLoaderController,
 } from 'goflow-core';
+import AidealPartnershipLoader from './components/AidealPartnershipLoader';
 import PainelDRE from './components/PainelDRE';
 import PainelFluxoCaixa from './components/PainelFluxoCaixa';
 
@@ -34,7 +34,11 @@ export default function App() {
   const [activeView, setActiveView] = useState(getInitialView);
   const [notification, setNotification] = useState(null);
   const [busy, setBusy] = useState(false);
-  const loader = useLiquidLoaderController();
+  const loader = useLiquidLoaderController({
+    intervalMs: 3200,
+    minVisibleMs: 1400,
+    exitMs: 420,
+  });
   const loaderVisibleRef = useRef(false);
   const activeMeta = views[activeView] || views.dre;
 
@@ -59,12 +63,12 @@ export default function App() {
 
   return (
     <main className="aideal-shell" data-theme-mode="dark">
-      <LiquidIntelligenceLoader
+      <AidealPartnershipLoader
         visible={loader.visible}
         exiting={loader.exiting}
         scene={loader.scene}
-        title={busy ? 'Processando GoFlowOS' : 'GoFlowOS'}
-        subtitle={busy ? 'Atualizando painéis financeiros AIDEAL' : 'Painéis DRE e Fluxo de Caixa'}
+        title="AIDEAL × GoFlowOS"
+        subtitle="Processando inteligência financeira"
       />
 
       <header className="aideal-header">

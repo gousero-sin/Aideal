@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     config_dir: Path = base_dir / "backend" / "config"
     logs_dir: Path = base_dir / "logs"
     temp_dir: Path = base_dir / "logs" / "tmp"
+    output_dir: Path = base_dir / "output"
+    frontend_dist_dir: Path = base_dir / "frontend" / "dist"
     data_dir: Path = base_dir / "data"
     db_path: Path = data_dir / "aideal.db"
 
@@ -27,6 +29,13 @@ class Settings(BaseSettings):
     # Limites
     max_upload_size_mb: int = 50
     max_files_per_batch: int = 20
+    upload_chunk_size_bytes: int = 1024 * 1024
+    allowed_upload_extensions: str = ".xls,.xlsx"
+
+    # Produção local
+    cors_origins: str = "http://127.0.0.1:8000,http://localhost:8000"
+    sqlite_timeout_seconds: float = 30.0
+    sqlite_busy_timeout_ms: int = 5000
 
     @property
     def template_dre_path(self) -> Path:
@@ -35,6 +44,22 @@ class Settings(BaseSettings):
     @property
     def template_fluxo_path(self) -> Path:
         return self.templates_dir / "fluxo_caixa" / self.template_fluxo
+
+    @property
+    def max_upload_size_bytes(self) -> int:
+        return self.max_upload_size_mb * 1024 * 1024
+
+    @property
+    def allowed_upload_extensions_set(self) -> set[str]:
+        return {
+            ext.strip().lower()
+            for ext in self.allowed_upload_extensions.split(",")
+            if ext.strip()
+        }
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     model_config = {"env_prefix": "AIDEAL_"}
 

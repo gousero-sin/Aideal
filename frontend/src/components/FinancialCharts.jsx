@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useId, useMemo, useState } from 'react';
 import {
   Area,
   Bar,
@@ -8,14 +8,24 @@ import {
   ComposedChart,
   Legend,
   Line,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
-import { formatCurrency, formatNumber, topRows } from './financialPanelUtils';
+import { formatCurrency, formatNumber, formatPercent, topRows } from './financialPanelUtils';
 
 const COLORS = ['#35c7f2', '#2f8bd8', '#ffc629', '#f01821', '#8fd5ff', '#7adf9b'];
+const DONUT_COLORS = [
+  { start: '#4bd8ff', end: '#168ad1' },
+  { start: '#4ea7ff', end: '#2357c8' },
+  { start: '#ffd957', end: '#e6a711' },
+  { start: '#ff414a', end: '#c90f1b' },
+  { start: '#a9dcff', end: '#56a9d9' },
+  { start: '#82eba4', end: '#42a96d' },
+];
 
 const formatAxisLabel = (value = '') => {
   const label = String(value);
@@ -30,6 +40,27 @@ const formatTooltipValue = (item) => {
   return formatCurrency(item.value);
 };
 
+const formatCompactCurrency = (value) => {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return formatCurrency(0);
+
+  const absoluteValue = Math.abs(numeric);
+  if (absoluteValue >= 1000000) {
+    return `R$ ${new Intl.NumberFormat('pt-BR', {
+      maximumFractionDigits: 1,
+      minimumFractionDigits: 1,
+    }).format(numeric / 1000000)} mi`;
+  }
+
+  if (absoluteValue >= 1000) {
+    return `R$ ${new Intl.NumberFormat('pt-BR', {
+      maximumFractionDigits: 0,
+    }).format(numeric / 1000)} mil`;
+  }
+
+  return formatCurrency(numeric);
+};
+
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
@@ -40,6 +71,21 @@ function ChartTooltip({ active, payload, label }) {
           {item.name}: {formatTooltipValue(item)}
         </span>
       ))}
+    </div>
+  );
+}
+
+function DonutTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  if (!row) return null;
+  return (
+    <div className="aideal-chart-tooltip">
+      <strong>{row.name}</strong>
+      <span style={{ color: row.color }}>
+        Impacto: {formatCurrency(row.value)}
+      </span>
+      <span>{formatPercent(row.share)} do total</span>
     </div>
   );
 }
@@ -137,41 +183,128 @@ export function RankingChart({ data, countKey }) {
 }
 
 export function CompositionDonut({ data }) {
-  const rows = topRows(data, 6)
-    .map((item) => ({
-      name: item.nome,
-      value: Math.abs(Number(item.saldo || 0)) || Number(item.credito || 0) + Number(item.debito || 0),
-    }))
-    .filter((item) => item.value > 0);
+  const gradientPrefix = useId().replace(/:/g, '');
+  const [hiddenNames, setHiddenNames] = useState(() => new Set());
+  const rows = useMemo(
+    () => topRows(data, 6)
+      .map((item, index) => {
+        const color = DONUT_COLORS[index % DONUT_COLORS.length];
+        return {
+          name: item.nome,
+          value: Math.abs(Number(item.saldo || 0)) || Number(item.credito || 0) + Number(item.debito || 0),
+          color: color.start,
+          colorEnd: color.end,
+          gradientId: `aidealDonut${gradientPrefix}${index}`,
+        };
+      })
+      .filter((item) => item.value > 0),
+    [data, gradientPrefix],
+  );
+
+  useEffect(() => {
+    const availableNames = new Set(rows.map((row) => row.name));
+    setHiddenNames((current) => {
+      const next = new Set([...current].filter((name) => availableNames.has(name)));
+      return next.size === current.size ? current : next;
+    });
+  }, [rows]);
 
   if (!rows.length) {
     return <div className="aideal-chart-empty">Sem composição para exibir.</div>;
   }
 
   const total = rows.reduce((sum, item) => sum + item.value, 0);
-  let cursor = 0;
-  const gradient = rows
-    .map((row, index) => {
-      const start = cursor;
-      const end = cursor + (row.value / total) * 100;
-      cursor = end;
-      return `${COLORS[index % COLORS.length]} ${start}% ${end}%`;
-    })
-    .join(', ');
+  const visibleRows = rows
+    .filter((row) => !hiddenNames.has(row.name))
+    .map((row) => ({
+      ...row,
+      share: total > 0 ? (row.value / total) * 100 : 0,
+    }));
+  const visibleTotal = visibleRows.reduce((sum, item) => sum + item.value, 0);
+  const hiddenCount = rows.length - visibleRows.length;
+
+  const toggleRow = (name) => {
+    setHiddenNames((current) => {
+      const next = new Set(current);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="aideal-donut-layout">
-      <div className="aideal-css-donut" style={{ background: `conic-gradient(${gradient})` }}>
-        <div>
-          <strong>{rows.length}</strong>
-          <span>grupos</span>
+      <div className="aideal-donut-chart-shell">
+        <div className="aideal-donut-chart">
+          {visibleRows.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <defs>
+                  {visibleRows.map((row) => (
+                    <linearGradient key={row.gradientId} id={row.gradientId} x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor={row.color} />
+                      <stop offset="100%" stopColor={row.colorEnd} />
+                    </linearGradient>
+                  ))}
+                </defs>
+                <Tooltip
+                  content={<DonutTooltip />}
+                  wrapperStyle={{ zIndex: 12, pointerEvents: 'none' }}
+                  allowEscapeViewBox={{ x: true, y: true }}
+                />
+                <Pie
+                  data={visibleRows}
+                  dataKey="value"
+                  nameKey="name"
+                  innerRadius="70%"
+                  outerRadius="94%"
+                  paddingAngle={3}
+                  cornerRadius={8}
+                  stroke="rgba(7,9,13,0.84)"
+                  strokeWidth={4}
+                  isAnimationActive
+                  animationDuration={760}
+                >
+                  {visibleRows.map((row) => (
+                    <Cell key={row.name} fill={`url(#${row.gradientId})`} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="aideal-donut-empty-ring" />
+          )}
+          <div className="aideal-donut-center">
+            <strong title={formatCurrency(visibleTotal)}>{formatCompactCurrency(visibleTotal)}</strong>
+            <span>{visibleRows.length} visível(eis)</span>
+            {hiddenCount > 0 && <em>{hiddenCount} oculto(s)</em>}
+          </div>
         </div>
       </div>
-      <div className="aideal-donut-legend">
-        {rows.map((row, index) => (
-          <div key={row.name}>
-            <span style={{ background: COLORS[index % COLORS.length] }} />
-            <strong title={row.name}>{row.name}</strong>
+
+      <div className="aideal-donut-legend" role="list" aria-label="Filtros da composição">
+        {rows.map((row) => (
+          <div
+            key={row.name}
+            className={`aideal-donut-legend-row ${hiddenNames.has(row.name) ? 'is-hidden' : ''}`}
+            role="listitem"
+          >
+            <button
+              type="button"
+              className="aideal-donut-dot"
+              style={{ '--dot-color': row.color }}
+              onClick={() => toggleRow(row.name)}
+              aria-pressed={!hiddenNames.has(row.name)}
+              aria-label={`${hiddenNames.has(row.name) ? 'Exibir' : 'Ocultar'} ${row.name}`}
+              title={`${hiddenNames.has(row.name) ? 'Exibir' : 'Ocultar'} ${row.name}`}
+            />
+            <div className="aideal-donut-legend-copy">
+              <strong title={row.name}>{row.name}</strong>
+              <span>{formatPercent(total > 0 ? (row.value / total) * 100 : 0)}</span>
+            </div>
             <em>{formatCurrency(row.value)}</em>
           </div>
         ))}

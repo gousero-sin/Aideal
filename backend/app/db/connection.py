@@ -19,11 +19,19 @@ class DatabaseConnection:
         """Garante que o diretório do banco existe."""
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+    def _connect(self) -> sqlite3.Connection:
+        """Abre conexão SQLite com pragmas seguros para produção local."""
+        conn = sqlite3.connect(str(self.db_path), timeout=settings.sqlite_timeout_seconds)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute(f"PRAGMA busy_timeout = {settings.sqlite_busy_timeout_ms}")
+        conn.execute("PRAGMA journal_mode = WAL")
+        return conn
+
     @contextmanager
     def get_connection(self) -> Generator[sqlite3.Connection, None, None]:
         """Context manager para conexão SQLite."""
-        conn = sqlite3.connect(str(self.db_path))
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         try:
             yield conn
         finally:
@@ -32,8 +40,7 @@ class DatabaseConnection:
     @contextmanager
     def transaction(self) -> Generator[sqlite3.Connection, None, None]:
         """Context manager para transação atômica."""
-        conn = sqlite3.connect(str(self.db_path))
-        conn.row_factory = sqlite3.Row
+        conn = self._connect()
         try:
             yield conn
             conn.commit()

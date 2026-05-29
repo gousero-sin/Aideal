@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import {
   ChartCard,
-  CompositionDonut,
   MonthlyEvolutionChart,
   RankingChart,
 } from './FinancialCharts';
@@ -32,6 +31,7 @@ import {
   buildPanelQuery,
   countSelectedFilters,
   formatCurrency,
+  formatDecimal,
   formatMonths,
   formatNumber,
   formatPercent,
@@ -48,6 +48,101 @@ const emptyFilters = {
   natureza: [],
 };
 
+const indicadorFormatters = {
+  mcl: formatCurrency,
+  pel: formatCurrency,
+  ebitda: formatCurrency,
+  fcl: formatCurrency,
+  roi: formatPercent,
+  ncg: formatCurrency,
+};
+
+const formatIndicatorValue = (indicador) => {
+  if (!indicador || indicador.status !== 'calculado') return 'Indisponível';
+  const formatter = indicadorFormatters[indicador.id] || formatCurrency;
+  return formatter(indicador.valor);
+};
+
+const indicatorDetail = (indicador) => {
+  if (!indicador) return '';
+  if (indicador.status !== 'calculado') {
+    const faltantes = indicador.componentes_faltantes || [];
+    return faltantes.length > 0 ? `Faltando: ${faltantes.join(', ')}` : 'Dados insuficientes';
+  }
+  if (indicador.id === 'pel') return 'custos fixos / MCL %';
+  if (indicador.id === 'ebitda') {
+    return `Margem EBITDA: ${formatPercent(indicador.percentual)}`;
+  }
+  if (indicador.percentual !== null && indicador.percentual !== undefined) {
+    return `${formatPercent(indicador.percentual)} da receita líquida`;
+  }
+  if (indicador.id === 'roi') return 'lucro líquido / investimento total';
+  return 'calculado com dados do DRE';
+};
+
+const formatObjectiveValue = (objetivo) => {
+  if (!objetivo || objetivo.status !== 'calculado') return 'Indisponível';
+  if (objetivo.unidade === 'R$') return formatCurrency(objetivo.valor);
+  if (objetivo.unidade === '%') return formatPercent(objetivo.valor);
+  if (objetivo.unidade === 'x') return `${formatDecimal(objetivo.valor, 2)}x`;
+  return formatNumber(objetivo.valor);
+};
+
+const objectiveDetail = (objetivo) => {
+  if (!objetivo) return '';
+  if (objetivo.status !== 'calculado') {
+    const faltantes = objetivo.componentes_faltantes || [];
+    return faltantes.length > 0 ? `Faltando: ${faltantes.join(', ')}` : 'Dados insuficientes';
+  }
+  return objetivo.meta_status === 'ok' ? 'dentro da meta' : 'fora da meta';
+};
+
+const metaSignalLabel = (item) => {
+  if (!item || item.status !== 'calculado') return 'Sem dados';
+  return item.meta_status === 'ok' ? 'Atende' : 'Fora';
+};
+
+function DREAnalysisPanel({ title, subtitle, items, emptyText, type }) {
+  return (
+    <article className="aideal-chart-card aideal-analysis-card">
+      <div className="aideal-chart-heading">
+        <h3>{title}</h3>
+        {subtitle && <p>{subtitle}</p>}
+      </div>
+      <div className={`aideal-analysis-list is-${type}`}>
+        {items.map((item) => {
+          const isObjective = type === 'objectives';
+          const metaLabel = isObjective ? item.meta : null;
+          const metaStatusClass = isObjective && item.meta_status ? ` is-meta-${item.meta_status}` : '';
+          const statusClass = `is-${item.status}${metaStatusClass}`;
+          return (
+            <article key={item.id} className={`aideal-analysis-item ${statusClass}`}>
+              <div className="aideal-analysis-item-head">
+                <span>{isObjective ? item.sigla : item.nome}</span>
+                <div className="aideal-analysis-badges">
+                  {metaLabel && item.meta_status && (
+                    <b className="aideal-meta-signal">
+                      <i aria-hidden="true" />
+                      {metaSignalLabel(item)}
+                    </b>
+                  )}
+                  {metaLabel && <em>Meta {metaLabel}</em>}
+                </div>
+              </div>
+              {isObjective && <small>{item.nome}</small>}
+              <strong>{isObjective ? formatObjectiveValue(item) : formatIndicatorValue(item)}</strong>
+              <p>{isObjective ? objectiveDetail(item) : indicatorDetail(item)}</p>
+            </article>
+          );
+        })}
+        {items.length === 0 && (
+          <span className="aideal-chart-empty">{emptyText}</span>
+        )}
+      </div>
+    </article>
+  );
+}
+
 export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
   const [filters, setFilters] = useState(emptyFilters);
   const [data, setData] = useState(null);
@@ -58,7 +153,16 @@ export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
   const [operationBusy, setOperationBusy] = useState(false);
   const [operationOpen, setOperationOpen] = useState(false);
 
-  const query = useMemo(() => buildPanelQuery(filters), [filters]);
+  const obraSelecionada = filters.centro_custo.length > 0;
+  const panelFilters = useMemo(
+    () => (
+      obraSelecionada
+        ? { ...filters, escopo_periodo: 'projeto_completo' }
+        : filters
+    ),
+    [filters, obraSelecionada],
+  );
+  const query = useMemo(() => buildPanelQuery(panelFilters), [panelFilters]);
 
   const carregarPainel = useCallback(async () => {
     setLoading(true);
@@ -138,7 +242,10 @@ export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
       return;
     }
     if (result?._stage === 'limpeza') {
-      onNotify?.({ type: 'success', message: 'Base DRE limpa e Painel DRE atualizado.' });
+      onNotify?.({
+        type: 'success',
+        message: `Mês DRE ${result?._competenciaLabel || ''} excluído e painel atualizado.`,
+      });
       return;
     }
     onNotify?.({ type: 'success', message: `DRE final gerado com ${formatNumber(total)} lançamento(s).` });
@@ -146,6 +253,14 @@ export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
 
   const kpis = data?.kpis || {};
   const filtros = data?.filtros_disponiveis || {};
+  const projetoCompletoAtivo = data?.filtros_aplicados?.escopo_periodo === 'projeto_completo';
+  const indicadores = Array.isArray(data?.indicadores_viabilidade)
+    ? data.indicadores_viabilidade
+    : [];
+  const objetivosEstrategicos = Array.isArray(data?.objetivos_estrategicos)
+    ? data.objetivos_estrategicos
+    : [];
+  const saldosProjeto = data?.saldos_projeto || null;
   const activeFilterCount = countSelectedFilters(filters, ['meses', 'centro_custo', 'natureza']);
   const filterSummary = buildFilterSummary(filters, [
     { key: 'meses', label: 'Mês' },
@@ -297,6 +412,34 @@ export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
         <PanelSkeleton />
       ) : (
         <>
+          {projetoCompletoAtivo && (
+            <section className="aideal-project-notice" aria-label="Escopo do DRE por obra">
+              <div>
+                <span>Obra em ciclo completo</span>
+                <strong>{data?.periodo?.label || '-'}</strong>
+                <p>
+                  Ano e mês não limitam este DRE enquanto houver obra filtrada.
+                </p>
+              </div>
+              {saldosProjeto && (
+                <div className="aideal-project-balance-row">
+                  <span>
+                    <strong>{formatCurrency(saldosProjeto.credito)}</strong>
+                    créditos
+                  </span>
+                  <span>
+                    <strong>{formatCurrency(saldosProjeto.debito)}</strong>
+                    débitos
+                  </span>
+                  <span>
+                    <strong>{formatSignedCurrency(saldosProjeto.saldo)}</strong>
+                    saldo do projeto
+                  </span>
+                </div>
+              )}
+            </section>
+          )}
+
           <section className="aideal-insight-grid">
             <KpiCard label="Lançamentos" value={formatNumber(kpis.total_lancamentos)} detail="movimentos no filtro" icon={<FileSpreadsheet size={20} />} />
             <KpiCard label="Entradas" value={formatCurrency(kpis.total_credito)} detail="créditos DRE" tone="cyan" icon={<TrendingUp size={20} />} />
@@ -307,13 +450,27 @@ export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
 
           <SituationGrid items={situations} />
 
-          <section className="aideal-analytics-grid">
+          <section className="aideal-analytics-grid aideal-analytics-grid-full">
             <ChartCard title="Evolução mensal" subtitle={data?.periodo?.label} className="is-wide">
               <MonthlyEvolutionChart data={data?.series_mensais} countKey="lancamentos" />
             </ChartCard>
-            <ChartCard title="Composição por natureza" subtitle="Peso financeiro por natureza">
-              <CompositionDonut data={data?.ranking_naturezas} />
-            </ChartCard>
+          </section>
+
+          <section className="aideal-analysis-grid" aria-label="Indicadores analíticos do DRE">
+            <DREAnalysisPanel
+              title="Indicadores para analisar a viabilidade de projetos alinhado ao DRE"
+              subtitle={projetoCompletoAtivo ? 'Ciclo completo da obra selecionada' : data?.periodo?.label}
+              items={indicadores}
+              emptyText="Sem indicadores no filtro ativo."
+              type="viability"
+            />
+            <DREAnalysisPanel
+              title="Objetivos estratégicos e indicadores (KPI's)"
+              subtitle="Metas executivas calculadas com dados do DRE"
+              items={objetivosEstrategicos}
+              emptyText="Sem objetivos estratégicos no filtro ativo."
+              type="objectives"
+            />
           </section>
 
           <section className="aideal-analytics-grid aideal-analytics-grid-three">

@@ -46,6 +46,7 @@ export const buildPanelQuery = (filters) => {
   appendMany('banco', filters.banco);
   appendMany('tipo', filters.tipo);
   appendMany('classificacao', filters.classificacao);
+  if (filters.escopo_periodo) params.set('escopo_periodo', String(filters.escopo_periodo));
   return params.toString();
 };
 
