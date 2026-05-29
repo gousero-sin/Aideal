@@ -36,12 +36,10 @@ ensure_backend_dev() {
 
 ensure_frontend_deps() {
     cd "$FRONTEND_DIR" || return 1
-    if [ ! -d "node_modules" ]; then
-        if [ -f "package-lock.json" ]; then
-            npm ci --silent
-        else
-            npm install --silent
-        fi
+    if [ -f "package-lock.json" ]; then
+        npm ci --include=dev --silent
+    else
+        npm install --include=dev --silent
     fi
 }
 
