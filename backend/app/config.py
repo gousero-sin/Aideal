@@ -4,6 +4,9 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
+# Raiz do projeto: usada para localizar o .env independente do CWD do processo.
+_BASE_DIR = Path(__file__).resolve().parent.parent.parent
+
 
 class Settings(BaseSettings):
     app_name: str = "AIDEAL GoFlowOS MVP"
@@ -37,6 +40,14 @@ class Settings(BaseSettings):
     sqlite_timeout_seconds: float = 30.0
     sqlite_busy_timeout_ms: int = 5000
 
+    # Admin Banco
+    admin_username: str = ""
+    admin_password: str = ""
+    admin_password_hash: str = ""
+    admin_session_secret: str = ""
+    admin_session_max_age_seconds: int = 8 * 60 * 60
+    admin_cookie_secure: bool = False
+
     @property
     def template_dre_path(self) -> Path:
         return self.templates_dir / "dre" / self.template_dre
@@ -61,7 +72,12 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
-    model_config = {"env_prefix": "AIDEAL_"}
+    model_config = {
+        "env_prefix": "AIDEAL_",
+        "env_file": str(_BASE_DIR / ".env"),
+        "env_file_encoding": "utf-8",
+        "extra": "ignore",
+    }
 
 
 settings = Settings()

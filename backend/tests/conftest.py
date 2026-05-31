@@ -13,6 +13,18 @@ from app.processamento.dre import DREProcessamentoService
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+ADMIN_TEST_USERNAME = "Eduardo"
+ADMIN_TEST_PASSWORD = "senha-admin-teste"
+
+
+def login_admin(client) -> None:
+    """Autentica o TestClient em endpoints operacionais protegidos."""
+    resp = client.post(
+        "/api/admin/login",
+        json={"username": ADMIN_TEST_USERNAME, "password": ADMIN_TEST_PASSWORD},
+    )
+    assert resp.status_code == 200
+
 
 def _dados_dre_sintetico(
     df: pd.DataFrame,
@@ -31,6 +43,17 @@ def _dados_dre_sintetico(
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _admin_auth_settings(monkeypatch):
+    """Configura auth admin para a suíte; cada teste decide se faz login."""
+    monkeypatch.setattr(settings, "admin_username", ADMIN_TEST_USERNAME)
+    monkeypatch.setattr(settings, "admin_password", ADMIN_TEST_PASSWORD)
+    monkeypatch.setattr(settings, "admin_password_hash", "")
+    monkeypatch.setattr(settings, "admin_session_secret", "segredo-testes")
+    monkeypatch.setattr(settings, "admin_session_max_age_seconds", 3600)
+    monkeypatch.setattr(settings, "admin_cookie_secure", False)
 
 
 @pytest.fixture

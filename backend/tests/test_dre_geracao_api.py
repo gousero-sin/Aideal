@@ -1,5 +1,6 @@
 """Testes de API para geração DRE a partir do banco."""
 
+from conftest import login_admin
 from fastapi.testclient import TestClient
 
 import app.main as main_module
@@ -52,6 +53,7 @@ def test_api_dre_gerar_recebe_flags_de_meses(monkeypatch):
     fake_service = _FakeGeracaoCompletaService()
     monkeypatch.setattr(main_module, "dre_geracao_completa_service", fake_service)
     client = TestClient(main_module.app)
+    login_admin(client)
 
     resp = client.post(
         "/api/dre/gerar",
@@ -79,6 +81,7 @@ def test_api_dre_gerar_modo_teste_nao_gera_arquivo(monkeypatch):
     fake_service = _FakeGeracaoCompletaService()
     monkeypatch.setattr(main_module, "dre_geracao_completa_service", fake_service)
     client = TestClient(main_module.app)
+    login_admin(client)
 
     resp = client.post(
         "/api/dre/gerar",

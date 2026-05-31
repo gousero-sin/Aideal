@@ -32,6 +32,28 @@ def _patch_admin_services(db: DatabaseConnection) -> None:
     main_module.fluxo_ingestao_service = FluxoCaixaIngestaoService(db=db)
 
 
+def _configurar_admin(monkeypatch) -> None:
+    monkeypatch.setattr(main_module.settings, "admin_username", "Eduardo", raising=False)
+    monkeypatch.setattr(main_module.settings, "admin_password", "senha-admin-teste", raising=False)
+    monkeypatch.setattr(main_module.settings, "admin_password_hash", "", raising=False)
+    monkeypatch.setattr(
+        main_module.settings,
+        "admin_session_secret",
+        "segredo-testes",
+        raising=False,
+    )
+    monkeypatch.setattr(main_module.settings, "admin_session_max_age_seconds", 3600, raising=False)
+    monkeypatch.setattr(main_module.settings, "admin_cookie_secure", False, raising=False)
+
+
+def _login_admin(client: TestClient) -> None:
+    resp = client.post(
+        "/api/admin/login",
+        json={"username": "Eduardo", "password": "senha-admin-teste"},
+    )
+    assert resp.status_code == 200
+
+
 def test_painel_dre_vazio_retorna_kpis_zerados():
     db = _novo_db()
     client = _client_com_db(db)
@@ -1344,7 +1366,8 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_com_aliases():
     assert equilibrio["status"] == "equilibrado"
 
 
-def test_admin_limpar_remove_somente_competencia_informada():
+def test_admin_limpar_remove_somente_competencia_informada(monkeypatch):
+    _configurar_admin(monkeypatch)
     db = _novo_db()
     with db.transaction() as conn:
         conn.executemany(
@@ -1519,12 +1542,23 @@ def test_admin_limpar_remove_somente_competencia_informada():
     _patch_admin_services(db)
     client = _client_com_db(db)
 
+    dre_sem_sessao = client.post(
+        "/api/dre/admin/limpar",
+        data={"ano": "2025", "mes": "5", "confirmar": "true"},
+    )
+    fluxo_sem_sessao = client.post(
+        "/api/fluxo_caixa/admin/limpar",
+        data={"ano": "2025", "mes": "5", "confirmar": "true"},
+    )
+    assert dre_sem_sessao.status_code == 401
+    assert fluxo_sem_sessao.status_code == 401
+
+    _login_admin(client)
     dre_sem_confirmar = client.post("/api/dre/admin/limpar", data={"ano": "2025", "mes": "5"})
     fluxo_sem_confirmar = client.post(
         "/api/fluxo_caixa/admin/limpar",
         data={"ano": "2025", "mes": "5"},
     )
-
     assert dre_sem_confirmar.status_code == 400
     assert fluxo_sem_confirmar.status_code == 400
 

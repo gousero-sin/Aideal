@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from conftest import login_admin
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
@@ -34,6 +35,7 @@ def test_api_dre_processamento_status_e_download(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module, "dre_service", service)
 
     client = TestClient(main_module.app)
+    login_admin(client)
     arquivo = tmp_path / "DRE_CUMULATIVO_01_A_05_2025.xlsx"
     _criar_arquivo_dre_cumulativo(arquivo)
 
@@ -80,6 +82,7 @@ def test_api_dre_processamento_aceita_modo_nao_cumulativo(tmp_path, monkeypatch)
     monkeypatch.setattr(main_module, "dre_service", service)
 
     client = TestClient(main_module.app)
+    login_admin(client)
     arquivo = (
         main_module.settings.base_dir
         / "exemplos"

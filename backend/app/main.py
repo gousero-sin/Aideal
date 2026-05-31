@@ -6,11 +6,30 @@ from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
+from .auth import (
+    admin_auth_configured,
+    clear_admin_session_cookie,
+    current_admin_username,
+    require_admin_session,
+    set_admin_session_cookie,
+    verify_admin_credentials,
+)
 from .config import settings
 from .contracts.common import FlowType
 from .contracts.processamento import DREProcessamentoResponse
@@ -37,6 +56,11 @@ logger = logging.getLogger(__name__)
 
 
 EXCEL_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+class AdminLoginRequest(BaseModel):
+    username: str
+    password: str
 
 
 def _ensure_runtime_dirs() -> None:
@@ -230,6 +254,34 @@ async def ready():
     return {"status": "ready", "checks": checks}
 
 
+@app.post("/api/admin/login")
+async def admin_login(payload: AdminLoginRequest, response: Response):
+    """Autentica o operador da aba Admin Banco."""
+    if not verify_admin_credentials(payload.username, payload.password):
+        raise HTTPException(status_code=401, detail="Credenciais inválidas.")
+
+    username = settings.admin_username.strip()
+    set_admin_session_cookie(response, username)
+    return {"authenticated": True, "username": username}
+
+
+@app.get("/api/admin/session")
+async def admin_session(request: Request):
+    """Retorna o estado atual da sessão admin."""
+    if not admin_auth_configured():
+        return {"authenticated": False, "username": None}
+
+    username = current_admin_username(request)
+    return {"authenticated": bool(username), "username": username}
+
+
+@app.post("/api/admin/logout")
+async def admin_logout(response: Response):
+    """Encerra a sessão admin atual."""
+    clear_admin_session_cookie(response)
+    return {"authenticated": False}
+
+
 @app.get("/api/dashboard/resumo")
 async def dashboard_resumo(
     ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
@@ -302,7 +354,7 @@ async def painel_fluxo_caixa(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/api/detectar-competencia/{fluxo}")
+@app.post("/api/detectar-competencia/{fluxo}", dependencies=[Depends(require_admin_session)])
 async def detectar_competencia(
     fluxo: FlowType,
     arquivo: UploadFile | None = File(None),
@@ -339,7 +391,7 @@ async def detectar_competencia(
                 path.unlink()
 
 
-@app.post("/api/validar/{fluxo}")
+@app.post("/api/validar/{fluxo}", dependencies=[Depends(require_admin_session)])
 async def validar_arquivo(
     fluxo: FlowType,
     arquivo: UploadFile = File(...),
@@ -383,7 +435,11 @@ async def validar_arquivo(
             tmp_path.unlink()
 
 
-@app.post("/api/processar/dre", response_model=DREProcessamentoResponse)
+@app.post(
+    "/api/processar/dre",
+    response_model=DREProcessamentoResponse,
+    dependencies=[Depends(require_admin_session)],
+)
 async def processar_dre(
     arquivo: UploadFile = File(...),
     competencia: str = Form(...),
@@ -420,7 +476,11 @@ async def processar_dre(
             tmp_path.unlink()
 
 
-@app.post("/api/processar/fluxo_caixa", response_model=DREProcessamentoResponse)
+@app.post(
+    "/api/processar/fluxo_caixa",
+    response_model=DREProcessamentoResponse,
+    dependencies=[Depends(require_admin_session)],
+)
 async def processar_fluxo_caixa(
     arquivos: list[UploadFile] = File(...),
     periodo: str = Form(..., description="Período no formato MM/AAAA (ex: 05/2025)"),
@@ -449,7 +509,7 @@ async def processar_fluxo_caixa(
                 path.unlink()
 
 
-@app.post("/api/fluxo_caixa/gerar")
+@app.post("/api/fluxo_caixa/gerar", dependencies=[Depends(require_admin_session)])
 async def gerar_fluxo_caixa(
     arquivos: list[UploadFile] | None = File(
         None,
@@ -521,7 +581,7 @@ async def gerar_fluxo_caixa(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/api/validar/fluxo_caixa/lote")
+@app.post("/api/validar/fluxo_caixa/lote", dependencies=[Depends(require_admin_session)])
 async def validar_lote_fluxo(
     arquivos: list[UploadFile] = File(...),
 ):
@@ -556,7 +616,7 @@ async def validar_lote_fluxo(
                 p.unlink()
 
 
-@app.get("/api/templates/info/{fluxo}")
+@app.get("/api/templates/info/{fluxo}", dependencies=[Depends(require_admin_session)])
 async def info_template(fluxo: FlowType):
     """Retorna informações estruturais do template oficial."""
     try:
@@ -593,7 +653,7 @@ async def info_template(fluxo: FlowType):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/config/{fluxo}")
+@app.get("/api/config/{fluxo}", dependencies=[Depends(require_admin_session)])
 async def get_config(fluxo: FlowType):
     """Retorna configuração de mapeamento do fluxo."""
     import json
@@ -610,7 +670,7 @@ async def get_config(fluxo: FlowType):
     return config
 
 
-@app.get("/api/logs")
+@app.get("/api/logs", dependencies=[Depends(require_admin_session)])
 async def listar_logs():
     """Lista logs de processamento disponíveis."""
     logs = []
@@ -623,7 +683,11 @@ async def listar_logs():
     return {"total": len(logs), "logs": logs[:50]}
 
 
-@app.get("/api/processamentos/{processamento_id}", response_model=DREProcessamentoResponse)
+@app.get(
+    "/api/processamentos/{processamento_id}",
+    response_model=DREProcessamentoResponse,
+    dependencies=[Depends(require_admin_session)],
+)
 async def obter_processamento(processamento_id: str):
     """Consulta o status persistido de um processamento (DRE ou Fluxo)."""
     resultado = dre_service.obter_processamento(processamento_id)
@@ -634,7 +698,10 @@ async def obter_processamento(processamento_id: str):
     return resultado.model_dump(mode="json")
 
 
-@app.get("/api/processamentos/{processamento_id}/download")
+@app.get(
+    "/api/processamentos/{processamento_id}/download",
+    dependencies=[Depends(require_admin_session)],
+)
 async def download_processamento(processamento_id: str):
     """Baixa o arquivo final gerado por um processamento (DRE ou Fluxo)."""
     arquivo_saida = dre_service.obter_arquivo_saida(processamento_id)
@@ -645,7 +712,7 @@ async def download_processamento(processamento_id: str):
     return _excel_file_response(arquivo_saida)
 
 
-@app.get("/api/etapa1/status")
+@app.get("/api/etapa1/status", dependencies=[Depends(require_admin_session)])
 async def status_etapa1():
     """Resumo de prontidão da Etapa 1 (fundação e arquitetura)."""
     baseline_dir = settings.config_dir / "template_baselines"
@@ -673,7 +740,7 @@ async def status_etapa1():
 # ============================================================================
 
 
-@app.post("/api/dre/ingestoes")
+@app.post("/api/dre/ingestoes", dependencies=[Depends(require_admin_session)])
 async def ingestao_dre(
     arquivo: UploadFile = File(...),
     competencia: str = Form(..., description="Competência no formato MM/AAAA (ex: 05/2025)"),
@@ -713,7 +780,7 @@ async def ingestao_dre(
             tmp_path.unlink()
 
 
-@app.get("/api/dre/ingestoes/{upload_id}")
+@app.get("/api/dre/ingestoes/{upload_id}", dependencies=[Depends(require_admin_session)])
 async def obter_status_ingestao(upload_id: str):
     """Consulta o status de uma ingestão DRE."""
     resultado = dre_ingestao_service.obter_status(upload_id)
@@ -722,7 +789,7 @@ async def obter_status_ingestao(upload_id: str):
     return resultado
 
 
-@app.get("/api/dre/ingestoes")
+@app.get("/api/dre/ingestoes", dependencies=[Depends(require_admin_session)])
 async def listar_ingestoes(
     ano: int | None = None,
     mes: int | None = None,
@@ -736,7 +803,7 @@ async def listar_ingestoes(
     }
 
 
-@app.post("/api/dre/admin/limpar")
+@app.post("/api/dre/admin/limpar", dependencies=[Depends(require_admin_session)])
 async def limpar_base_dre(
     ano: int | None = Form(None, description="Ano opcional (ex: 2025)"),
     mes: int | None = Form(None, description="Mês opcional 1..12 (requer ano)"),
@@ -775,7 +842,7 @@ async def limpar_base_dre(
 # ============================================================================
 
 
-@app.post("/api/fluxo_caixa/ingestoes")
+@app.post("/api/fluxo_caixa/ingestoes", dependencies=[Depends(require_admin_session)])
 async def ingestao_fluxo_caixa(
     arquivos: list[UploadFile] = File(...),
     competencia: str = Form(..., description="Competência no formato MM/AAAA (ex: 08/2025)"),
@@ -812,7 +879,7 @@ async def ingestao_fluxo_caixa(
                 path.unlink()
 
 
-@app.get("/api/fluxo_caixa/ingestoes")
+@app.get("/api/fluxo_caixa/ingestoes", dependencies=[Depends(require_admin_session)])
 async def listar_ingestoes_fluxo_caixa(
     ano: int | None = None,
     mes: int | None = None,
@@ -826,7 +893,7 @@ async def listar_ingestoes_fluxo_caixa(
     }
 
 
-@app.post("/api/fluxo_caixa/admin/limpar")
+@app.post("/api/fluxo_caixa/admin/limpar", dependencies=[Depends(require_admin_session)])
 async def limpar_base_fluxo_caixa(
     ano: int | None = Form(None, description="Ano opcional (ex: 2025)"),
     mes: int | None = Form(None, description="Mês opcional 1..12 (requer ano)"),
@@ -860,7 +927,7 @@ async def limpar_base_fluxo_caixa(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/api/dre/gerar")
+@app.post("/api/dre/gerar", dependencies=[Depends(require_admin_session)])
 async def gerar_dre_cumulativo(
     competencia: str = Form(..., description="Competência alvo no formato MM/AAAA"),
     centro_custo: str | None = Form(None, description="Filtrar por obra/centro de custo"),
@@ -955,7 +1022,7 @@ async def gerar_dre_cumulativo(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/dre/lancamentos")
+@app.get("/api/dre/lancamentos", dependencies=[Depends(require_admin_session)])
 async def listar_lancamentos(
     ano: int,
     mes: int,
@@ -1017,7 +1084,7 @@ async def listar_lancamentos(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/dre/resumo")
+@app.get("/api/dre/resumo", dependencies=[Depends(require_admin_session)])
 async def resumo_dre(
     ano: int,
     mes: int | None = None,
@@ -1049,14 +1116,17 @@ async def resumo_dre(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/dre/download/{arquivo_nome:path}")
+@app.get("/api/dre/download/{arquivo_nome:path}", dependencies=[Depends(require_admin_session)])
 async def download_dre(arquivo_nome: str):
     """Download de arquivo DRE gerado."""
     arquivo_path = _resolver_output_xlsx(arquivo_nome)
     return _excel_file_response(arquivo_path, arquivo_path.name)
 
 
-@app.get("/api/fluxo_caixa/download/{arquivo_nome:path}")
+@app.get(
+    "/api/fluxo_caixa/download/{arquivo_nome:path}",
+    dependencies=[Depends(require_admin_session)],
+)
 async def download_fluxo_caixa(arquivo_nome: str):
     """Download de arquivo Fluxo de Caixa gerado."""
     arquivo_path = _resolver_output_xlsx(arquivo_nome)

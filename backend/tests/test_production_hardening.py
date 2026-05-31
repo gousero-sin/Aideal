@@ -1,5 +1,6 @@
 from io import BytesIO
 
+from conftest import login_admin
 from fastapi.testclient import TestClient
 
 import app.main as main_module
@@ -20,6 +21,7 @@ def test_ready_reporta_dependencias_operacionais():
 
 def test_upload_rejeita_extensao_nao_permitida():
     client = TestClient(main_module.app)
+    login_admin(client)
 
     resp = client.post(
         "/api/validar/dre",
@@ -33,6 +35,7 @@ def test_upload_rejeita_extensao_nao_permitida():
 def test_upload_rejeita_arquivo_maior_que_limite(monkeypatch):
     monkeypatch.setattr(main_module.settings, "max_upload_size_mb", 0)
     client = TestClient(main_module.app)
+    login_admin(client)
 
     resp = client.post(
         "/api/validar/dre",
@@ -52,6 +55,7 @@ def test_upload_rejeita_arquivo_maior_que_limite(monkeypatch):
 def test_upload_lote_rejeita_quantidade_acima_do_limite(monkeypatch):
     monkeypatch.setattr(main_module.settings, "max_files_per_batch", 1)
     client = TestClient(main_module.app)
+    login_admin(client)
 
     resp = client.post(
         "/api/detectar-competencia/fluxo_caixa",
@@ -67,6 +71,7 @@ def test_upload_lote_rejeita_quantidade_acima_do_limite(monkeypatch):
 
 def test_download_rejeita_path_traversal():
     client = TestClient(main_module.app)
+    login_admin(client)
 
     dre_resp = client.get("/api/dre/download/%2E%2E%2Faideal.db")
     fluxo_resp = client.get("/api/fluxo_caixa/download/%2E%2E%2Faideal.db")

@@ -24,6 +24,18 @@ http://0.0.0.0:8000
 
 Para acessar de outro computador na mesma rede, use o IP da máquina que está rodando o app, por exemplo `http://192.168.1.50:8000`.
 
+## Configurar Admin Banco
+
+Antes de subir em produção, configure a credencial administrativa fora do repositório:
+
+```bash
+export AIDEAL_ADMIN_USERNAME="Eduardo"
+export AIDEAL_ADMIN_PASSWORD="<senha_admin>"
+export AIDEAL_ADMIN_SESSION_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+```
+
+Se preferir não expor a senha em variável direta, use `AIDEAL_ADMIN_PASSWORD_HASH` no formato `sha256:<hash_hex>` e deixe `AIDEAL_ADMIN_PASSWORD` vazio.
+
 ## Verificar se está online
 
 Em outro terminal:

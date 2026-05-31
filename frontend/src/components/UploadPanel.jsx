@@ -97,7 +97,9 @@ export default function UploadPanel({
     setErroMeses(null);
     try {
       const recurso = isDre ? 'dre' : 'fluxo_caixa';
-      const response = await fetch(`${apiBase}/${recurso}/ingestoes?ano=${ano}&limit=500`);
+      const response = await fetch(`${apiBase}/${recurso}/ingestoes?ano=${ano}&limit=500`, {
+        credentials: 'same-origin',
+      });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
         throw new Error(err?.detail || 'Erro ao carregar meses disponíveis');
@@ -180,6 +182,7 @@ export default function UploadPanel({
 
       const response = await fetch(`${apiBase}/detectar-competencia/${fluxo}`, {
         method: 'POST',
+        credentials: 'same-origin',
         body: formData,
       });
 
@@ -240,6 +243,7 @@ export default function UploadPanel({
         arquivos.forEach((f) => formData.append('arquivos', f));
         response = await fetch(`${apiBase}/validar/fluxo_caixa/lote`, {
           method: 'POST',
+          credentials: 'same-origin',
           body: formData,
         });
       } else {
@@ -251,6 +255,7 @@ export default function UploadPanel({
         }
         response = await fetch(`${apiBase}/validar/${fluxo}`, {
           method: 'POST',
+          credentials: 'same-origin',
           body: formData,
         });
       }
@@ -290,6 +295,7 @@ export default function UploadPanel({
       const recurso = isDre ? 'dre' : 'fluxo_caixa';
       const response = await fetch(`${apiBase}/${recurso}/ingestoes`, {
         method: 'POST',
+        credentials: 'same-origin',
         body: formData,
       });
 
@@ -357,6 +363,7 @@ export default function UploadPanel({
       const recurso = isDre ? 'dre' : 'fluxo_caixa';
       const response = await fetch(`${apiBase}/${recurso}/gerar`, {
         method: 'POST',
+        credentials: 'same-origin',
         body: formData,
       });
 
@@ -400,6 +407,7 @@ export default function UploadPanel({
 
       const response = await fetch(`${apiBase}/fluxo_caixa/gerar`, {
         method: 'POST',
+        credentials: 'same-origin',
         body: formData,
       });
 
@@ -461,6 +469,7 @@ export default function UploadPanel({
 
       const response = await fetch(`${apiBase}/${recurso}/admin/limpar`, {
         method: 'POST',
+        credentials: 'same-origin',
         body: formData,
       });
 

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from conftest import login_admin
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
@@ -53,6 +54,7 @@ def _criar_fluxo_mensal(path: Path, mes: int) -> None:
 
 def test_detectar_competencia_dre_usa_maior_data_do_arquivo(tmp_path):
     client = TestClient(main_module.app)
+    login_admin(client)
     arquivo = tmp_path / "RELATORIO DRE 01 A 05 2025.xlsx"
     _criar_dre_cumulativo(arquivo)
 
@@ -78,6 +80,7 @@ def test_detectar_competencia_dre_usa_maior_data_do_arquivo(tmp_path):
 
 def test_detectar_competencia_dre_ignora_outlier_e_usa_mes_predominante(tmp_path):
     client = TestClient(main_module.app)
+    login_admin(client)
     arquivo = tmp_path / "RELATORIO DRE MES 05.xlsx"
     _criar_dre_mes_com_outlier(arquivo)
 
@@ -101,6 +104,7 @@ def test_detectar_competencia_dre_ignora_outlier_e_usa_mes_predominante(tmp_path
 
 def test_detectar_competencia_fluxo_usa_maior_data_do_lote(tmp_path):
     client = TestClient(main_module.app)
+    login_admin(client)
     arquivo_julho = tmp_path / "RELATORIO DE MOVIMENTO ITAU JUL 2025.xlsx"
     arquivo_agosto = tmp_path / "RELATORIO DE MOVIMENTO CEF AGO 2025.xlsx"
     _criar_fluxo_mensal(arquivo_julho, 7)

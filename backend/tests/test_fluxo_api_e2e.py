@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from conftest import login_admin
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
@@ -86,6 +87,7 @@ def test_api_fluxo_processamento_status_e_download(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module, "fluxo_service", service)
 
     client = TestClient(main_module.app)
+    login_admin(client)
     arquivo_itau = tmp_path / "RELATORIO DE MOVIMENTO ITAU SISTEMA.xlsx"
     arquivo_cef = tmp_path / "RELATORIO DE MOVIMENTO CAIXA SISTEMA.xlsx"
     _criar_arquivo_fluxo(arquivo_itau)
@@ -147,6 +149,7 @@ def test_api_fluxo_gerar_alias(tmp_path, monkeypatch):
     monkeypatch.setattr(main_module, "fluxo_service", service)
 
     client = TestClient(main_module.app)
+    login_admin(client)
     arquivo = tmp_path / "RELATORIO DE MOVIMENTO ITAU SISTEMA.xlsx"
     _criar_arquivo_fluxo(arquivo)
 
@@ -182,6 +185,7 @@ def test_api_fluxo_ignora_arquivo_nao_bancario_sem_bloquear_lote(tmp_path, monke
     monkeypatch.setattr(main_module, "fluxo_service", service)
 
     client = TestClient(main_module.app)
+    login_admin(client)
     arquivo_fluxo = tmp_path / "RELATORIO DE MOVIMENTO ITAU SISTEMA.xlsx"
     arquivo_apoio = tmp_path / "RELATORIO DE CONTAS EM ATRASO MES 07.xlsx"
     _criar_arquivo_fluxo(arquivo_fluxo)
@@ -266,6 +270,7 @@ def test_api_fluxo_gerar_do_banco_recebe_flags_de_meses(monkeypatch):
     fake_service = _FakeFluxoGeracaoDBService()
     monkeypatch.setattr(main_module, "fluxo_geracao_db_service", fake_service)
     client = TestClient(main_module.app)
+    login_admin(client)
 
     resp = client.post(
         "/api/fluxo_caixa/gerar",

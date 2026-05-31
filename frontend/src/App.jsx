@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BarChart3, WalletCards } from 'lucide-react';
+import { BarChart3, Database, WalletCards } from 'lucide-react';
 import {
   WaveBar,
   useLiquidLoaderController,
 } from 'goflow-core';
 import AidealPartnershipLoader from './components/AidealPartnershipLoader';
+import AdminPanel from './components/AdminPanel';
 import PainelDRE from './components/PainelDRE';
 import PainelFluxoCaixa from './components/PainelFluxoCaixa';
 
@@ -20,6 +21,11 @@ const views = {
     title: 'Painel Fluxo de Caixa',
     subtitle: 'Entradas, saídas, bancos e classificações',
     icon: <WalletCards size={15} />,
+  },
+  admin_banco: {
+    title: 'Admin Banco',
+    subtitle: 'Operações protegidas de banco',
+    icon: <Database size={15} />,
   },
 };
 
@@ -90,6 +96,7 @@ export default function App() {
             items={[
               { id: 'dre', label: 'Painel DRE', icon: <BarChart3 size={15} /> },
               { id: 'fluxo_caixa', label: 'Painel Fluxo', icon: <WalletCards size={15} /> },
+              { id: 'admin_banco', label: 'Admin Banco', icon: <Database size={15} /> },
             ]}
           />
         </div>
@@ -107,11 +114,15 @@ export default function App() {
       )}
 
       {activeView === 'dre' && (
-        <PainelDRE apiBase={API_BASE} onNotify={setNotification} onBusyChange={setBusy} />
+        <PainelDRE apiBase={API_BASE} onBusyChange={setBusy} />
       )}
 
       {activeView === 'fluxo_caixa' && (
-        <PainelFluxoCaixa apiBase={API_BASE} onNotify={setNotification} onBusyChange={setBusy} />
+        <PainelFluxoCaixa apiBase={API_BASE} onBusyChange={setBusy} />
+      )}
+
+      {activeView === 'admin_banco' && (
+        <AdminPanel apiBase={API_BASE} onNotify={setNotification} onBusyChange={setBusy} />
       )}
     </main>
   );
