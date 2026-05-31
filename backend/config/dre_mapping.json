@@ -150,6 +150,11 @@
     "bloquear_meses_faltantes": true,
     "bloquear_mes_superior_competencia": true,
     "bloquear_ano_divergente_competencia": true,
+    "codigos_gerenciais_validos": [
+      "1", "2", "3", "4", "5", "6", "7", "8", "9",
+      "10", "11", "12", "13", "14", "15", "16", "17", "18"
+    ],
+    "codigos_gerenciais_entrada": ["1", "2.2"],
     "naturezas_mapeadas": {
       "1 - ENTRADA": ["ENTRADA", "1-ENTRADA", "1 - ENTRADA"],
       "2 - SAIDA": ["SAIDA", "SAÍDA", "2-SAIDA", "2 - SAIDA", "2 - SAÍDA"]

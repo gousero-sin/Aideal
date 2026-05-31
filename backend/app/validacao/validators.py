@@ -17,6 +17,11 @@ from ..contracts.common import ErrorSeverity, ValidationError
 from ..contracts.dre import DREValidationResult
 from ..contracts.fluxo_caixa import FCValidationResult
 from ..ingestao.parser import ExcelParser
+from .codigos_gerenciais import (
+    DEFAULT_CODIGOS_GERENCIAIS_VALIDOS,
+    codigo_gerencial_valido,
+    extrair_codigo_gerencial,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -188,6 +193,18 @@ class BaseValidator:
         texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
         texto = " ".join(texto.split())
         return texto
+
+    def _codigos_gerenciais_validos(self) -> tuple[str, ...]:
+        return tuple(
+            self.mapping.get("validacao", {}).get(
+                "codigos_gerenciais_validos",
+                DEFAULT_CODIGOS_GERENCIAIS_VALIDOS,
+            )
+        )
+
+    def _codigo_gerencial_valido(self, valor) -> bool:
+        codigo = extrair_codigo_gerencial(valor)
+        return bool(codigo and codigo_gerencial_valido(codigo, self._codigos_gerenciais_validos()))
 
     def _validar_tipos_dados(
         self, df: pd.DataFrame, mapeamento: dict[str, str | None]
@@ -527,21 +544,15 @@ class DREValidator(BaseValidator):
         if not naturezas_cfg:
             return []
 
-        # Usa classificacao_entrada_saida (coluna CLASSIFICAÇÃO) para validar ENTRADA/SAIDA
-        # Fallback para classificacao e depois natureza (compatibilidade com arquivos simples)
-        coluna = (
-            mapeamento.get("classificacao_entrada_saida")
-            or mapeamento.get("classificacao")
-            or mapeamento.get("natureza")
+        coluna_classificacao = mapeamento.get("classificacao_entrada_saida") or mapeamento.get(
+            "classificacao"
         )
-        if coluna is None or coluna not in df.columns:
+        coluna_natureza = mapeamento.get("natureza")
+        if (
+            (coluna_classificacao is None or coluna_classificacao not in df.columns)
+            and (coluna_natureza is None or coluna_natureza not in df.columns)
+        ):
             return []
-
-        serie = df[coluna]
-        mask_ignorar = self._mask_placeholder(serie) | self._mask_linhas_cabecalho_repetido(
-            df, mapeamento
-        )
-        normalizado = serie.map(self._normalizar_classificacao)
 
         permitidas: set[str] = set()
         for chave, aliases in naturezas_cfg.items():
@@ -554,14 +565,48 @@ class DREValidator(BaseValidator):
         if not permitidas:
             return []
 
-        mask_invalida = (~mask_ignorar) & (~normalizado.isin(permitidas))
-        total_invalidos = int(mask_invalida.sum())
+        mask_cabecalho = self._mask_linhas_cabecalho_repetido(df, mapeamento)
+        invalidos: list[str] = []
+
+        for idx, row in df.iterrows():
+            valor_classificacao = (
+                row.get(coluna_classificacao)
+                if coluna_classificacao is not None and coluna_classificacao in df.columns
+                else None
+            )
+            valor_natureza = (
+                row.get(coluna_natureza)
+                if coluna_natureza is not None and coluna_natureza in df.columns
+                else None
+            )
+            if mask_cabecalho.loc[idx]:
+                continue
+
+            normalizado_classificacao = self._normalizar_classificacao(valor_classificacao)
+            normalizado_natureza = self._normalizar_classificacao(valor_natureza)
+            if normalizado_classificacao in permitidas or normalizado_natureza in permitidas:
+                continue
+            if self._codigo_gerencial_valido(valor_classificacao) or self._codigo_gerencial_valido(
+                valor_natureza
+            ):
+                continue
+
+            classif_placeholder = self._mask_placeholder(
+                pd.Series([valor_classificacao])
+            ).iloc[0]
+            natureza_placeholder = self._mask_placeholder(pd.Series([valor_natureza])).iloc[0]
+            if classif_placeholder and natureza_placeholder:
+                continue
+
+            invalidos.append(normalizado_classificacao or normalizado_natureza)
+
+        total_invalidos = len(invalidos)
         if total_invalidos == 0:
             return []
 
-        invalidos = sorted(v for v in normalizado[mask_invalida].unique().tolist() if v)[:8]
+        exemplos = sorted({v for v in invalidos if v})[:8]
         msg = (
-            f"Coluna '{coluna}' possui {total_invalidos} linha(s) com classificação/natureza "
+            f"Arquivo possui {total_invalidos} linha(s) com classificação/natureza "
             "não mapeada."
         )
         return [
@@ -570,8 +615,10 @@ class DREValidator(BaseValidator):
                 mensagem=msg,
                 severidade=ErrorSeverity.BLOQUEANTE,
                 sugestao=(
-                    "Atualize o dicionário 'validacao.naturezas_mapeadas' no dre_mapping.json. "
-                    f"Exemplos não mapeados: {', '.join(invalidos)}"
+                    "Use CLASSIFICAÇÃO 1/2 ou C. gerencial com código conhecido "
+                    "(ex.: 11.2). Atualize 'validacao.codigos_gerenciais_validos' "
+                    "se houver novo grupo. "
+                    f"Exemplos não mapeados: {', '.join(exemplos)}"
                 ),
             )
         ]
@@ -622,6 +669,8 @@ class FluxoCaixaValidator(BaseValidator):
 
             warnings_tipos = self._validar_tipos_dados(df, mapeamento)
             result.warnings.extend(warnings_tipos)
+            erros_classificacao = self._validar_classificacao_mapeada(df, mapeamento)
+            result.erros.extend(erros_classificacao)
 
             # Detectar banco de origem
             banco = self.parser.detectar_banco(dados_arquivo["arquivo"])
@@ -681,6 +730,51 @@ class FluxoCaixaValidator(BaseValidator):
 
         result_final.valido = len(result_final.erros) == 0
         return result_final
+
+    def _validar_classificacao_mapeada(
+        self, df: pd.DataFrame, mapeamento: dict[str, str | None]
+    ) -> list[ValidationError]:
+        """Valida códigos de Conta Gerencial quando eles aparecem no Fluxo."""
+        validacao_cfg = self.mapping.get("validacao", {})
+        if not validacao_cfg.get("bloquear_classificacao_nao_mapeada", False):
+            return []
+
+        coluna = mapeamento.get("classificacao")
+        if coluna is None or coluna not in df.columns:
+            return []
+
+        serie = df[coluna]
+        mask_ignorar = (
+            self._mask_placeholder(serie)
+            | self._mask_linhas_cabecalho_repetido(df, mapeamento)
+            | self._mask_linhas_rodape_relatorio(df)
+        )
+        codigos_validos = self._codigos_gerenciais_validos()
+        codigos = serie.map(extrair_codigo_gerencial)
+        mask_com_codigo = codigos.astype(bool)
+        mask_invalida = (~mask_ignorar) & mask_com_codigo & ~codigos.map(
+            lambda codigo: codigo_gerencial_valido(codigo, codigos_validos)
+        )
+        total_invalidos = int(mask_invalida.sum())
+        if total_invalidos == 0:
+            return []
+
+        exemplos = sorted(v for v in codigos[mask_invalida].unique().tolist() if v)[:8]
+        return [
+            ValidationError(
+                campo="classificacao",
+                mensagem=(
+                    f"Coluna '{coluna}' possui {total_invalidos} linha(s) com código gerencial "
+                    "não mapeado."
+                ),
+                severidade=ErrorSeverity.BLOQUEANTE,
+                sugestao=(
+                    "Use códigos gerenciais conhecidos (ex.: 11.2) ou atualize "
+                    "'validacao.codigos_gerenciais_validos'. "
+                    f"Exemplos não mapeados: {', '.join(exemplos)}"
+                ),
+            )
+        ]
 
     @staticmethod
     def _deve_ignorar_arquivo_por_estrutura(erros: list[ValidationError]) -> bool:

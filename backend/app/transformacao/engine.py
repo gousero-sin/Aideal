@@ -95,8 +95,14 @@ def classificar_valores(valor: Decimal, natureza: str) -> tuple[Decimal, Decimal
     return valor_absoluto, Decimal("0")
 
 
-def _extrair_classificacao_valida(value) -> str:
-    """Extrai classificação apenas quando o valor parece um indicador válido."""
+def _extrair_classificacao_valida(value, aceitar_numero_solto: bool = True) -> str:
+    """Extrai classificação apenas quando o valor parece um indicador válido.
+
+    Args:
+        aceitar_numero_solto: quando ``True`` aceita ``"1"``/``"2"`` isolados
+            como flag. Deve ser ``False`` ao varrer colunas arbitrárias, para
+            não confundir uma célula numérica qualquer com a flag.
+    """
     texto = _safe_str(value).upper()
     if not texto:
         return ""
@@ -104,31 +110,36 @@ def _extrair_classificacao_valida(value) -> str:
     texto = texto.replace("SAÍDA", "SAIDA").replace("–", "-")
     texto = " ".join(texto.split())
 
-    if texto == "ENTRADA" or texto == "1" or re.fullmatch(r"1\s*-\s*ENTRADA", texto):
+    entrada = bool(re.fullmatch(r"1\s*-\s*ENTRADA", texto)) or texto == "ENTRADA"
+    saida = bool(re.fullmatch(r"2\s*-\s*SAIDA", texto)) or texto == "SAIDA"
+    if aceitar_numero_solto:
+        entrada = entrada or texto == "1"
+        saida = saida or texto == "2"
+
+    if entrada:
         return "1 - ENTRADA"
-    if texto == "SAIDA" or texto == "2" or re.fullmatch(r"2\s*-\s*SAIDA", texto):
+    if saida:
         return "2 - SAIDA"
     return ""
 
 
 def _detectar_indicador_classif(row: pd.Series, col_classif: str | None) -> str:
-    """Detecta o indicador ENTRADA/SAIDA mesmo quando em coluna alternativa.
+    """Detecta a flag ENTRADA/SAIDA na linha, sem depender do título da coluna.
 
-    Alguns relatórios (ex: linhas de folha de pagamento) colocam '2 - SAIDA'
-    na coluna IR em vez da coluna CLASSIFICAÇÃO. Verifica todas as colunas
-    string do row como fallback.
+    A flag (``1 - ENTRADA`` / ``2 - SAIDA``) é a fonte de verdade onde quer que
+    apareça na linha. Primeiro tenta a coluna Classificação mapeada (aceitando
+    ``1``/``2`` isolados); se vazia, varre as demais colunas aceitando apenas o
+    padrão textual completo, evitando falso positivo de colunas numéricas.
     """
     if col_classif:
         cls = _extrair_classificacao_valida(row.get(col_classif))
         if cls:
             return cls
 
-    # Fallback: procura por tokens válidos em outras colunas.
-    for col_val in row:
-        cls = _extrair_classificacao_valida(col_val)
+    for valor in row:
+        cls = _extrair_classificacao_valida(valor, aceitar_numero_solto=False)
         if cls:
             return cls
-
     return ""
 
 
@@ -238,8 +249,9 @@ class DRETransformer:
         col_data = mapeamento.get("data")
         col_hist = mapeamento.get("historico")  # Descri. — fallback only
         col_cred = mapeamento.get("credito")
+        col_liquido = mapeamento.get("total_liquido")  # valor líquido da linha
         col_nat = mapeamento.get("natureza")  # C. gerencial — o que vai na col F
-        # CLASSIFICAÇÃO determina crédito/débito.
+        # A flag (1 - ENTRADA / 2 - SAIDA) determina crédito/débito.
         col_classif = mapeamento.get("classificacao_entrada_saida")
         col_cliente = mapeamento.get("cliente")
         col_num = mapeamento.get("numero")
@@ -265,14 +277,18 @@ class DRETransformer:
         # Natureza = código C. gerencial (ex: "1.1.1 - Recebimento de Clientes")
         natureza = _safe_str(row.get(col_nat) if col_nat else None)
 
-        # Classificação ENTRADA/SAIDA — usa detector com fallback para outras colunas
-        # (algumas linhas de SAIDA colocam '2 - SAIDA' em coluna diferente de CLASSIFICAÇÃO)
+        # Classificação ENTRADA/SAIDA pela flag (1 - ENTRADA / 2 - SAIDA),
+        # detectada na linha independentemente do título da coluna.
         classificacao_str = _detectar_indicador_classif(row, col_classif)
         if not classificacao_str:
-            classificacao_str = self._inferir_classificacao_por_natureza(natureza)
+            # Sem flag válida, a linha não pode ser classificada e é ignorada.
+            return None
 
+        # Havendo flag, usa o valor líquido da linha; se vazio, cai para o bruto.
+        valor_liquido = _safe_decimal(row.get(col_liquido)) if col_liquido else Decimal("0")
         valor_bruto = _safe_decimal(row.get(col_cred) if col_cred else 0)
-        credito, debito = classificar_valores(valor_bruto, classificacao_str)
+        valor = valor_liquido if valor_liquido != 0 else valor_bruto
+        credito, debito = classificar_valores(valor, classificacao_str)
 
         return DRELancamento(
             data=data,
@@ -295,46 +311,6 @@ class DRETransformer:
             linha_origem=idx + 2,
             aba_origem=aba,
         )
-
-    @staticmethod
-    def _inferir_classificacao_por_natureza(natureza: str) -> str:
-        """Infere ENTRADA/SAIDA quando CLASSIFICAÇÃO não foi preenchida."""
-        natureza_upper = _safe_str(natureza).upper()
-        if not natureza_upper:
-            return ""
-
-        marcadores_entrada = (
-            "ENTRADA",
-            "RECEBIMENTO",
-            "RECEITA",
-        )
-        if any(term in natureza_upper for term in marcadores_entrada):
-            return "1 - ENTRADA"
-
-        marcadores_saida = (
-            "SAIDA",
-            "SAÍDA",
-            "PARCELAMENTO",
-            "DESPESA",
-            "CUSTO",
-            "GASTO",
-            "INVEST",
-            "PAGAMENTO",
-            "IMPOST",
-            "JUROS",
-            "SALARIO",
-            "INSS",
-            "ISS",
-            "PIS",
-            "COFINS",
-            "CSLL",
-            "IRPJ",
-            "IR ",
-        )
-        if any(term in natureza_upper for term in marcadores_saida):
-            return "2 - SAIDA"
-
-        return ""
 
 
 class FluxoCaixaTransformer:

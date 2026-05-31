@@ -490,6 +490,118 @@ class TestDRERepositoryUpsert:
         assert len(uploads_2025_05) == 1
         assert len(lancs_2025_05) == 1
 
+    def test_upsert_atualiza_nome_gerencial_por_codigo_em_lancamentos_passados(self, repo):
+        """Mesmo código gerencial deve usar o nome mais recente em todo o histórico."""
+        upload_antigo = DREUpload(
+            id=str(uuid4()),
+            arquivo_nome="05_2025.xls",
+            arquivo_sha256="hash_nome_antigo",
+            competencia_ano=2025,
+            competencia_mes=5,
+            status="completed",
+        )
+        repo.uploads.create(upload_antigo)
+        repo.lancamentos.create(
+            DRELancamentoDB(
+                upload_id=upload_antigo.id,
+                competencia_ano=2025,
+                competencia_mes=5,
+                data_lancamento="2025-05-15",
+                historico="Conta antiga",
+                credito=Decimal("0"),
+                debito=Decimal("100.00"),
+                natureza_raw="11.2 - AGUA ADM",
+                rubrica="11.2 - AGUA ADM",
+                hash_linha="hash_nome_antigo_linha",
+            )
+        )
+
+        upload_novo = DREUpload(
+            id=str(uuid4()),
+            arquivo_nome="06_2025.xls",
+            arquivo_sha256="hash_nome_novo",
+            competencia_ano=2025,
+            competencia_mes=6,
+        )
+        repo.upsert_competencia(
+            upload_novo,
+            [
+                DRELancamentoDB(
+                    upload_id=upload_novo.id,
+                    competencia_ano=2025,
+                    competencia_mes=6,
+                    data_lancamento="2025-06-15",
+                    historico="Conta nova",
+                    credito=Decimal("0"),
+                    debito=Decimal("200.00"),
+                    natureza_raw="11.2 - AGUA ADMINISTRATIVA",
+                    rubrica="11.2 - AGUA ADMINISTRATIVA",
+                    hash_linha="hash_nome_novo_linha",
+                )
+            ],
+        )
+
+        lanc_mai = repo.lancamentos.get_by_competencia(2025, 5)[0]
+        lanc_jun = repo.lancamentos.get_by_competencia(2025, 6)[0]
+        assert lanc_mai.natureza_raw == "11.2 - AGUA ADMINISTRATIVA"
+        assert lanc_mai.rubrica == "11.2 - AGUA ADMINISTRATIVA"
+        assert lanc_jun.natureza_raw == "11.2 - AGUA ADMINISTRATIVA"
+
+        row = repo.db.fetch_one(
+            "SELECT codigo, nome, rotulo FROM contas_gerenciais WHERE codigo = ?",
+            ("11.2",),
+        )
+        assert row is not None
+        assert dict(row) == {
+            "codigo": "11.2",
+            "nome": "AGUA ADMINISTRATIVA",
+            "rotulo": "11.2 - AGUA ADMINISTRATIVA",
+        }
+
+    def test_upsert_normaliza_nome_gerencial_repetido_no_mesmo_lote(self, repo):
+        """Quando o mesmo código muda no lote, todos os itens gravam o último nome recebido."""
+        upload = DREUpload(
+            id=str(uuid4()),
+            arquivo_nome="07_2025.xls",
+            arquivo_sha256="hash_mesmo_lote",
+            competencia_ano=2025,
+            competencia_mes=7,
+        )
+
+        repo.upsert_competencia(
+            upload,
+            [
+                DRELancamentoDB(
+                    upload_id=upload.id,
+                    competencia_ano=2025,
+                    competencia_mes=7,
+                    data_lancamento="2025-07-10",
+                    historico="Primeiro nome",
+                    credito=Decimal("0"),
+                    debito=Decimal("100.00"),
+                    natureza_raw="12.1 - TAXA",
+                    hash_linha="hash_mesmo_lote_1",
+                ),
+                DRELancamentoDB(
+                    upload_id=upload.id,
+                    competencia_ano=2025,
+                    competencia_mes=7,
+                    data_lancamento="2025-07-11",
+                    historico="Nome atualizado",
+                    credito=Decimal("0"),
+                    debito=Decimal("150.00"),
+                    natureza_raw="12.1 - TAXA ADMINISTRATIVA",
+                    hash_linha="hash_mesmo_lote_2",
+                ),
+            ],
+        )
+
+        lancamentos = repo.lancamentos.get_by_competencia(2025, 7)
+        assert [lanc.natureza_raw for lanc in lancamentos] == [
+            "12.1 - TAXA ADMINISTRATIVA",
+            "12.1 - TAXA ADMINISTRATIVA",
+        ]
+
 
 class TestMigrationManager:
     """Testes para gerenciador de migrações."""
@@ -498,12 +610,14 @@ class TestMigrationManager:
         """Testa que migrações criam tabelas."""
         # Verifica que tabelas existem
         rows = temp_db.fetch_all(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'dre_%'"
+            "SELECT name FROM sqlite_master WHERE type='table'"
+            " AND (name LIKE 'dre_%' OR name = 'contas_gerenciais')"
         )
         table_names = {row["name"] for row in rows}
 
         assert "dre_uploads" in table_names
         assert "dre_lancamentos" in table_names
+        assert "contas_gerenciais" in table_names
 
     def test_migrate_idempotent(self, temp_db):
         """Testa que migrações são idempotentes."""

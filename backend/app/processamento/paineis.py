@@ -246,6 +246,13 @@ class PainelDREService(_PainelBaseService):
     NATUREZA_EXPR = (
         "COALESCE(NULLIF(TRIM(natureza_norm), ''), NULLIF(TRIM(natureza_raw), ''), 'Sem natureza')"
     )
+    # Rubricas tratadas como impostos/deduções (não compõem a saída operacional).
+    RUBRICAS_IMPOSTO = ("IR", "ISS", "INSS", "PIS", "COFINS", "CSLL", "Tarifa de Antecipação")
+    IMPOSTO_DEBITO_EXPR = (
+        "CASE WHEN TRIM(rubrica) IN "
+        "('IR','ISS','INSS','PIS','COFINS','CSLL','Tarifa de Antecipação') "
+        "THEN debito ELSE 0 END"
+    )
     ESCOPO_PROJETO_COMPLETO = "projeto_completo"
     COMPONENTES_DRE = {
         "receita_bruta": _alias_set(
@@ -537,6 +544,7 @@ class PainelDREService(_PainelBaseService):
                     COUNT(*) AS total_lancamentos,
                     SUM(credito) AS total_credito,
                     SUM(debito) AS total_debito,
+                    SUM({self.IMPOSTO_DEBITO_EXPR}) AS total_impostos,
                     SUM(credito - debito) AS saldo_liquido,
                     COUNT(DISTINCT {self.CENTRO_CUSTO_EXPR}) AS total_obras,
                     COUNT(DISTINCT {self.NATUREZA_EXPR}) AS total_naturezas
@@ -621,12 +629,17 @@ class PainelDREService(_PainelBaseService):
         total_lancamentos = int(kpis["total_lancamentos"] or 0)
         total_credito = _float(kpis["total_credito"])
         total_debito = _float(kpis["total_debito"])
-        saldo_liquido = _float(kpis["saldo_liquido"])
+        total_impostos = _float(kpis["total_impostos"])
+        # Saída operacional = débito sem os impostos/deduções; resultado já sem
+        # dupla contagem (a receita persistida é líquida desses impostos).
+        total_saidas_liquidas = total_debito - total_impostos
+        resultado_liquido = total_credito - total_saidas_liquidas
+        saldo_liquido = resultado_liquido
         competencias_series = [
             (int(row["ano"]), int(row["mes"])) for row in series if row["ano"] is not None
         ]
         meses_analise = len(competencias_series or meses_ref or meses_disponiveis)
-        media_saida_mensal = total_debito / meses_analise if meses_analise else 0
+        media_saida_mensal = total_saidas_liquidas / meses_analise if meses_analise else 0
         saldo_medio_mensal = saldo_liquido / meses_analise if meses_analise else 0
         folego_caixa_meses = (
             max(saldo_liquido, 0) / media_saida_mensal if media_saida_mensal else 0
@@ -654,6 +667,9 @@ class PainelDREService(_PainelBaseService):
                 "total_lancamentos": total_lancamentos,
                 "total_credito": total_credito,
                 "total_debito": total_debito,
+                "total_saidas_liquidas": total_saidas_liquidas,
+                "total_impostos": total_impostos,
+                "resultado_liquido": resultado_liquido,
                 "saldo_liquido": saldo_liquido,
                 "total_obras": int(kpis["total_obras"] or 0),
                 "total_naturezas": int(kpis["total_naturezas"] or 0),
@@ -662,7 +678,7 @@ class PainelDREService(_PainelBaseService):
                 "saldo_medio_mensal": saldo_medio_mensal,
                 "folego_caixa_meses": folego_caixa_meses,
                 "margem_resultado_percentual": _percent(saldo_liquido, total_credito),
-                "pressao_saida_percentual": _percent(total_debito, total_credito),
+                "pressao_saida_percentual": _percent(total_saidas_liquidas, total_credito),
                 "meses_analise": meses_analise,
             },
             "saldos_projeto": (

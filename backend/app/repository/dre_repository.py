@@ -13,7 +13,10 @@ from ..contracts.persistence import (
     DREUpload,
 )
 from ..db.connection import DatabaseConnection
+from ..db.manager import run_migrations
 from .base import Repository
+from .centro_custo_match import resolver_centros_custo
+from .contas_gerenciais import ContaGerencialRepository
 
 logger = logging.getLogger(__name__)
 
@@ -471,14 +474,39 @@ class DRELancamentoRepository(Repository[DRELancamentoDB]):
             sql = f"""SELECT * FROM dre_lancamentos
                       WHERE competencia_ano = ? AND competencia_mes IN ({placeholders})"""
             if centro_custo:
-                sql += " AND centro_custo = ?"
-                params.append(centro_custo)
+                centros = self._resolver_centros_custo(
+                    centro_custo, ano, meses, placeholders, connection
+                )
+                if not centros:
+                    # Filtro de obra informado não casou com nenhum centro: sem dados.
+                    return []
+                centro_placeholders = ",".join("?" * len(centros))
+                sql += f" AND centro_custo IN ({centro_placeholders})"
+                params.extend(centros)
             sql += " ORDER BY competencia_mes, data_lancamento, id"
             rows = connection.execute(sql, tuple(params)).fetchall()
             return [DRELancamentoDB.from_db_row(row) for row in rows]
         finally:
             if should_close:
                 connection.close()
+
+    def _resolver_centros_custo(
+        self,
+        termo: str,
+        ano: int,
+        meses: list[int],
+        placeholders: str,
+        connection: sqlite3.Connection,
+    ) -> list[str]:
+        """Busca complexa: resolve o termo de obra para os centros reais do período."""
+        rows = connection.execute(
+            f"""SELECT DISTINCT centro_custo FROM dre_lancamentos
+                WHERE competencia_ano = ? AND competencia_mes IN ({placeholders})
+                  AND centro_custo IS NOT NULL AND TRIM(centro_custo) <> ''""",
+            tuple([ano] + list(meses)),
+        ).fetchall()
+        candidatos = [row["centro_custo"] for row in rows]
+        return resolver_centros_custo(termo, candidatos)
 
     def get_resumo_competencia(
         self, ano: int, mes: int, conn: sqlite3.Connection | None = None
@@ -525,6 +553,7 @@ class DRERepository:
         self.db = db
         self.uploads = DREUploadRepository(db)
         self.lancamentos = DRELancamentoRepository(db)
+        self.contas_gerenciais = ContaGerencialRepository(db)
 
     def _calcular_hash_linha(
         self,
@@ -559,9 +588,18 @@ class DRERepository:
         Returns:
             Tuple de (upload_atualizado, removidos, inseridos)
         """
+        # Garante que o schema (incl. contas_gerenciais) esteja íntegro mesmo se
+        # a ingestão ocorrer antes do lifespan ou após uma migration nova.
+        run_migrations(self.db)
+
         connection = sqlite3.connect(str(self.db.db_path))
         connection.row_factory = sqlite3.Row
         try:
+            lancamentos, codigos_gerenciais_alterados = self.contas_gerenciais.sincronizar_dre(
+                lancamentos,
+                connection,
+            )
+
             # 1. Verifica se existe upload anterior para mesma competência
             uploads_anteriores = self.uploads.get_by_competencia(
                 upload.competencia_ano, upload.competencia_mes, connection
@@ -601,6 +639,10 @@ class DRERepository:
 
             if lancamentos_validos:
                 self.lancamentos.create_many(lancamentos_validos, connection)
+                self.contas_gerenciais.aplicar_rotulos_historicos(
+                    codigos_gerenciais_alterados,
+                    connection,
+                )
 
             # 4. Atualiza métricas do upload
             upload.total_linhas = len(lancamentos)

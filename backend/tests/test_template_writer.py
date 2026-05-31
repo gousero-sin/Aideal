@@ -171,6 +171,23 @@ def test_excel_safe_limpar_sheet_xml_remove_drawing_com_xmlns_rid():
     assert "<drawing" not in ajustado
 
 
+def test_salvar_remove_override_orfao_de_calc_chain(tmp_path):
+    template_copy = tmp_path / "DRE_template.xlsx"
+    output = tmp_path / "DRE_sem_calc_chain_orfao.xlsx"
+    shutil.copyfile(settings.template_dre_path, template_copy)
+
+    with TemplateWriter(template_copy) as writer:
+        writer.escrever_celula("BD_FLUXO", row=2, col=1, valor="2025-07-01")
+        writer.salvar(output)
+
+    with zipfile.ZipFile(output, "r") as zf:
+        nomes = set(zf.namelist())
+        content_types = zf.read("[Content_Types].xml").decode("utf-8", errors="ignore")
+
+    assert "xl/calcChain.xml" not in nomes
+    assert "/xl/calcChain.xml" not in content_types
+
+
 def test_aplicar_override_table_ref_remove_formulas_calculadas_quando_solicitado(tmp_path):
     template_copy = tmp_path / "DRE_template.xlsx"
     shutil.copyfile(settings.template_dre_path, template_copy)

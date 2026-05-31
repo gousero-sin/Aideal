@@ -1472,6 +1472,10 @@ a:focus-visible {
   color: var(--aideal-accent-yellow);
 }
 
+.aideal-insight-kpi-orange strong {
+  color: #ff9f45;
+}
+
 .aideal-situation-grid {
   display: grid;
   gap: 12px;

@@ -8,7 +8,9 @@ from typing import Any
 
 from ..contracts.persistence import FluxoMovimentoDB, FluxoUpload
 from ..db.connection import DatabaseConnection
+from ..db.manager import run_migrations
 from .base import Repository
+from .contas_gerenciais import ContaGerencialRepository
 from .dre_repository import _get_connection
 
 logger = logging.getLogger(__name__)
@@ -311,6 +313,7 @@ class FluxoCaixaRepository:
         self.db = db
         self.uploads = FluxoUploadRepository(db)
         self.movimentos = FluxoMovimentoRepository(db)
+        self.contas_gerenciais = ContaGerencialRepository(db)
 
     def _calcular_hash_linha(self, movimento: FluxoMovimentoDB) -> str:
         content = (
@@ -331,9 +334,27 @@ class FluxoCaixaRepository:
 
         ano = uploads_movimentos[0][0].competencia_ano
         mes = uploads_movimentos[0][0].competencia_mes
+        # Garante que o schema (incl. contas_gerenciais) esteja íntegro mesmo se
+        # a ingestão ocorrer antes do lifespan ou após uma migration nova.
+        run_migrations(self.db)
+
         connection = sqlite3.connect(str(self.db.db_path))
         connection.row_factory = sqlite3.Row
         try:
+            todos_movimentos = [mov for _, movimentos in uploads_movimentos for mov in movimentos]
+            movimentos_normalizados, codigos_gerenciais_alterados = (
+                self.contas_gerenciais.sincronizar_fluxo(todos_movimentos, connection)
+            )
+            uploads_movimentos_normalizados = []
+            inicio = 0
+            for upload, movimentos in uploads_movimentos:
+                fim = inicio + len(movimentos)
+                uploads_movimentos_normalizados.append(
+                    (upload, movimentos_normalizados[inicio:fim])
+                )
+                inicio = fim
+            uploads_movimentos = uploads_movimentos_normalizados
+
             uploads_anteriores = self.uploads.get_by_competencia(ano, mes, connection)
             removidos = 0
             for upload_ant in uploads_anteriores:
@@ -350,6 +371,10 @@ class FluxoCaixaRepository:
                     movimentos_validos.append(movimento)
 
                 self.movimentos.create_many(movimentos_validos, connection)
+                self.contas_gerenciais.aplicar_rotulos_historicos(
+                    codigos_gerenciais_alterados,
+                    connection,
+                )
 
                 upload.total_linhas = upload.total_linhas or len(movimentos)
                 upload.linhas_validas = len(movimentos_validos)

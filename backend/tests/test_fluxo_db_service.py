@@ -2,15 +2,19 @@
 
 import tempfile
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
+from uuid import uuid4
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from app.contracts.persistence import FluxoMovimentoDB, FluxoUpload
 from app.db.connection import DatabaseConnection
 from app.db.manager import MigrationManager
 from app.ingestao.fluxo_caixa_ingestao import FluxoCaixaIngestaoService
 from app.processamento.fluxo_caixa_db import FluxoCaixaGeracaoService
+from app.repository.fluxo_repository import FluxoCaixaRepository
 
 HEADERS = [
     "Data",
@@ -178,3 +182,59 @@ def test_fluxo_salva_mes_no_banco_e_gera_somente_mes_selecionado(tmp_path):
     assert wb["Apresentação GMP"].column_dimensions["J"].hidden is False
     assert wb["Apresentação GMP"].column_dimensions["I"].hidden is True
     assert wb["Apresentação GMP"].column_dimensions["P"].hidden is True
+
+
+def test_fluxo_atualiza_nome_gerencial_por_codigo_em_movimentos_passados():
+    db = _novo_db()
+    repo = FluxoCaixaRepository(db)
+
+    upload_antigo = FluxoUpload(
+        id=str(uuid4()),
+        arquivo_nome="fluxo_05.xlsx",
+        arquivo_sha256="hash_fluxo_nome_antigo",
+        competencia_ano=2025,
+        competencia_mes=5,
+        banco="itau",
+        status="completed",
+    )
+    movimento_antigo = FluxoMovimentoDB(
+        upload_id=upload_antigo.id,
+        competencia_ano=2025,
+        competencia_mes=5,
+        data_movimento="2025-05-10",
+        tipo="debito",
+        descricao="Conta antiga",
+        valor=Decimal("100.00"),
+        conta_gerencial="11.2 - AGUA ADM (100,00%);",
+        banco_origem="itau",
+        hash_linha="hash_fluxo_antigo",
+    )
+    repo.upsert_competencia([(upload_antigo, [movimento_antigo])])
+
+    upload_novo = FluxoUpload(
+        id=str(uuid4()),
+        arquivo_nome="fluxo_06.xlsx",
+        arquivo_sha256="hash_fluxo_nome_novo",
+        competencia_ano=2025,
+        competencia_mes=6,
+        banco="itau",
+    )
+    movimento_novo = FluxoMovimentoDB(
+        upload_id=upload_novo.id,
+        competencia_ano=2025,
+        competencia_mes=6,
+        data_movimento="2025-06-10",
+        tipo="debito",
+        descricao="Conta nova",
+        valor=Decimal("200.00"),
+        conta_gerencial="11.2 - AGUA ADMINISTRATIVA (100,00%);",
+        banco_origem="itau",
+        hash_linha="hash_fluxo_novo",
+    )
+    repo.upsert_competencia([(upload_novo, [movimento_novo])])
+
+    movimentos = repo.movimentos.get_by_meses(2025, [5, 6])
+    assert [mov.conta_gerencial for mov in movimentos] == [
+        "11.2 - AGUA ADMINISTRATIVA (100,00%);",
+        "11.2 - AGUA ADMINISTRATIVA (100,00%);",
+    ]

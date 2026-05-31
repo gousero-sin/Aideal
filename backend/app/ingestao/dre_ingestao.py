@@ -62,35 +62,16 @@ class DREIngestaoService:
             credito=lanc.credito,
             debito=lanc.debito,
             natureza_raw=lanc.natureza,
-            natureza_norm=self._normalizar_natureza(
-                lanc.natureza, lanc.classificacao_entrada_saida
-            ),
+            # natureza_norm é a conta gerencial normalizada (eixo de agrupamento),
+            # consistente com o outro caminho de ingestão (processamento/dre.py).
+            # O eixo entrada/saída já está em credito/debito, não aqui.
+            natureza_norm=lanc.natureza.upper().strip(),
             centro_custo=lanc.centro_custo,
             rubrica=lanc.rubrica,
             conta_pai=lanc.conta_pai,
             linha_origem=lanc.linha_origem,
             hash_linha=self._calcular_hash_linha(lanc),
         )
-
-    def _normalizar_natureza(self, natureza: str, classificacao_entrada_saida: str = "") -> str:
-        """Normaliza classificação de natureza para ENTRADA/SAIDA."""
-        # Primeiro tenta usar o indicador direto de CLASSIFICAÇÃO (mais confiável)
-        if classificacao_entrada_saida:
-            classif = classificacao_entrada_saida.upper().strip()
-            if "ENTRADA" in classif or classif.startswith("1 -") or classif == "1":
-                return "ENTRADA"
-            saida_terms = "SAIDA" in classif or "SAÍDA" in classif
-            if saida_terms or classif.startswith("2 -") or classif == "2":
-                return "SAIDA"
-
-        # Fallback por heurística no código gerencial
-        natureza_upper = natureza.upper().strip()
-        if any(term in natureza_upper for term in ["ENTRADA", "RECEITA", "RECEBIMENTO"]):
-            return "ENTRADA"
-        if any(term in natureza_upper for term in ["SAIDA", "SAÍDA", "DESPESA", "PAGAMENTO"]):
-            return "SAIDA"
-
-        return natureza_upper
 
     def _calcular_hash_linha(self, lanc: DRELancamento) -> str:
         """Calcula hash único para o lançamento."""

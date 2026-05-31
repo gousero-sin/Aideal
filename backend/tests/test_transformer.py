@@ -134,7 +134,9 @@ class TestDRETransformerBasico:
         assert lote.total_credito == Decimal("1000")
         assert lote.total_debito == Decimal("185")
 
-    def test_classificacao_vazia_parcelamento_vira_saida(self):
+    def test_classificacao_vazia_sem_codigo_de_saida_ignora_linha(self):
+        # Sem flag 1/2 na coluna Classificação a linha não pode ser classificada
+        # e é ignorada — entrada/saída constam SOMENTE via flag.
         df = pd.DataFrame(
             {
                 "Emissão": ["30/05/2025"],
@@ -147,12 +149,11 @@ class TestDRETransformerBasico:
         t = DRETransformer()
         lote = t.transformar(_dados_dre(df), "05/2025")
 
-        assert lote.total_registros == 1
-        lanc = lote.lancamentos[0]
-        assert lanc.credito == Decimal("0")
-        assert lanc.debito == Decimal("2446.59")
+        assert lote.total_registros == 0
 
-    def test_classificacao_vazia_recebimento_vira_entrada(self):
+    def test_classificacao_vazia_com_codigo_de_entrada_ignora_linha(self):
+        # Mesmo com código gerencial de entrada na natureza, sem a flag a linha
+        # é ignorada — não há mais derivação por código.
         df = pd.DataFrame(
             {
                 "Emissão": ["30/05/2025"],
@@ -165,12 +166,71 @@ class TestDRETransformerBasico:
         t = DRETransformer()
         lote = t.transformar(_dados_dre(df), "05/2025")
 
+        assert lote.total_registros == 0
+
+    def test_flag_saida_na_coluna_classificacao_vira_debito(self):
+        df = pd.DataFrame(
+            {
+                "Emissão": ["30/07/2025"],
+                "Descri.": ["Conta de água administrativa"],
+                "Vlr.bruto (R$)": [350.0],
+                "C. gerencial": ["11.2 - AGUA ADM"],
+                "CLASSIFICAÇÃO": ["2 - SAIDA"],
+            }
+        )
+
+        t = DRETransformer()
+        lote = t.transformar(_dados_dre(df), "07/2025")
+
         assert lote.total_registros == 1
         lanc = lote.lancamentos[0]
-        assert lanc.credito == Decimal("1000")
+        assert lanc.classificacao_entrada_saida == "2 - SAIDA"
+        assert lanc.credito == Decimal("0")
+        assert lanc.debito == Decimal("350")
+
+    def test_flag_entrada_na_coluna_classificacao_vira_credito(self):
+        df = pd.DataFrame(
+            {
+                "Emissão": ["30/07/2025"],
+                "Descri.": ["Recebimento de emprestimo"],
+                "Vlr.bruto (R$)": [98000.0],
+                "C. gerencial": ["2.2 - Recebimento de empréstimo"],
+                "CLASSIFICAÇÃO": ["1 - ENTRADA"],
+            }
+        )
+
+        t = DRETransformer()
+        lote = t.transformar(_dados_dre(df), "07/2025")
+
+        assert lote.total_registros == 1
+        lanc = lote.lancamentos[0]
+        assert lanc.classificacao_entrada_saida == "1 - ENTRADA"
+        assert lanc.credito == Decimal("98000")
         assert lanc.debito == Decimal("0")
 
-    def test_coluna_alternativa_saida_nao_confunde_com_descricao_entrada(self):
+    def test_flag_classificacao_prevalece_sobre_codigo_gerencial(self):
+        df = pd.DataFrame(
+            {
+                "Emissão": ["30/07/2025"],
+                "Descri.": ["Ajuste manual com flag"],
+                "Vlr.bruto (R$)": [450.0],
+                "C. gerencial": ["11.2 - AGUA ADM"],
+                "CLASSIFICAÇÃO": ["1 - ENTRADA"],
+            }
+        )
+
+        t = DRETransformer()
+        lote = t.transformar(_dados_dre(df), "07/2025")
+
+        assert lote.total_registros == 1
+        lanc = lote.lancamentos[0]
+        assert lanc.classificacao_entrada_saida == "1 - ENTRADA"
+        assert lanc.credito == Decimal("450")
+        assert lanc.debito == Decimal("0")
+
+    def test_flag_em_outra_coluna_e_detectada(self):
+        # A flag é a fonte de verdade onde quer que apareça na linha: mesmo fora
+        # da coluna Classificação (ex.: deslocada para a coluna IR) ela é usada.
         df = pd.DataFrame(
             {
                 "Emissão": ["30/05/2025"],
@@ -178,7 +238,6 @@ class TestDRETransformerBasico:
                 "Vlr.bruto (R$)": [2446.59],
                 "C. gerencial": ["17.1 - PARCELAMENTO"],
                 "CLASSIFICAÇÃO": [None],
-                # Em alguns relatórios a classificação vem deslocada para a coluna IR.
                 "IR (R$)": ["2 - SAIDA"],
             }
         )
@@ -187,8 +246,67 @@ class TestDRETransformerBasico:
 
         assert lote.total_registros == 1
         lanc = lote.lancamentos[0]
+        assert lanc.classificacao_entrada_saida == "2 - SAIDA"
         assert lanc.credito == Decimal("0")
         assert lanc.debito == Decimal("2446.59")
+
+    def test_numero_solto_em_outra_coluna_nao_e_flag(self):
+        # Ao varrer colunas arbitrárias, '1'/'2' isolados não contam como flag
+        # (evita confundir colunas numéricas com a flag). Sem flag → linha ignorada.
+        df = pd.DataFrame(
+            {
+                "Emissão": ["30/05/2025"],
+                "Descri.": ["Lançamento qualquer"],
+                "Vlr.bruto (R$)": [100.0],
+                "C. gerencial": ["11.2 - AGUA ADM"],
+                "CLASSIFICAÇÃO": [None],
+                "Parcela": [2],
+            }
+        )
+        t = DRETransformer()
+        lote = t.transformar(_dados_dre(df), "05/2025")
+
+        assert lote.total_registros == 0
+
+    def test_flag_usa_valor_liquido_quando_presente(self):
+        # Havendo flag, o valor do lançamento vem do Total líquido, não do bruto.
+        df = pd.DataFrame(
+            {
+                "Emissão": ["30/07/2025"],
+                "Descri.": ["Venda com impostos"],
+                "Vlr.bruto (R$)": [1000.0],
+                "Total líquido (R$)": [870.0],
+                "C. gerencial": ["1.1.1 - Recebimento de Clientes"],
+                "CLASSIFICAÇÃO": ["1 - ENTRADA"],
+            }
+        )
+        t = DRETransformer()
+        lote = t.transformar(_dados_dre(df), "07/2025")
+
+        assert lote.total_registros == 1
+        lanc = lote.lancamentos[0]
+        assert lanc.credito == Decimal("870")
+        assert lanc.debito == Decimal("0")
+
+    def test_flag_cai_para_bruto_quando_liquido_vazio(self):
+        # Total líquido vazio → usa o valor bruto da linha.
+        df = pd.DataFrame(
+            {
+                "Emissão": ["30/07/2025"],
+                "Descri.": ["Saída sem líquido informado"],
+                "Vlr.bruto (R$)": [450.0],
+                "Total líquido (R$)": [None],
+                "C. gerencial": ["11.2 - AGUA ADM"],
+                "CLASSIFICAÇÃO": ["2 - SAIDA"],
+            }
+        )
+        t = DRETransformer()
+        lote = t.transformar(_dados_dre(df), "07/2025")
+
+        assert lote.total_registros == 1
+        lanc = lote.lancamentos[0]
+        assert lanc.credito == Decimal("0")
+        assert lanc.debito == Decimal("450")
 
 
 class TestDRETransformerMultiplosRegistros:

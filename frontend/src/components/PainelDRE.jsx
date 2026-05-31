@@ -4,6 +4,7 @@ import {
   Download,
   FileSpreadsheet,
   Gauge,
+  Receipt,
   RefreshCcw,
   RotateCcw,
   TrendingUp,
@@ -442,9 +443,10 @@ export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
 
           <section className="aideal-insight-grid">
             <KpiCard label="Lançamentos" value={formatNumber(kpis.total_lancamentos)} detail="movimentos no filtro" icon={<FileSpreadsheet size={20} />} />
-            <KpiCard label="Entradas" value={formatCurrency(kpis.total_credito)} detail="créditos DRE" tone="cyan" icon={<TrendingUp size={20} />} />
-            <KpiCard label="Saídas" value={formatCurrency(kpis.total_debito)} detail="débitos DRE" tone="red" icon={<Download size={20} />} />
-            <KpiCard label="Saldo" value={formatCurrency(kpis.saldo_liquido)} detail="resultado líquido" tone="yellow" icon={<BarChart3 size={20} />} />
+            <KpiCard label="Entradas" value={formatCurrency(kpis.total_credito)} detail="receita líquida" tone="cyan" icon={<TrendingUp size={20} />} />
+            <KpiCard label="Saídas" value={formatCurrency(kpis.total_saidas_liquidas ?? kpis.total_debito)} detail="despesas (sem impostos)" tone="red" icon={<Download size={20} />} />
+            <KpiCard label="Impostos" value={formatCurrency(kpis.total_impostos)} detail="IR, ISS, INSS, PIS, COFINS, CSLL, Tarifa" tone="orange" icon={<Receipt size={20} />} />
+            <KpiCard label="Saldo" value={formatCurrency(kpis.resultado_liquido ?? kpis.saldo_liquido)} detail="resultado líquido" tone="yellow" icon={<BarChart3 size={20} />} />
             <KpiCard label="Fôlego" value={formatMonths(kpis.folego_caixa_meses)} detail="saldo / média de saídas" tone="cyan" icon={<Gauge size={20} />} />
           </section>
 

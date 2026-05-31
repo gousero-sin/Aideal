@@ -52,6 +52,41 @@ def test_validacao_aceita_natureza_mapeada():
     assert all(e.campo != "natureza" for e in result.erros)
 
 
+def test_validacao_aceita_c_gerencial_por_codigo_quando_classificacao_vazia():
+    df = pd.DataFrame(
+        {
+            "Emissão": ["01/07/2025"],
+            "Descri.": ["Água administrativa"],
+            "Vlr.bruto (R$)": [350.0],
+            "C. gerencial": ["11.2 - AGUA ADM"],
+            "CLASSIFICAÇÃO": [None],
+        }
+    )
+
+    validator = DREValidator()
+    result = validator.validar(_dados_dre(df), competencia="07/2025", modo_cumulativo=False)
+
+    assert all(e.campo != "natureza" for e in result.erros)
+
+
+def test_validacao_bloqueia_c_gerencial_com_codigo_desconhecido():
+    df = pd.DataFrame(
+        {
+            "Emissão": ["01/07/2025"],
+            "Descri.": ["Conta desconhecida"],
+            "Vlr.bruto (R$)": [350.0],
+            "C. gerencial": ["99.9 - CONTA NOVA"],
+            "CLASSIFICAÇÃO": [None],
+        }
+    )
+
+    validator = DREValidator()
+    result = validator.validar(_dados_dre(df), competencia="07/2025", modo_cumulativo=False)
+
+    assert result.valido is False
+    assert any(e.campo == "natureza" for e in result.erros)
+
+
 def test_validacao_rejeita_template_de_saida():
     parser = ExcelParser("dre")
     arquivo_template = settings.base_dir / "templates" / "dre" / "DRE AIDEAL - 05 2025  - obra.xlsx"

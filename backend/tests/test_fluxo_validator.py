@@ -88,3 +88,39 @@ def test_validar_lote_bloqueia_quando_todos_os_arquivos_nao_tem_movimentos():
     assert result.valido is False
     assert any(erro.campo == "arquivos" for erro in result.erros)
     assert any("Nenhum arquivo válido" in erro.mensagem for erro in result.erros)
+
+
+def test_fluxo_validacao_aceita_conta_gerencial_por_codigo():
+    df = pd.DataFrame(
+        {
+            "Data Mov.": ["01/07/2025"],
+            "Tipo": ["Débito"],
+            "Desc. Mov.": ["Água administrativa"],
+            "Valor (R$)": [350.0],
+            "Saldo (R$)": [1000.0],
+            "Conta Gerencial Mov": ["11.2 - AGUA ADM (100,00%);"],
+        }
+    )
+
+    result = FluxoCaixaValidator().validar(_dados_fluxo(df))
+
+    assert result.valido is True
+    assert all(e.campo != "classificacao" for e in result.erros)
+
+
+def test_fluxo_validacao_bloqueia_codigo_gerencial_desconhecido():
+    df = pd.DataFrame(
+        {
+            "Data Mov.": ["01/07/2025"],
+            "Tipo": ["Débito"],
+            "Desc. Mov.": ["Conta desconhecida"],
+            "Valor (R$)": [350.0],
+            "Saldo (R$)": [1000.0],
+            "Conta Gerencial Mov": ["99.9 - CONTA NOVA (100,00%);"],
+        }
+    )
+
+    result = FluxoCaixaValidator().validar(_dados_fluxo(df))
+
+    assert result.valido is False
+    assert any(e.campo == "classificacao" for e in result.erros)

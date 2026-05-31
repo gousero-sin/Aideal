@@ -108,6 +108,11 @@
   "validacao": {
     "colunas_obrigatorias_minimas": ["data_movimento", "descricao", "valor"],
     "bloquear_classificacao_nao_mapeada": true,
-    "exigir_banco_origem": true
+    "exigir_banco_origem": true,
+    "codigos_gerenciais_validos": [
+      "1", "2", "3", "4", "5", "6", "7", "8", "9",
+      "10", "11", "12", "13", "14", "15", "16", "17", "18"
+    ],
+    "codigos_gerenciais_entrada": ["1", "2.2"]
   }
 }

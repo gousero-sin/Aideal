@@ -619,6 +619,22 @@ class TemplateWriter:
         return updated.encode("utf-8")
 
     @staticmethod
+    def _remover_content_type_calc_chain(content_types_bytes: bytes) -> bytes:
+        """Remove Override de calcChain quando a parte é omitida do pacote final."""
+        try:
+            content_types_xml = content_types_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return content_types_bytes
+
+        pattern = r'<Override\b[^>]*PartName=(?:"|\')/xl/calcChain\.xml(?:"|\')[^>]*/>\s*'
+        updated = re.sub(pattern, "", content_types_xml)
+
+        if updated == content_types_xml:
+            return content_types_bytes
+
+        return updated.encode("utf-8")
+
+    @staticmethod
     def _is_slicer_part(nome_parte: str) -> bool:
         return nome_parte.startswith("xl/slicerCaches/") or nome_parte.startswith("xl/slicers/")
 
@@ -1710,6 +1726,7 @@ class TemplateWriter:
                 ):
                     payload = self._remover_rel_pivot_cache_records(payload)
                 elif nome == "[Content_Types].xml":
+                    payload = self._remover_content_type_calc_chain(payload)
                     if self._pivot_cache_records_mode == "remove":
                         payload = self._remover_content_type_pivot_cache_records(payload)
                     if self._strip_slicers:
