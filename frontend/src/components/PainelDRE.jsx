@@ -8,7 +8,6 @@ import {
   RefreshCcw,
   RotateCcw,
   TrendingUp,
-  UploadCloud,
 } from 'lucide-react';
 import {
   ChartCard,
@@ -18,15 +17,12 @@ import {
 import {
   FinancialHealthCard,
   KpiCard,
-  OperationSection,
   PanelHero,
   PanelSkeleton,
   RecentActivityCard,
   SituationGrid,
 } from './PanelShared';
 import { FilterDock, MonthSlicer, SearchableSlicer, YearSelect } from './PanelSlicers';
-import StatusPanel from './StatusPanel';
-import UploadPanel from './UploadPanel';
 import {
   buildFilterSummary,
   buildPanelQuery,
@@ -40,7 +36,6 @@ import {
   pickLowestBy,
   pickTopBy,
 } from './financialPanelUtils';
-import { resolveProcessamentoTotal } from './statusPanelModel';
 
 const emptyFilters = {
   ano: '',
@@ -144,15 +139,11 @@ function DREAnalysisPanel({ title, subtitle, items, emptyText, type }) {
   );
 }
 
-export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
+export default function PainelDRE({ apiBase, onBusyChange }) {
   const [filters, setFilters] = useState(emptyFilters);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [validacao, setValidacao] = useState(null);
-  const [processamento, setProcessamento] = useState(null);
-  const [operationBusy, setOperationBusy] = useState(false);
-  const [operationOpen, setOperationOpen] = useState(false);
 
   const obraSelecionada = filters.centro_custo.length > 0;
   const panelFilters = useMemo(
@@ -189,8 +180,8 @@ export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
   }, [carregarPainel]);
 
   useEffect(() => {
-    onBusyChange?.(loading || operationBusy);
-  }, [loading, operationBusy, onBusyChange]);
+    onBusyChange?.(loading);
+  }, [loading, onBusyChange]);
 
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 
@@ -204,52 +195,6 @@ export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
 
   const clearFilters = () => {
     setFilters({ ...emptyFilters, ano: filters.ano || String(data?.periodo?.ano || '') });
-  };
-
-  const openOperation = () => {
-    setOperationOpen(true);
-    requestAnimationFrame(() => {
-      document.getElementById('operacao-dre')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  };
-
-  const handleValidation = (result) => {
-    setValidacao(result);
-    if (!result) return;
-    onNotify?.(
-      result.valido
-        ? { type: 'success', message: 'Estrutura DRE validada com sucesso.' }
-        : { type: 'error', message: `Validação DRE com ${result.erros?.length || 0} erro(s).` },
-    );
-  };
-
-  const handleProcess = async (result) => {
-    setProcessamento(result);
-    if (!result) return;
-
-    const temErro = result?.erros?.length > 0 || result?.status === 'error' || result?.sucesso === false;
-    if (temErro) {
-      onNotify?.({
-        type: 'error',
-        message: `DRE com ${result?.erros?.length || 0} erro(s) na etapa ${result?._stage || 'operacional'}.`,
-      });
-      return;
-    }
-
-    await carregarPainel();
-    const total = resolveProcessamentoTotal(result);
-    if (result?._stage === 'ingestao') {
-      onNotify?.({ type: 'success', message: `Mês DRE salvo no banco com ${total} lançamento(s).` });
-      return;
-    }
-    if (result?._stage === 'limpeza') {
-      onNotify?.({
-        type: 'success',
-        message: `Mês DRE ${result?._competenciaLabel || ''} excluído e painel atualizado.`,
-      });
-      return;
-    }
-    onNotify?.({ type: 'success', message: `DRE final gerado com ${formatNumber(total)} lançamento(s).` });
   };
 
   const kpis = data?.kpis || {};
@@ -359,10 +304,6 @@ export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
         actions={(
           <>
             <YearSelect anos={filtros.anos} value={filters.ano || data?.periodo?.ano || ''} onChange={handleYearChange} />
-            <button className="aideal-action aideal-action-secondary" onClick={openOperation}>
-              <UploadCloud size={16} aria-hidden="true" />
-              <span>Operação</span>
-            </button>
             <button className="aideal-action aideal-action-secondary" onClick={clearFilters} disabled={!activeFilterCount}>
               <RotateCcw size={16} aria-hidden="true" />
               <span>Limpar filtros</span>
@@ -504,30 +445,6 @@ export default function PainelDRE({ apiBase, onNotify, onBusyChange }) {
         </>
       )}
 
-      <div id="operacao-dre">
-        <OperationSection
-          title="Operação DRE"
-          description="Validação, ingestão mensal, geração do arquivo final e download."
-          icon={<BarChart3 size={18} aria-hidden="true" />}
-          open={operationOpen}
-          onOpenChange={setOperationOpen}
-          busy={operationBusy}
-          hasResults={Boolean(validacao || processamento)}
-        >
-        <UploadPanel
-          fluxo="dre"
-          apiBase={apiBase}
-          onValidation={handleValidation}
-          onProcess={handleProcess}
-          processamento={processamento}
-          validacao={validacao}
-          onBusyChange={setOperationBusy}
-        />
-        {(validacao || processamento) && (
-          <StatusPanel validacao={validacao} processamento={processamento} fluxo="dre" />
-        )}
-        </OperationSection>
-      </div>
     </section>
   );
 }

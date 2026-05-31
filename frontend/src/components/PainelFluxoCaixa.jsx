@@ -5,7 +5,6 @@ import {
   RotateCcw,
   TrendingDown,
   TrendingUp,
-  UploadCloud,
   WalletCards,
 } from 'lucide-react';
 import {
@@ -16,15 +15,12 @@ import {
 } from './FinancialCharts';
 import {
   KpiCard,
-  OperationSection,
   PanelHero,
   PanelSkeleton,
   RecentActivityCard,
   SituationGrid,
 } from './PanelShared';
 import { FilterDock, MonthSlicer, SearchableSlicer, YearSelect } from './PanelSlicers';
-import StatusPanel from './StatusPanel';
-import UploadPanel from './UploadPanel';
 import {
   absoluteShare,
   buildFilterSummary,
@@ -37,7 +33,6 @@ import {
   pickLowestBy,
   pickTopBy,
 } from './financialPanelUtils';
-import { resolveProcessamentoTotal } from './statusPanelModel';
 
 const emptyFilters = {
   ano: '',
@@ -92,15 +87,11 @@ function HighlightBalanceCard({ equilibrio }) {
   );
 }
 
-export default function PainelFluxoCaixa({ apiBase, onNotify, onBusyChange }) {
+export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
   const [filters, setFilters] = useState(emptyFilters);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [validacao, setValidacao] = useState(null);
-  const [processamento, setProcessamento] = useState(null);
-  const [operationBusy, setOperationBusy] = useState(false);
-  const [operationOpen, setOperationOpen] = useState(false);
 
   const query = useMemo(() => buildPanelQuery(filters), [filters]);
 
@@ -128,8 +119,8 @@ export default function PainelFluxoCaixa({ apiBase, onNotify, onBusyChange }) {
   }, [carregarPainel]);
 
   useEffect(() => {
-    onBusyChange?.(loading || operationBusy);
-  }, [loading, operationBusy, onBusyChange]);
+    onBusyChange?.(loading);
+  }, [loading, onBusyChange]);
 
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 
@@ -143,52 +134,6 @@ export default function PainelFluxoCaixa({ apiBase, onNotify, onBusyChange }) {
 
   const clearFilters = () => {
     setFilters({ ...emptyFilters, ano: filters.ano || String(data?.periodo?.ano || '') });
-  };
-
-  const openOperation = () => {
-    setOperationOpen(true);
-    requestAnimationFrame(() => {
-      document.getElementById('operacao-fluxo')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  };
-
-  const handleValidation = (result) => {
-    setValidacao(result);
-    if (!result) return;
-    onNotify?.(
-      result.valido
-        ? { type: 'success', message: 'Estrutura do Fluxo de Caixa validada com sucesso.' }
-        : { type: 'error', message: `Validação Fluxo com ${result.erros?.length || 0} erro(s).` },
-    );
-  };
-
-  const handleProcess = async (result) => {
-    setProcessamento(result);
-    if (!result) return;
-
-    const temErro = result?.erros?.length > 0 || result?.status === 'error' || result?.sucesso === false;
-    if (temErro) {
-      onNotify?.({
-        type: 'error',
-        message: `Fluxo de Caixa com ${result?.erros?.length || 0} erro(s) na etapa ${result?._stage || 'operacional'}.`,
-      });
-      return;
-    }
-
-    await carregarPainel();
-    const total = resolveProcessamentoTotal(result);
-    if (result?._stage === 'ingestao') {
-      onNotify?.({ type: 'success', message: `Lote Fluxo salvo no banco com ${total} movimento(s).` });
-      return;
-    }
-    if (result?._stage === 'limpeza') {
-      onNotify?.({
-        type: 'success',
-        message: `Mês Fluxo de Caixa ${result?._competenciaLabel || ''} excluído e painel atualizado.`,
-      });
-      return;
-    }
-    onNotify?.({ type: 'success', message: `Fluxo de Caixa gerado com ${formatNumber(total)} movimento(s).` });
   };
 
   const kpis = data?.kpis || {};
@@ -268,10 +213,6 @@ export default function PainelFluxoCaixa({ apiBase, onNotify, onBusyChange }) {
         actions={(
           <>
             <YearSelect anos={filtros.anos} value={filters.ano || data?.periodo?.ano || ''} onChange={handleYearChange} />
-            <button className="aideal-action aideal-action-secondary" onClick={openOperation}>
-              <UploadCloud size={16} aria-hidden="true" />
-              <span>Operação</span>
-            </button>
             <button className="aideal-action aideal-action-secondary" onClick={clearFilters} disabled={!activeFilterCount}>
               <RotateCcw size={16} aria-hidden="true" />
               <span>Limpar filtros</span>
@@ -377,30 +318,6 @@ export default function PainelFluxoCaixa({ apiBase, onNotify, onBusyChange }) {
         </>
       )}
 
-      <div id="operacao-fluxo">
-        <OperationSection
-          title="Operação Fluxo de Caixa"
-          description="Validação em lote, ingestão mensal, geração do consolidado e download."
-          icon={<WalletCards size={18} aria-hidden="true" />}
-          open={operationOpen}
-          onOpenChange={setOperationOpen}
-          busy={operationBusy}
-          hasResults={Boolean(validacao || processamento)}
-        >
-        <UploadPanel
-          fluxo="fluxo_caixa"
-          apiBase={apiBase}
-          onValidation={handleValidation}
-          onProcess={handleProcess}
-          processamento={processamento}
-          validacao={validacao}
-          onBusyChange={setOperationBusy}
-        />
-        {(validacao || processamento) && (
-          <StatusPanel validacao={validacao} processamento={processamento} fluxo="fluxo_caixa" />
-        )}
-        </OperationSection>
-      </div>
     </section>
   );
 }
