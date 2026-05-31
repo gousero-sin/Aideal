@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   BarChart3,
-  Database,
   Loader2,
   LockKeyhole,
   LogOut,
@@ -146,11 +145,6 @@ export default function AdminPanel({ apiBase, onNotify, onBusyChange }) {
     }
   };
 
-  const flowMeta = useMemo(
-    () => adminFlows.find((item) => item.id === activeFlow) || adminFlows[0],
-    [activeFlow],
-  );
-
   if (sessionLoading) {
     return (
       <section className="aideal-panel-page">
@@ -223,79 +217,72 @@ export default function AdminPanel({ apiBase, onNotify, onBusyChange }) {
     );
   }
 
+  const statusSlot =
+    activeState.validacao || activeState.processamento ? (
+      <StatusPanel
+        validacao={activeState.validacao}
+        processamento={activeState.processamento}
+        fluxo={activeFlow}
+      />
+    ) : null;
+
   return (
     <section className="aideal-panel-page aideal-admin-page">
-      <PanelHero
-        kicker="Admin Banco"
-        title="Operações protegidas"
-        description="Validação, ingestão, geração, download e exclusão por competência."
-        meta={[
-          { label: 'Sessão', value: session.username || 'Admin' },
-          { label: 'Fluxo ativo', value: flowMeta.label },
-          { label: 'Status', value: operationBusy ? 'Processando' : 'Pronto' },
-        ]}
-        actions={(
-          <>
-            <div className="aideal-admin-flow-tabs" role="tablist" aria-label="Fluxo administrativo">
-              {adminFlows.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`aideal-admin-flow-tab ${activeFlow === item.id ? 'is-active' : ''}`}
-                  onClick={() => setActiveFlow(item.id)}
-                  role="tab"
-                  aria-selected={activeFlow === item.id}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </div>
-            <button
-              className="aideal-action aideal-action-secondary"
-              type="button"
-              onClick={handleLogout}
-              disabled={logoutBusy}
-            >
-              {logoutBusy ? <Loader2 size={16} aria-hidden="true" /> : <LogOut size={16} aria-hidden="true" />}
-              <span>{logoutBusy ? 'Saindo...' : 'Sair'}</span>
-            </button>
-          </>
-        )}
-      />
-
-      <section className="aideal-admin-operation-grid">
-        <div className="aideal-admin-operation-card">
-          <div className="aideal-card-heading">
-            <span className="aideal-card-icon">
-              <Database size={20} aria-hidden="true" />
-            </span>
-            <div>
-              <h2>{flowMeta.label}</h2>
-              <p>Execução operacional restrita à sessão admin atual.</p>
-            </div>
+      <header className="aideal-admin-topbar">
+        <div className="aideal-admin-topbar-id">
+          <span className="aideal-admin-topbar-icon">
+            <ShieldCheck size={18} aria-hidden="true" />
+          </span>
+          <div>
+            <strong>Admin Banco</strong>
+            <p>Operações protegidas · {operationBusy ? 'Processando' : 'Pronto'}</p>
           </div>
-
-          <UploadPanel
-            key={activeFlow}
-            fluxo={activeFlow}
-            apiBase={apiBase}
-            onValidation={handleValidation}
-            onProcess={handleProcess}
-            processamento={activeState.processamento}
-            validacao={activeState.validacao}
-            onBusyChange={setOperationBusy}
-          />
         </div>
 
-        {(activeState.validacao || activeState.processamento) && (
-          <StatusPanel
-            validacao={activeState.validacao}
-            processamento={activeState.processamento}
-            fluxo={activeFlow}
-          />
-        )}
-      </section>
+        <div className="aideal-admin-flow-tabs" role="tablist" aria-label="Fluxo administrativo">
+          {adminFlows.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={`aideal-admin-flow-tab ${activeFlow === item.id ? 'is-active' : ''}`}
+              onClick={() => setActiveFlow(item.id)}
+              role="tab"
+              aria-selected={activeFlow === item.id}
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="aideal-admin-topbar-session">
+          <span className="aideal-admin-session-user">
+            <ShieldCheck size={14} aria-hidden="true" />
+            {session.username || 'Admin'}
+          </span>
+          <button
+            className="aideal-action aideal-action-secondary"
+            type="button"
+            onClick={handleLogout}
+            disabled={logoutBusy}
+          >
+            {logoutBusy ? <Loader2 size={16} aria-hidden="true" /> : <LogOut size={16} aria-hidden="true" />}
+            <span>{logoutBusy ? 'Saindo...' : 'Sair'}</span>
+          </button>
+        </div>
+      </header>
+
+      <UploadPanel
+        key={activeFlow}
+        fluxo={activeFlow}
+        apiBase={apiBase}
+        onValidation={handleValidation}
+        onProcess={handleProcess}
+        processamento={activeState.processamento}
+        validacao={activeState.validacao}
+        onBusyChange={setOperationBusy}
+        statusSlot={statusSlot}
+      />
     </section>
   );
 }

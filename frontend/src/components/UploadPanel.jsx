@@ -1,11 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Database,
   Download,
   FileSpreadsheet,
   Loader2,
   ShieldCheck,
+  Sparkles,
   Trash2,
   X,
 } from 'lucide-react';
@@ -14,29 +18,11 @@ const pad = (value) => String(value).padStart(2, '0');
 
 const MESES_LABEL = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
-const defaultCompetencia = () => {
-  const hoje = new Date();
-  return `${hoje.getFullYear()}-${pad(hoje.getMonth() + 1)}`;
-};
+const hoje = () => new Date();
 
-const competenciaParaExibicao = (valor) => {
-  if (!valor || !valor.includes('-')) return '';
-  const [ano, mes] = valor.split('-');
+const competenciaParaExibicao = (ano, mes) => {
+  if (!ano || !mes) return '';
   return `${pad(mes)}/${ano}`;
-};
-
-const anoDaCompetencia = (valor) => {
-  if (!valor || !valor.includes('-')) return null;
-  const [ano] = valor.split('-');
-  const parsed = Number(ano);
-  return Number.isNaN(parsed) ? null : parsed;
-};
-
-const mesDaCompetencia = (valor) => {
-  if (!valor || !valor.includes('-')) return null;
-  const [, mes] = valor.split('-');
-  const parsed = Number(mes);
-  return Number.isNaN(parsed) ? null : parsed;
 };
 
 export default function UploadPanel({
@@ -47,6 +33,7 @@ export default function UploadPanel({
   processamento,
   validacao,
   onBusyChange,
+  statusSlot = null,
 }) {
   const [arquivos, setArquivos] = useState([]);
   const [loadingValidation, setLoadingValidation] = useState(false);
@@ -54,14 +41,14 @@ export default function UploadPanel({
   const [loadingGeracao, setLoadingGeracao] = useState(false);
   const [loadingLimpeza, setLoadingLimpeza] = useState(false);
   const [loadingCompetencia, setLoadingCompetencia] = useState(false);
-  const [competencia, setCompetencia] = useState(defaultCompetencia());
+  const [ano, setAno] = useState(() => hoje().getFullYear());
+  const [mesAtivo, setMesAtivo] = useState(() => hoje().getMonth() + 1);
+  const [anoTodo, setAnoTodo] = useState(false);
   const [competenciaStatus, setCompetenciaStatus] = useState({
     type: 'idle',
-    message: 'Selecione um arquivo para detectar automaticamente.',
+    message: 'Selecione um arquivo para detectar a competência automaticamente.',
   });
   const [mesesDisponiveis, setMesesDisponiveis] = useState([]);
-  const [mesesSelecionados, setMesesSelecionados] = useState([]);
-  const [anoTodo, setAnoTodo] = useState(false);
   const [loadingMeses, setLoadingMeses] = useState(false);
   const [erroMeses, setErroMeses] = useState(null);
   const fileInputRef = useRef(null);
@@ -70,10 +57,10 @@ export default function UploadPanel({
   const isFluxoCaixa = fluxo === 'fluxo_caixa';
   const isMultiple = isFluxoCaixa;
   const isDre = fluxo === 'dre';
-  const usaBancoMensal = isDre || isFluxoCaixa;
   const fluxoLabel = isDre ? 'DRE' : 'Fluxo de Caixa';
-  const anoCompetencia = anoDaCompetencia(competencia);
-  const mesCompetencia = mesDaCompetencia(competencia);
+  const anoAtual = hoje().getFullYear();
+  const competenciaLabelCurto = `${MESES_LABEL[mesAtivo - 1]} ${ano}`;
+  const mesAtivoSalvo = mesesDisponiveis.includes(mesAtivo);
   const arquivoPareceTemplate =
     isDre &&
     arquivos.some((f) => {
@@ -85,19 +72,18 @@ export default function UploadPanel({
     processamento?.download_url ||
     (processamento?.id ? `${apiBase}/processamentos/${processamento.id}/download` : null);
 
-  const mesesSelecionadosOrdenados = useMemo(
-    () => [...mesesSelecionados].sort((a, b) => a - b),
-    [mesesSelecionados],
-  );
+  const anosDisponiveis = useMemo(() => {
+    const base = new Set([ano, anoAtual, anoAtual - 1, anoAtual - 2, anoAtual + 1]);
+    return [...base].sort((a, b) => b - a);
+  }, [ano, anoAtual]);
 
-  const carregarMesesDisponiveis = async (ano, mesRef) => {
-    if (!usaBancoMensal || !ano) return;
-
+  const carregarMesesDisponiveis = async (anoRef) => {
+    if (!anoRef) return;
     setLoadingMeses(true);
     setErroMeses(null);
     try {
       const recurso = isDre ? 'dre' : 'fluxo_caixa';
-      const response = await fetch(`${apiBase}/${recurso}/ingestoes?ano=${ano}&limit=500`, {
+      const response = await fetch(`${apiBase}/${recurso}/ingestoes?ano=${anoRef}&limit=500`, {
         credentials: 'same-origin',
       });
       if (!response.ok) {
@@ -114,7 +100,7 @@ export default function UploadPanel({
             const comp = String(ing?.competencia || '');
             const [mesStr, anoStr] = comp.split('/');
             if (!mesStr || !anoStr) return null;
-            if (Number(anoStr) !== ano) return null;
+            if (Number(anoStr) !== anoRef) return null;
             const m = Number(mesStr);
             if (Number.isNaN(m) || m < 1 || m > 12) return null;
             return m;
@@ -123,15 +109,8 @@ export default function UploadPanel({
       )].sort((a, b) => a - b);
 
       setMesesDisponiveis(meses);
-      setMesesSelecionados((prev) => {
-        const filtrados = prev.filter((m) => meses.includes(m));
-        if (filtrados.length > 0) return filtrados;
-        if (!mesRef) return [];
-        return meses.filter((m) => m <= mesRef);
-      });
     } catch (err) {
       setMesesDisponiveis([]);
-      setMesesSelecionados([]);
       setErroMeses(err.message);
     } finally {
       setLoadingMeses(false);
@@ -139,27 +118,31 @@ export default function UploadPanel({
   };
 
   useEffect(() => {
-    if (!usaBancoMensal) return;
-    carregarMesesDisponiveis(anoCompetencia, mesCompetencia);
-  }, [apiBase, usaBancoMensal, isDre, anoCompetencia, mesCompetencia]);
+    carregarMesesDisponiveis(ano);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiBase, isDre, ano]);
 
-  const handleToggleMes = (mes) => {
-    if (anoTodo) return;
-    setMesesSelecionados((prev) => {
-      if (prev.includes(mes)) return prev.filter((m) => m !== mes);
-      return [...prev, mes].sort((a, b) => a - b);
+  const handleSelecionarMes = (mes) => {
+    if (gerarTravado) return;
+    setMesAtivo(mes);
+    setCompetenciaStatus({
+      type: 'manual',
+      message: `Competência ativa: ${competenciaParaExibicao(ano, mes)}.`,
     });
   };
 
-  const handleAnoTodo = () => {
-    setAnoTodo((prev) => !prev);
+  const handleAnoTodo = () => setAnoTodo((prev) => !prev);
+
+  const navegarAno = (delta) => {
+    if (gerarTravado) return;
+    setAno((prev) => prev + delta);
   };
 
   const detectarCompetencia = async (files) => {
-    if (!usaBancoMensal || files.length === 0) {
+    if (files.length === 0) {
       setCompetenciaStatus({
         type: 'idle',
-        message: 'Selecione um arquivo para detectar automaticamente.',
+        message: 'Selecione um arquivo para detectar a competência automaticamente.',
       });
       return;
     }
@@ -195,24 +178,27 @@ export default function UploadPanel({
       if (competenciaRequestRef.current !== requestId) return;
 
       if (payload?.detectado && payload?.competencia_input) {
-        setCompetencia(payload.competencia_input);
-        setMesesSelecionados([]);
+        const [anoStr, mesStr] = String(payload.competencia_input).split('-');
+        const anoDet = Number(anoStr);
+        const mesDet = Number(mesStr);
+        if (!Number.isNaN(anoDet)) setAno(anoDet);
+        if (!Number.isNaN(mesDet) && mesDet >= 1 && mesDet <= 12) setMesAtivo(mesDet);
         setCompetenciaStatus({
           type: 'success',
-          message: `Competência detectada: ${payload.competencia}. Você pode alterar manualmente.`,
+          message: `Competência detectada: ${payload.competencia}. Ajuste pelas flags se precisar.`,
         });
         return;
       }
 
       setCompetenciaStatus({
         type: 'warning',
-        message: payload?.message || 'Competência não detectada. Ajuste manualmente.',
+        message: payload?.message || 'Competência não detectada. Ajuste pelas flags.',
       });
     } catch (err) {
       if (competenciaRequestRef.current !== requestId) return;
       setCompetenciaStatus({
         type: 'warning',
-        message: `${err.message} Ajuste manualmente.`,
+        message: `${err.message} Ajuste pelas flags.`,
       });
     } finally {
       if (competenciaRequestRef.current === requestId) {
@@ -250,7 +236,7 @@ export default function UploadPanel({
         const formData = new FormData();
         formData.append('arquivo', arquivos[0]);
         if (isDre) {
-          formData.append('competencia', competenciaParaExibicao(competencia));
+          formData.append('competencia', competenciaParaExibicao(ano, mesAtivo));
           formData.append('modo_cumulativo', 'false');
         }
         response = await fetch(`${apiBase}/validar/${fluxo}`, {
@@ -279,7 +265,7 @@ export default function UploadPanel({
   };
 
   const handleIngestao = async () => {
-    if (!usaBancoMensal || arquivos.length === 0) return;
+    if (arquivos.length === 0) return;
 
     setLoadingIngestao(true);
     try {
@@ -289,7 +275,7 @@ export default function UploadPanel({
       } else {
         arquivos.forEach((f) => formData.append('arquivos', f));
       }
-      formData.append('competencia', competenciaParaExibicao(competencia));
+      formData.append('competencia', competenciaParaExibicao(ano, mesAtivo));
       formData.append('replace', 'true');
 
       const recurso = isDre ? 'dre' : 'fluxo_caixa';
@@ -310,7 +296,7 @@ export default function UploadPanel({
       }
 
       const result = await response.json();
-      await carregarMesesDisponiveis(anoCompetencia, mesCompetencia);
+      await carregarMesesDisponiveis(ano);
 
       onProcess?.({
         _stage: 'ingestao',
@@ -331,7 +317,6 @@ export default function UploadPanel({
   };
 
   const handleGerarDoBanco = async () => {
-    if (!usaBancoMensal) return;
     if (mesesDisponiveis.length === 0) {
       onProcess?.({
         status: 'error',
@@ -352,12 +337,10 @@ export default function UploadPanel({
     setLoadingGeracao(true);
     try {
       const formData = new FormData();
-      formData.append('competencia', competenciaParaExibicao(competencia));
+      formData.append('competencia', competenciaParaExibicao(ano, mesAtivo));
       formData.append('ano_todo', String(anoTodo));
-      if (!anoTodo && mesesSelecionadosOrdenados.length > 0) {
-        mesesSelecionadosOrdenados.forEach((mes) => {
-          formData.append('meses_incluir', String(mes));
-        });
+      if (!anoTodo) {
+        formData.append('meses_incluir', String(mesAtivo));
       }
 
       const recurso = isDre ? 'dre' : 'fluxo_caixa';
@@ -396,64 +379,8 @@ export default function UploadPanel({
     }
   };
 
-  const handleGerarFluxo = async () => {
-    if (isDre || arquivos.length === 0) return;
-
-    setLoadingGeracao(true);
-    try {
-      const formData = new FormData();
-      arquivos.forEach((f) => formData.append('arquivos', f));
-      formData.append('periodo', competenciaParaExibicao(competencia));
-
-      const response = await fetch(`${apiBase}/fluxo_caixa/gerar`, {
-        method: 'POST',
-        credentials: 'same-origin',
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        const detail = err?.detail;
-        throw new Error(
-          typeof detail === 'string'
-            ? detail
-            : detail?.error || detail?.message || 'Erro ao gerar Fluxo de Caixa',
-        );
-      }
-
-      const result = await response.json();
-      onProcess?.({
-        _stage: 'geracao',
-        status: 'completed',
-        ...result,
-      });
-    } catch (err) {
-      onProcess?.({
-        status: 'error',
-        valido: false,
-        _stage: 'geracao',
-        erros: [{ campo: 'geracao', mensagem: err.message, severidade: 'bloqueante' }],
-        warnings: [],
-      });
-    } finally {
-      setLoadingGeracao(false);
-    }
-  };
-
   const handleLimparBase = async () => {
-    if (!usaBancoMensal) return;
-    if (!anoCompetencia || !mesCompetencia) {
-      onProcess?.({
-        status: 'error',
-        valido: false,
-        _stage: 'limpeza',
-        erros: [{ campo: 'limpeza', mensagem: 'Selecione uma competência válida.', severidade: 'bloqueante' }],
-        warnings: [],
-      });
-      return;
-    }
-
-    const competenciaLabel = competenciaParaExibicao(competencia);
+    const competenciaLabel = competenciaParaExibicao(ano, mesAtivo);
     const confirmado = window.confirm(
       `Excluir somente os dados de ${competenciaLabel} em ${fluxoLabel}? Os demais meses serão preservados.`,
     );
@@ -463,8 +390,8 @@ export default function UploadPanel({
     try {
       const recurso = isDre ? 'dre' : 'fluxo_caixa';
       const formData = new FormData();
-      formData.append('ano', String(anoCompetencia));
-      formData.append('mes', String(mesCompetencia));
+      formData.append('ano', String(ano));
+      formData.append('mes', String(mesAtivo));
       formData.append('confirmar', 'true');
 
       const response = await fetch(`${apiBase}/${recurso}/admin/limpar`, {
@@ -479,7 +406,7 @@ export default function UploadPanel({
       }
 
       const result = await response.json();
-      await carregarMesesDisponiveis(anoCompetencia, mesCompetencia);
+      await carregarMesesDisponiveis(ano);
       setAnoTodo(false);
       onProcess?.({
         _stage: 'limpeza',
@@ -508,7 +435,7 @@ export default function UploadPanel({
       setLoadingCompetencia(false);
       setCompetenciaStatus({
         type: 'idle',
-        message: 'Selecione um arquivo para detectar automaticamente.',
+        message: 'Selecione um arquivo para detectar a competência automaticamente.',
       });
       return;
     }
@@ -522,146 +449,192 @@ export default function UploadPanel({
     onBusyChange?.(gerarTravado);
   }, [gerarTravado, onBusyChange]);
 
-  return (
-    <section className="aideal-card aideal-upload-panel">
-      <div className="aideal-upload-header">
-        <div>
-          <h3>
-            Upload de arquivo{isMultiple ? 's' : ''}
-          </h3>
-          <p>
-            {isDre
-              ? 'Fluxo DRE: 1) salvar mês no banco; 2) escolher meses de geração; 3) gerar DRE.'
-              : 'Fluxo de Caixa: 1) salvar lote mensal no banco; 2) escolher meses; 3) gerar consolidado.'}
-          </p>
-        </div>
+  const escopoGeracao = anoTodo
+    ? `Geração: todos os meses salvos de ${ano}.`
+    : `Geração: apenas ${competenciaLabelCurto}.`;
 
-        {usaBancoMensal && (
-          <label className="aideal-field">
-            Competência
-            <input
-              type="month"
-              value={competencia}
-              onChange={(e) => {
-                setCompetencia(e.target.value);
-                setCompetenciaStatus({
-                  type: 'manual',
-                  message: 'Competência ajustada manualmente.',
-                });
-              }}
-            />
-            <span className={`aideal-competencia-status is-${competenciaStatus.type}`}>
-              {loadingCompetencia ? 'Detectando...' : competenciaStatus.message}
+  return (
+    <div className="aideal-admin-grid">
+      <aside className="aideal-admin-sidebar">
+        <div className="aideal-period-block">
+          <header className="aideal-period-head">
+            <span className="aideal-period-icon">
+              <CalendarDays size={16} aria-hidden="true" />
+            </span>
+            <div>
+              <h3>Período</h3>
+              <p>Selecione ano e mês ativo</p>
+            </div>
+          </header>
+
+          <div className="aideal-year-stepper">
+            <button
+              type="button"
+              onClick={() => navegarAno(-1)}
+              disabled={gerarTravado}
+              aria-label="Ano anterior"
+            >
+              <ChevronLeft size={18} aria-hidden="true" />
+            </button>
+            <label className="aideal-year-pick">
+              <select
+                value={ano}
+                onChange={(event) => setAno(Number(event.target.value))}
+                disabled={gerarTravado}
+                aria-label="Ano"
+              >
+                {anosDisponiveis.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+              <strong>{ano}</strong>
+            </label>
+            <button
+              type="button"
+              onClick={() => navegarAno(1)}
+              disabled={gerarTravado}
+              aria-label="Próximo ano"
+            >
+              <ChevronRight size={18} aria-hidden="true" />
+            </button>
+          </div>
+
+          <div className="aideal-month-flags" role="group" aria-label="Meses">
+            {MESES_LABEL.map((label, index) => {
+              const mes = index + 1;
+              const salvo = mesesDisponiveis.includes(mes);
+              const ativo = mes === mesAtivo;
+              return (
+                <button
+                  key={mes}
+                  type="button"
+                  className={`aideal-month-flag ${ativo ? 'is-active' : ''}`}
+                  data-saved={salvo ? 'true' : 'false'}
+                  onClick={() => handleSelecionarMes(mes)}
+                  disabled={gerarTravado}
+                  aria-pressed={ativo}
+                  style={{ '--flag-index': index }}
+                  title={salvo ? `${label}/${ano} — salvo no banco` : `${label}/${ano} — sem dados`}
+                >
+                  <span className="aideal-month-flag-label">{label}</span>
+                  <span className="aideal-month-flag-dot" aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+
+          <label className={`aideal-anotodo-toggle ${anoTodo ? 'is-on' : ''}`}>
+            <input type="checkbox" checked={anoTodo} onChange={handleAnoTodo} disabled={gerarTravado} />
+            <span className="aideal-anotodo-track" aria-hidden="true">
+              <span className="aideal-anotodo-thumb" />
+            </span>
+            <span className="aideal-anotodo-text">
+              <strong>Ano todo</strong>
+              <em>Consolida todos os meses salvos de {ano}</em>
             </span>
           </label>
-        )}
-      </div>
-
-      {usaBancoMensal && (
-        <article
-          className="aideal-panel aideal-panel-neutral"
-        >
-          <div className="aideal-panel-title-row">
-            <strong>
-              Meses a incluir
-            </strong>
-            <label className="aideal-check-inline">
-              <input type="checkbox" checked={anoTodo} onChange={handleAnoTodo} disabled={gerarTravado} />
-              ANO TODO
-            </label>
-          </div>
-
-          <div className="aideal-month-grid">
-            {loadingMeses && <span className="aideal-muted-text">Carregando meses...</span>}
-
-            {!loadingMeses &&
-              mesesDisponiveis.map((mes) => (
-                <label
-                  key={mes}
-                  className={`aideal-month-pill ${mesesSelecionados.includes(mes) ? 'is-selected' : ''}`}
-                  data-disabled={anoTodo ? 'true' : 'false'}
-                >
-                  <input
-                    type="checkbox"
-                    checked={mesesSelecionados.includes(mes)}
-                    onChange={() => handleToggleMes(mes)}
-                    disabled={anoTodo || gerarTravado}
-                  />
-                  {MESES_LABEL[mes - 1]}
-                </label>
-              ))}
-
-            {!loadingMeses && mesesDisponiveis.length === 0 && (
-              <span className="aideal-muted-text">
-                Sem meses disponíveis no banco para {anoCompetencia || '-'}.
-              </span>
-            )}
-          </div>
-
-          {erroMeses && (
-            <div className="aideal-inline-error">
-              {erroMeses}
-            </div>
-          )}
-
-          <p className="aideal-helper-text">
-            {anoTodo
-              ? 'Modo ativo: geração com todos os meses disponíveis no banco para o ano da competência.'
-              : mesesSelecionadosOrdenados.length > 0
-                ? `Modo ativo: meses ${mesesSelecionadosOrdenados.map((m) => MESES_LABEL[m - 1]).join(', ')}.`
-                : 'Sem seleção manual: usa regra padrão (meses disponíveis até a competência).'}
-          </p>
-        </article>
-      )}
-
-      <div className="aideal-input-drop" onClick={() => fileInputRef.current?.click()}>
-        <FileSpreadsheet size={28} aria-hidden="true" />
-        <p>
-          {isMultiple
-            ? 'Clique para selecionar arquivos bancários (.xls, .xlsx)'
-            : 'Clique para selecionar arquivo DRE (.xls, .xlsx)'}
-        </p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={acceptFormats}
-          multiple={isMultiple}
-          onChange={handleFileChange}
-          className="aideal-file-input"
-        />
-      </div>
-
-      {arquivos.length > 0 && (
-        <div className="aideal-file-list">
-          {arquivos.map((f, i) => (
-            <div key={i} className="aideal-file-row">
-              <span>
-                {f.name} ({(f.size / 1024).toFixed(0)} KB)
-              </span>
-              <button
-                className="aideal-action aideal-action-secondary"
-                onClick={() => handleRemover(i)}
-                title="Remover arquivo"
-              >
-                <X size={15} aria-hidden="true" />
-                <span>Remover</span>
-              </button>
-            </div>
-          ))}
         </div>
-      )}
 
-      <div className="aideal-action-row">
-        <button
-          className="aideal-action aideal-action-primary"
-          onClick={handleValidar}
-          disabled={arquivos.length === 0 || gerarTravado}
+        <div className="aideal-bank-status">
+          <div className="aideal-bank-status-head">
+            <span>Banco · {fluxoLabel}</span>
+            <strong>
+              {loadingMeses ? '...' : `${mesesDisponiveis.length}`}<i>/12</i>
+            </strong>
+          </div>
+          <div className="aideal-bank-status-bar" aria-hidden="true">
+            <span style={{ width: `${(mesesDisponiveis.length / 12) * 100}%` }} />
+          </div>
+          <p>
+            {loadingMeses
+              ? 'Carregando meses salvos...'
+              : mesesDisponiveis.length === 0
+                ? `Nenhum mês salvo em ${ano}.`
+                : `Salvos: ${mesesDisponiveis.map((m) => MESES_LABEL[m - 1]).join(', ')}.`}
+          </p>
+          {erroMeses && <p className="aideal-inline-error">{erroMeses}</p>}
+        </div>
+      </aside>
+
+      <section className="aideal-admin-main">
+        <header className="aideal-workspace-head">
+          <div>
+            <h3>{fluxoLabel} · ingestão e geração</h3>
+            <p>
+              {isDre
+                ? '1) Validar  →  2) Salvar mês no banco  →  3) Gerar DRE.'
+                : '1) Validar  →  2) Salvar lote mensal  →  3) Gerar consolidado.'}
+            </p>
+          </div>
+          <div className="aideal-competencia-chip" data-saved={mesAtivoSalvo ? 'true' : 'false'}>
+            <CalendarDays size={15} aria-hidden="true" />
+            <span>{competenciaLabelCurto}</span>
+            <em>{mesAtivoSalvo ? 'salvo' : 'novo'}</em>
+          </div>
+        </header>
+
+        <span className={`aideal-competencia-status is-${competenciaStatus.type}`}>
+          {loadingCompetencia ? 'Detectando competência...' : competenciaStatus.message}
+        </span>
+
+        <div
+          className="aideal-input-drop"
+          onClick={() => fileInputRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
+          }}
         >
-          {loadingValidation ? <Loader2 size={16} aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}
-          <span>{loadingValidation ? 'Validando...' : 'Validar estrutura'}</span>
-        </button>
+          <FileSpreadsheet size={28} aria-hidden="true" />
+          <p>
+            {isMultiple
+              ? 'Clique para selecionar arquivos bancários (.xls, .xlsx)'
+              : 'Clique para selecionar arquivo DRE (.xls, .xlsx)'}
+          </p>
+          <span className="aideal-drop-hint">A competência é detectada automaticamente</span>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={acceptFormats}
+            multiple={isMultiple}
+            onChange={handleFileChange}
+            className="aideal-file-input"
+          />
+        </div>
 
-        {usaBancoMensal && (
+        {arquivos.length > 0 && (
+          <div className="aideal-file-list">
+            {arquivos.map((f, i) => (
+              <div key={i} className="aideal-file-row">
+                <span>
+                  {f.name} ({(f.size / 1024).toFixed(0)} KB)
+                </span>
+                <button
+                  className="aideal-action aideal-action-secondary"
+                  onClick={() => handleRemover(i)}
+                  title="Remover arquivo"
+                >
+                  <X size={15} aria-hidden="true" />
+                  <span>Remover</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="aideal-action-row">
+          <button
+            className="aideal-action aideal-action-primary"
+            onClick={handleValidar}
+            disabled={arquivos.length === 0 || gerarTravado}
+          >
+            {loadingValidation ? <Loader2 size={16} aria-hidden="true" /> : <ShieldCheck size={16} aria-hidden="true" />}
+            <span>{loadingValidation ? 'Validando...' : 'Validar estrutura'}</span>
+          </button>
+
           <button
             className="aideal-action aideal-action-primary"
             onClick={handleIngestao}
@@ -670,75 +643,67 @@ export default function UploadPanel({
             {loadingIngestao ? <Loader2 size={16} aria-hidden="true" /> : <Database size={16} aria-hidden="true" />}
             <span>{loadingIngestao ? 'Salvando mês...' : 'Salvar mês no banco'}</span>
           </button>
-        )}
 
-        {usaBancoMensal && (
           <button
             className="aideal-action aideal-action-primary"
             onClick={handleGerarDoBanco}
             disabled={gerarTravado}
           >
             {loadingGeracao ? <Loader2 size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
-            <span>{loadingGeracao ? `Gerando ${fluxoLabel}...` : `Gerar ${fluxoLabel} do banco`}</span>
+            <span>{loadingGeracao ? `Gerando ${fluxoLabel}...` : `Gerar ${fluxoLabel}`}</span>
           </button>
-        )}
 
-        {!usaBancoMensal && (
-          <button
-            className="aideal-action aideal-action-primary"
-            onClick={handleGerarFluxo}
-            disabled={arquivos.length === 0 || gerarTravado}
-          >
-            {loadingGeracao ? <Loader2 size={16} aria-hidden="true" /> : <CheckCircle2 size={16} aria-hidden="true" />}
-            <span>{loadingGeracao ? 'Gerando Fluxo...' : 'Gerar Fluxo de Caixa'}</span>
-          </button>
-        )}
-
-        {usaBancoMensal && (
           <button
             className="aideal-action aideal-action-secondary"
             onClick={handleLimparBase}
             disabled={gerarTravado}
-            title={`Remove somente os dados ${fluxoLabel} da competência selecionada`}
+            title={`Remove somente os dados ${fluxoLabel} da competência ativa`}
           >
             {loadingLimpeza ? <Loader2 size={16} aria-hidden="true" /> : <Trash2 size={16} aria-hidden="true" />}
-            <span>{loadingLimpeza ? 'Excluindo mês...' : 'Excluir mês selecionado'}</span>
+            <span>{loadingLimpeza ? 'Excluindo mês...' : 'Excluir mês ativo'}</span>
           </button>
+
+          {downloadUrl && (
+            <a
+              className="aideal-action aideal-action-secondary aideal-action-link"
+              href={downloadUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Download size={16} aria-hidden="true" />
+              <span>Baixar resultado</span>
+            </a>
+          )}
+
+          {gerarTravado && <span className="aideal-loader" aria-hidden="true" />}
+        </div>
+
+        <p className="aideal-scope-line">
+          <Sparkles size={13} aria-hidden="true" />
+          {escopoGeracao}
+        </p>
+
+        {!validacao?.valido && (
+          <p className="aideal-helper-text">
+            Recomenda-se validar antes da ingestão. A geração usa somente dados já salvos no banco.
+          </p>
         )}
 
-        {downloadUrl && (
-          <a
-            className="aideal-action aideal-action-secondary aideal-action-link"
-            href={downloadUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            <Download size={16} aria-hidden="true" />
-            <span>Baixar resultado</span>
-          </a>
+        {arquivoPareceTemplate && (
+          <p className="aideal-inline-error">
+            O arquivo selecionado parece ser template/saída final. Para processar DRE, use o relatório bruto
+            de entrada (ex.: RELATORIO DRE MES 05.xls).
+          </p>
         )}
 
-        {gerarTravado && <span className="aideal-loader" aria-hidden="true" />}
-      </div>
+        {processamento?.arquivo_saida && (
+          <p className="aideal-helper-text">
+            Saída gerada: <strong>{processamento.arquivo_saida}</strong>
+          </p>
+        )}
 
-      {usaBancoMensal && !validacao?.valido && (
-        <p className="aideal-helper-text">
-          Recomenda-se validar antes da ingestão. A geração final usa somente dados já no banco.
-        </p>
-      )}
-
-      {arquivoPareceTemplate && (
-        <p className="aideal-inline-error">
-          O arquivo selecionado parece ser template/saída final. Para processar DRE, use o relatório bruto
-          de entrada (ex.: RELATORIO DRE MES 05.xls).
-        </p>
-      )}
-
-      {usaBancoMensal && processamento?.arquivo_saida && (
-        <p className="aideal-helper-text">
-          Saída gerada: <strong>{processamento.arquivo_saida}</strong>
-        </p>
-      )}
-    </section>
+        {statusSlot}
+      </section>
+    </div>
   );
 }
