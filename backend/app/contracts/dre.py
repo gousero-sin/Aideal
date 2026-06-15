@@ -23,6 +23,7 @@ class DRELancamento(BaseModel):
 
     data: date = Field(..., description="Data do lançamento financeiro")
     historico: str = Field(..., description="Identificação textual do lançamento/documento")
+    valor_bruto: Decimal = Field(default=Decimal("0"), description="Valor bruto original")
     credito: Decimal = Field(default=Decimal("0"), description="Valor de entrada (crédito)")
     debito: Decimal = Field(default=Decimal("0"), description="Valor de saída (débito)")
     natureza: str = Field(

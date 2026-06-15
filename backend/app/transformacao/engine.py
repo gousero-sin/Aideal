@@ -229,6 +229,7 @@ class DRETransformer:
                 DRELancamento(
                     data=lanc_base.data,
                     historico=lanc_base.historico,
+                    valor_bruto=valor,
                     credito=Decimal("0"),
                     debito=valor,
                     natureza=rotulo,
@@ -293,6 +294,7 @@ class DRETransformer:
         return DRELancamento(
             data=data,
             historico=historico,
+            valor_bruto=valor_bruto,
             credito=credito,
             debito=debito,
             natureza=natureza,

@@ -479,8 +479,9 @@ class DREProcessamentoService:
             lancamentos_db = []
             for lanc in lote.lancamentos:
                 content = (
-                    f"{lanc.data.isoformat()}|{lanc.historico}|{lanc.credito}|{lanc.debito}|"
-                    f"{lanc.natureza}|{lanc.centro_custo}|{lanc.linha_origem or 0}"
+                    f"{lanc.data.isoformat()}|{lanc.historico}|{lanc.valor_bruto}|"
+                    f"{lanc.credito}|{lanc.debito}|{lanc.natureza}|{lanc.centro_custo}|"
+                    f"{lanc.linha_origem or 0}"
                 )
                 hash_linha = hashlib.sha256(content.encode()).hexdigest()[:32]
 
@@ -491,7 +492,7 @@ class DREProcessamentoService:
                         competencia_mes=mes,
                         data_lancamento=lanc.data.isoformat(),
                         historico=lanc.historico,
-                        valor_bruto=lanc.credito + lanc.debito,
+                        valor_bruto=lanc.valor_bruto or (lanc.credito + lanc.debito),
                         credito=lanc.credito,
                         debito=lanc.debito,
                         natureza_raw=lanc.natureza,

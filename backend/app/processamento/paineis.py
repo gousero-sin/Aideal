@@ -198,14 +198,30 @@ class _PainelBaseService:
         for row in rows:
             ano = int(row["ano"]) if "ano" in row.keys() and row["ano"] is not None else None
             mes = int(row["mes"])
+            debito = _float(row["debito"])
             item = {
                 "mes": int(row["mes"]),
                 "mes_label": _competencia_curta(ano, mes) if ano else MESES_LABEL[mes - 1],
                 "credito": _float(row["credito"]),
-                "debito": _float(row["debito"]),
+                "debito": debito,
                 "saldo": _float(row["saldo"]),
                 count_key: int(row["total"] or 0),
             }
+            # Painel DRE: credito já representa receita líquida; impostos ficam
+            # separados e saem das despesas operacionais para evitar dupla baixa.
+            if "impostos" in row.keys() and row["impostos"] is not None:
+                impostos = _float(row["impostos"])
+                item["impostos"] = impostos
+                item["receita_liquida"] = (
+                    _float(row["receita_liquida"])
+                    if "receita_liquida" in row.keys()
+                    else _float(row["credito"])
+                )
+                item["saidas_liquidas"] = (
+                    _float(row["saidas_liquidas"])
+                    if "saidas_liquidas" in row.keys()
+                    else debito - impostos
+                )
             if ano:
                 item["ano"] = ano
                 item["periodo"] = f"{ano}-{mes:02d}"
@@ -247,12 +263,32 @@ class PainelDREService(_PainelBaseService):
         "COALESCE(NULLIF(TRIM(natureza_norm), ''), NULLIF(TRIM(natureza_raw), ''), 'Sem natureza')"
     )
     # Rubricas tratadas como impostos/deduções (não compõem a saída operacional).
-    RUBRICAS_IMPOSTO = ("IR", "ISS", "INSS", "PIS", "COFINS", "CSLL", "Tarifa de Antecipação")
+    RUBRICAS_IMPOSTO = (
+        "IR",
+        "IR Retido",
+        "ISS",
+        "ISS Retido",
+        "INSS",
+        "INSS Retido",
+        "PIS",
+        "COFINS",
+        "CSLL",
+        "Tarifa de Antecipação",
+        "Impostos sobre vendas",
+        "Deduções sobre vendas",
+        "(-)Deduções sobre vendas",
+        "Descontos sobre vendas",
+        "Simples Nacional",
+    )
     IMPOSTO_DEBITO_EXPR = (
         "CASE WHEN TRIM(rubrica) IN "
-        "('IR','ISS','INSS','PIS','COFINS','CSLL','Tarifa de Antecipação') "
+        "('IR','IR Retido','ISS','ISS Retido','INSS','INSS Retido','PIS','COFINS','CSLL',"
+        "'Tarifa de Antecipação','Impostos sobre vendas','Deduções sobre vendas',"
+        "'(-)Deduções sobre vendas','Descontos sobre vendas','Simples Nacional') "
         "THEN debito ELSE 0 END"
     )
+    SAIDAS_LIQUIDAS_EXPR = f"(debito - ({IMPOSTO_DEBITO_EXPR}))"
+    SALDO_DRE_EXPR = f"(credito - {SAIDAS_LIQUIDAS_EXPR})"
     ESCOPO_PROJETO_COMPLETO = "projeto_completo"
     COMPONENTES_DRE = {
         "receita_bruta": _alias_set(
@@ -545,7 +581,8 @@ class PainelDREService(_PainelBaseService):
                     SUM(credito) AS total_credito,
                     SUM(debito) AS total_debito,
                     SUM({self.IMPOSTO_DEBITO_EXPR}) AS total_impostos,
-                    SUM(credito - debito) AS saldo_liquido,
+                    SUM({self.SAIDAS_LIQUIDAS_EXPR}) AS total_saidas_liquidas,
+                    SUM({self.SALDO_DRE_EXPR}) AS saldo_liquido,
                     COUNT(DISTINCT {self.CENTRO_CUSTO_EXPR}) AS total_obras,
                     COUNT(DISTINCT {self.NATUREZA_EXPR}) AS total_naturezas
                 FROM dre_lancamentos
@@ -560,7 +597,10 @@ class PainelDREService(_PainelBaseService):
                     competencia_mes AS mes,
                     SUM(credito) AS credito,
                     SUM(debito) AS debito,
-                    SUM(credito - debito) AS saldo,
+                    SUM(credito) AS receita_liquida,
+                    SUM({self.IMPOSTO_DEBITO_EXPR}) AS impostos,
+                    SUM({self.SAIDAS_LIQUIDAS_EXPR}) AS saidas_liquidas,
+                    SUM({self.SALDO_DRE_EXPR}) AS saldo,
                     COUNT(*) AS total
                 FROM dre_lancamentos
                 WHERE {where_sql}
@@ -579,7 +619,7 @@ class PainelDREService(_PainelBaseService):
                     historico,
                     credito,
                     debito,
-                    credito - debito AS saldo,
+                    {self.SALDO_DRE_EXPR} AS saldo,
                     {self.CENTRO_CUSTO_EXPR} AS centro_custo,
                     {self.NATUREZA_EXPR} AS natureza
                 FROM dre_lancamentos
@@ -630,11 +670,9 @@ class PainelDREService(_PainelBaseService):
         total_credito = _float(kpis["total_credito"])
         total_debito = _float(kpis["total_debito"])
         total_impostos = _float(kpis["total_impostos"])
-        # Saída operacional = débito sem os impostos/deduções; resultado já sem
-        # dupla contagem (a receita persistida é líquida desses impostos).
-        total_saidas_liquidas = total_debito - total_impostos
-        resultado_liquido = total_credito - total_saidas_liquidas
-        saldo_liquido = resultado_liquido
+        total_saidas_liquidas = _float(kpis["total_saidas_liquidas"])
+        saldo_liquido = _float(kpis["saldo_liquido"])
+        resultado_liquido = saldo_liquido
         competencias_series = [
             (int(row["ano"]), int(row["mes"])) for row in series if row["ano"] is not None
         ]
@@ -686,6 +724,8 @@ class PainelDREService(_PainelBaseService):
                     competencias_series,
                     total_credito,
                     total_debito,
+                    total_saidas_liquidas,
+                    total_impostos,
                     saldo_liquido,
                 )
                 if projeto_completo
@@ -718,6 +758,8 @@ class PainelDREService(_PainelBaseService):
         competencias: list[tuple[int, int]],
         credito: float,
         debito: float,
+        saidas_liquidas: float,
+        impostos: float,
         saldo: float,
     ) -> dict[str, Any]:
         ordenadas = sorted(set(competencias))
@@ -726,6 +768,8 @@ class PainelDREService(_PainelBaseService):
         return {
             "credito": credito,
             "debito": debito,
+            "saidas_liquidas": saidas_liquidas,
+            "impostos": impostos,
             "saldo": saldo,
             "primeira_competencia": (
                 _competencia_label(primeira[0], primeira[1]) if primeira else None
@@ -949,13 +993,20 @@ class PainelDREService(_PainelBaseService):
         absoluto: bool = False,
     ) -> tuple[float, bool]:
         aliases = self.COMPONENTES_DRE[componente]
+        # Receita Bruta = faturamento bruto: soma o crédito, sem abater débitos.
+        # Demais componentes seguem o líquido (crédito - débito).
+        usar_bruto = componente == "receita_bruta"
         total = 0.0
         encontrado = False
         for row in rows:
             if not self._row_dre_matches(row, aliases):
                 continue
             encontrado = True
-            valor = _float(row["credito"]) - _float(row["debito"])
+            valor = (
+                _float(row["credito"])
+                if usar_bruto
+                else _float(row["credito"]) - _float(row["debito"])
+            )
             total += abs(valor) if absoluto else valor
         return total, encontrado
 
@@ -1197,12 +1248,12 @@ class PainelDREService(_PainelBaseService):
                 {expression} AS nome,
                 SUM(credito) AS credito,
                 SUM(debito) AS debito,
-                SUM(credito - debito) AS saldo,
+                SUM({self.SALDO_DRE_EXPR}) AS saldo,
                 COUNT(*) AS total
             FROM dre_lancamentos
             WHERE {where_sql}
             GROUP BY nome
-            ORDER BY ABS(SUM(credito - debito)) DESC, total DESC, nome ASC
+            ORDER BY ABS(SUM({self.SALDO_DRE_EXPR})) DESC, total DESC, nome ASC
             LIMIT ?
             """,
             tuple([*params, limit]),
@@ -1220,7 +1271,7 @@ class PainelDREService(_PainelBaseService):
             SELECT
                 {expression} AS value,
                 COUNT(*) AS total,
-                SUM(credito - debito) AS saldo
+                SUM({self.SALDO_DRE_EXPR}) AS saldo
             FROM dre_lancamentos
             WHERE {where_sql}
             GROUP BY value

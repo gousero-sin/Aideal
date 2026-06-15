@@ -207,6 +207,117 @@ def test_dashboard_resumo_com_dre_e_fluxo(monkeypatch, tmp_path):
     assert default_resp.json()["competencia"] == "05/2025"
 
 
+def test_dashboard_resumo_dre_usa_receita_liquida_sem_descontar_impostos_duas_vezes(
+    monkeypatch,
+    tmp_path,
+):
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-liquida",
+                "2026-06-01T10:00:00",
+                "dre_liquida.xls",
+                "hash-dre-liquida",
+                2026,
+                6,
+                "completed",
+                3,
+                3,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-liquida",
+                    2026,
+                    6,
+                    "2026-06-10",
+                    "Receita líquida",
+                    2818408,
+                    2818408,
+                    0,
+                    "(=)Receita Líquida",
+                    "ENTRADA",
+                    "Obra Saldo",
+                    "(=)Receita Líquida",
+                    "(=)Receita Líquida",
+                    1,
+                    "liquida-h1",
+                    "2026-06-01T10:00:00",
+                ),
+                (
+                    "dre-liquida",
+                    2026,
+                    6,
+                    "2026-06-11",
+                    "Saídas operacionais",
+                    2372883,
+                    0,
+                    2372883,
+                    "Fornecedores",
+                    "SAIDA",
+                    "Obra Saldo",
+                    "Fornecedores",
+                    "(-)Custos Variavéis",
+                    2,
+                    "liquida-h2",
+                    "2026-06-01T10:00:00",
+                ),
+                (
+                    "dre-liquida",
+                    2026,
+                    6,
+                    "2026-06-12",
+                    "IR retido",
+                    100000,
+                    0,
+                    100000,
+                    "IR",
+                    "SAIDA",
+                    "Obra Saldo",
+                    "IR",
+                    "IR",
+                    3,
+                    "liquida-h3",
+                    "2026-06-01T10:00:00",
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(
+        main_module,
+        "dashboard_resumo_service",
+        DashboardResumoService(db=db, logs_dir=tmp_path),
+    )
+    client = TestClient(main_module.app)
+
+    resp = client.get("/api/dashboard/resumo?ano=2026&mes=6")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["dre"]["total_credito"] == 2818408.0
+    assert body["dre"]["total_debito"] == 2472883.0
+    assert body["dre"]["total_impostos"] == 100000.0
+    assert body["dre"]["total_saidas_liquidas"] == 2372883.0
+    assert body["dre"]["saldo_liquido"] == 445525.0
+
+
 def test_dashboard_resumo_rejeita_periodo_invalido(monkeypatch, tmp_path):
     db = _novo_db()
     monkeypatch.setattr(

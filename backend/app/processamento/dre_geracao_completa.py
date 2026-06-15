@@ -10,12 +10,14 @@ Fluxo:
 """
 
 import logging
+import re
 from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 from openpyxl.styles import Font, PatternFill
+from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 
 from ..config import settings
 from ..contracts.persistence import DRELancamentoDB
@@ -28,6 +30,74 @@ logger = logging.getLogger(__name__)
 # Nomes abreviados dos 12 meses (índice 0 = Janeiro)
 _MESES_NOMES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 _EMPRESA_PADRAO = "AIDEAL"
+
+# Conta pai que identifica a Receita Bruta no PLANO_CONTAS.
+# Receita Bruta soma valores brutos de entrada; Faturamento soma o líquido.
+_RECEITA_BRUTA_CONTA_PAI = "(=)Receita Bruta"
+_FATURAMENTO_ROTULO = "Faturamento"
+_RECEITA_LIQUIDA_ROTULO = "(=)Receita Líquida"
+_DRE_COLUNAS_VALOR = (2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34)
+_DRE_COLUNAS_PERCENTUAL = tuple(col + 1 for col in _DRE_COLUNAS_VALOR)
+_DRE_COLUNA_VALOR_POR_MES = {
+    1: 2,
+    2: 4,
+    3: 6,
+    4: 10,
+    5: 12,
+    6: 14,
+    7: 18,
+    8: 20,
+    9: 22,
+    10: 26,
+    11: 28,
+    12: 30,
+}
+_DRE_MES_POR_COLUNA_VALOR = {col: mes for mes, col in _DRE_COLUNA_VALOR_POR_MES.items()}
+_IMPOSTOS_RECEITA_ROTULOS = frozenset(
+    valor.casefold()
+    for valor in (
+        "IR",
+        "IR Retido",
+        "ISS",
+        "ISS Retido",
+        "INSS",
+        "INSS Retido",
+        "PIS",
+        "COFINS",
+        "CSLL",
+        "Tarifa de Antecipação",
+        "Impostos sobre Vendas",
+        "(-)Deduções sobre vendas",
+        "Deduções sobre vendas",
+        "Simples Nacional",
+    )
+)
+
+# Código gerencial no padrão "N.N[.N...]" no início do rótulo (ex.: "1.1.1 - ...").
+_CODIGO_GERENCIAL_RE = re.compile(r"^\s*(\d+(?:\.\d+)+)")
+_FORMULA_SUM_RE = re.compile(r"^=SUM\((?P<args>.+)\)$", re.IGNORECASE)
+_FORMULA_DIV_IFERROR_RE = re.compile(
+    r"^=IFERROR\(\s*(?P<num>\$?[A-Z]{1,3}\$?\d+)\s*/\s*"
+    r"(?P<den>\$?[A-Z]{1,3}\$?\d+)\s*,\s*0\s*\)$",
+    re.IGNORECASE,
+)
+_FORMULA_DIV_RE = re.compile(
+    r"^=\s*(?P<num>\$?[A-Z]{1,3}\$?\d+)\s*/\s*"
+    r"(?P<den>\$?[A-Z]{1,3}\$?\d+)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _extrair_codigo_gerencial(texto: Any) -> str | None:
+    """Extrai o código gerencial (ex.: '1.1.1') do início de um rótulo de conta."""
+    if not texto:
+        return None
+    match = _CODIGO_GERENCIAL_RE.match(str(texto))
+    return match.group(1) if match else None
+
+
+def _normalizar_rotulo(texto: Any) -> str:
+    return re.sub(r"\s+", " ", str(texto or "").strip()).casefold()
 
 
 def _parse_competencia(competencia: str) -> tuple[int, int]:
@@ -148,30 +218,36 @@ class DREGeracaoCompletaService:
 
     @staticmethod
     def _ler_plano_contas(writer: TemplateWriter) -> dict[str, dict]:
-        """Lê PLANO_CONTAS do template para mapeamento natureza → contas."""
+        """Lê PLANO_CONTAS do template para mapeamento natureza → contas.
+
+        Além das chaves textuais (classificação e rubrica), indexa cada conta
+        pelo código gerencial ("@cod:1.1.1") e pela família ("@fam:1.1"). Isso
+        permite casar lançamentos cujo rótulo traz sufixos divergentes
+        (ex.: "1.1.1 - Recebimento de Clientes - prestação de serviço") e herdar
+        a classificação para subcontas irmãs ainda não cadastradas no plano
+        (ex.: 1.1.2/1.1.3 herdam de 1.1.1 e somam em Receita Bruta).
+        """
         ws = writer._wb["PLANO_CONTAS"]
         plano: dict[str, dict] = {}
         for row in ws.iter_rows(
             min_row=2, max_row=ws.max_row, min_col=1, max_col=5, values_only=True
         ):
             classificacao, rubrica, conta_filho, conta_pai, cod = row
-            if classificacao is not None and str(classificacao).strip():
-                key = str(classificacao).strip()
-                plano[key] = {
-                    "rubrica": str(rubrica or "").strip(),
-                    "conta_filho": str(conta_filho or "").strip(),
-                    "conta_pai": str(conta_pai or "").strip(),
-                    "cod": cod,
-                }
-            if rubrica is not None and str(rubrica).strip():
-                key2 = str(rubrica).strip()
-                if key2 not in plano:
-                    plano[key2] = {
-                        "rubrica": str(rubrica or "").strip(),
-                        "conta_filho": str(conta_filho or "").strip(),
-                        "conta_pai": str(conta_pai or "").strip(),
-                        "cod": cod,
-                    }
+            entry = {
+                "rubrica": str(rubrica or "").strip(),
+                "conta_filho": str(conta_filho or "").strip(),
+                "conta_pai": str(conta_pai or "").strip(),
+                "cod": cod,
+            }
+            for chave_texto in (classificacao, rubrica):
+                if chave_texto is None or not str(chave_texto).strip():
+                    continue
+                plano.setdefault(str(chave_texto).strip(), entry)
+                codigo = _extrair_codigo_gerencial(chave_texto)
+                if codigo:
+                    plano.setdefault(f"@cod:{codigo}", entry)
+                    familia = codigo.rsplit(".", 1)[0]
+                    plano.setdefault(f"@fam:{familia}", entry)
         return plano
 
     @staticmethod
@@ -180,11 +256,23 @@ class DREGeracaoCompletaService:
         rubrica_raw: str | None,
         plano: dict[str, dict],
     ) -> tuple[str, str, str, int | None]:
-        """Resolve natureza/rubrica para (rubrica, conta_filho, conta_pai, cod)."""
+        """Resolve natureza/rubrica para (rubrica, conta_filho, conta_pai, cod).
+
+        Ordem de tentativas (a primeira que casar vence):
+        1. texto exato e texto após o primeiro " - " (cadastro literal);
+        2. código gerencial (ex.: "1.1.1") — tolera sufixos no rótulo;
+        3. família do código (ex.: "1.1") — subcontas irmãs herdam a
+           classificação (1.1.2/1.1.3 somam em Receita Bruta como 1.1.1).
+        """
         chaves = [
             (rubrica_raw or "").strip(),
             (natureza_raw or "").strip(),
         ]
+
+        def _resultado(p: dict) -> tuple[str, str, str, int | None]:
+            return p["rubrica"], p["conta_filho"], p["conta_pai"], p["cod"]
+
+        # 1. Texto exato e texto após o primeiro " - ".
         for chave in chaves:
             if not chave:
                 continue
@@ -192,11 +280,20 @@ class DREGeracaoCompletaService:
             if " - " in chave:
                 tentativas.append(chave.split(" - ", 1)[1].strip())
             for tentativa in tentativas:
-                if not tentativa:
-                    continue
-                if tentativa in plano:
-                    p = plano[tentativa]
-                    return p["rubrica"], p["conta_filho"], p["conta_pai"], p["cod"]
+                if tentativa and tentativa in plano:
+                    return _resultado(plano[tentativa])
+
+        # 2. Código gerencial exato e 3. família (fallback para subcontas irmãs).
+        for chave in chaves:
+            codigo = _extrair_codigo_gerencial(chave)
+            if not codigo:
+                continue
+            if f"@cod:{codigo}" in plano:
+                return _resultado(plano[f"@cod:{codigo}"])
+            familia = codigo.rsplit(".", 1)[0]
+            if f"@fam:{familia}" in plano:
+                return _resultado(plano[f"@fam:{familia}"])
+
         return "", "", "", None
 
     # ------------------------------------------------------------------ #
@@ -216,6 +313,10 @@ class DREGeracaoCompletaService:
         agregado: dict[tuple[int | None, str], dict[int, float]] = defaultdict(
             lambda: defaultdict(float)
         )
+        receita_bruta_keys: set[tuple[int | None, str]] = set()
+        receita_bruta_informada: dict[int, float] = defaultdict(float)
+        faturamento_liquido: dict[int, float] = defaultdict(float)
+        deducoes_receita: dict[int, float] = defaultdict(float)
         meses_encontrados: set[int] = set()
 
         for lanc in lancamentos:
@@ -223,7 +324,10 @@ class DREGeracaoCompletaService:
             data = _data_lancamento_para_date(lanc.data_lancamento)
             mes = lanc.competencia_mes or data.month
             meses_encontrados.add(mes)
-            valor = float(lanc.credito) - float(lanc.debito)
+            credito = float(lanc.credito or 0)
+            debito = float(lanc.debito or 0)
+            valor = credito - debito
+            valor_bruto = float(lanc.valor_bruto or 0)
 
             rubrica, conta_filho, conta_pai, cod = self._resolver_conta_pai(
                 lanc.natureza_raw,
@@ -231,12 +335,42 @@ class DREGeracaoCompletaService:
                 plano,
             )
 
+            eh_receita_bruta = conta_pai == _RECEITA_BRUTA_CONTA_PAI
+            if eh_receita_bruta:
+                valor_receita_bruta = max(valor_bruto, credito, valor)
+                receita_bruta_informada[mes] += valor_receita_bruta
+                faturamento_liquido[mes] += valor
+
+                if conta_filho:
+                    receita_bruta_keys.add((cod, conta_filho))
+                if conta_pai:
+                    receita_bruta_keys.add((cod, conta_pai))
+
+                if rubrica:
+                    agregado[(cod, rubrica)][mes] += valor
+                if conta_filho:
+                    agregado[(cod, conta_filho)][mes] += valor_receita_bruta
+                if conta_pai:
+                    agregado[(cod, conta_pai)][mes] += valor_receita_bruta
+                continue
+
+            if debito > 0 and self._eh_deducao_receita(lanc, rubrica, conta_filho, conta_pai):
+                deducoes_receita[mes] += debito
+
             if rubrica:
                 agregado[(cod, rubrica)][mes] += valor
             if conta_filho:
                 agregado[(cod, conta_filho)][mes] += valor
             if conta_pai:
                 agregado[(cod, conta_pai)][mes] += valor
+
+        for mes in meses_encontrados:
+            receita_bruta = max(
+                receita_bruta_informada[mes],
+                faturamento_liquido[mes] + deducoes_receita[mes],
+            )
+            for key in receita_bruta_keys:
+                agregado[key][mes] = receita_bruta
 
         meses_ordenados = sorted(meses_encontrados)
         linhas: list[list] = []
@@ -257,6 +391,23 @@ class DREGeracaoCompletaService:
             linhas.append(row)
 
         return linhas, meses_ordenados
+
+    @staticmethod
+    def _eh_deducao_receita(
+        lanc: DRELancamentoDB,
+        rubrica: str,
+        conta_filho: str,
+        conta_pai: str,
+    ) -> bool:
+        rotulos = (
+            lanc.natureza_raw,
+            lanc.rubrica,
+            lanc.conta_pai,
+            rubrica,
+            conta_filho,
+            conta_pai,
+        )
+        return any(_normalizar_rotulo(rotulo) in _IMPOSTOS_RECEITA_ROTULOS for rotulo in rotulos)
 
     def _escrever_apoio(
         self,
@@ -289,6 +440,164 @@ class DREGeracaoCompletaService:
             [_MESES_NOMES[m - 1] for m in meses],
         )
         return meses
+
+    @staticmethod
+    def _numero_planilha(valor: Any) -> float:
+        if valor is None or valor == "":
+            return 0.0
+        try:
+            return float(valor)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @classmethod
+    def _valor_referencia_dre(cls, ws: Any, referencia: str) -> float:
+        linha, coluna = coordinate_to_tuple(referencia.replace("$", ""))
+        return cls._numero_planilha(ws.cell(row=linha, column=coluna).value)
+
+    @classmethod
+    def _somar_intervalo_dre(cls, ws: Any, referencia: str) -> float:
+        min_col, min_row, max_col, max_row = range_boundaries(referencia.replace("$", ""))
+        total = 0.0
+        for linha in range(min_row, max_row + 1):
+            for coluna in range(min_col, max_col + 1):
+                total += cls._numero_planilha(ws.cell(row=linha, column=coluna).value)
+        return total
+
+    @classmethod
+    def _avaliar_formula_dre(
+        cls,
+        *,
+        ws: Any,
+        formula: str,
+        linha: int,
+        coluna: int,
+        apoio_por_rotulo: dict[str, dict[int, float]],
+        apoio_por_rotulo_normalizado: dict[str, dict[int, float]],
+    ) -> float | None:
+        formula_limpa = formula.strip()
+        formula_upper = formula_limpa.upper()
+
+        if formula_upper.startswith("=IFERROR(VLOOKUP("):
+            mes = _DRE_MES_POR_COLUNA_VALOR.get(coluna)
+            if not mes:
+                return 0.0
+            rotulo = str(ws.cell(row=linha, column=1).value or "").strip()
+            valores = apoio_por_rotulo.get(rotulo)
+            if valores is None:
+                valores = apoio_por_rotulo_normalizado.get(_normalizar_rotulo(rotulo))
+            return valores.get(mes, 0.0) if valores else 0.0
+
+        match_sum = _FORMULA_SUM_RE.match(formula_limpa)
+        if match_sum:
+            total = 0.0
+            for termo in match_sum.group("args").split(","):
+                referencia = termo.strip()
+                if ":" in referencia:
+                    total += cls._somar_intervalo_dre(ws, referencia)
+                else:
+                    total += cls._valor_referencia_dre(ws, referencia)
+            return total
+
+        match_div = _FORMULA_DIV_IFERROR_RE.match(formula_limpa) or _FORMULA_DIV_RE.match(
+            formula_limpa
+        )
+        if match_div:
+            numerador = cls._valor_referencia_dre(ws, match_div.group("num"))
+            denominador = cls._valor_referencia_dre(ws, match_div.group("den"))
+            return numerador / denominador if denominador else 0.0
+
+        return None
+
+    def _materializar_dre(self, writer: TemplateWriter) -> dict[str, Any]:
+        """Resolve fórmulas do bloco gerencial da DRE para evitar cache antigo no XLSX.
+
+        O arquivo gerado é um relatório estático: os números devem abrir corretos
+        mesmo em leitores que não recalculam fórmulas. A Receita Líquida segue a
+        regra de negócio atual e espelha o Faturamento, que já é líquido.
+        """
+        if (
+            not writer._wb
+            or "DRE" not in writer._wb.sheetnames
+            or "APOIO" not in writer._wb.sheetnames
+        ):
+            return {"celulas_materializadas": 0}
+
+        ws_dre = writer._wb["DRE"]
+        ws_apoio = writer._wb["APOIO"]
+
+        apoio_por_rotulo: dict[str, dict[int, float]] = {}
+        apoio_por_rotulo_normalizado: dict[str, dict[int, float]] = {}
+        for linha in range(6, ws_apoio.max_row + 1):
+            rotulo = str(ws_apoio.cell(row=linha, column=2).value or "").strip()
+            if not rotulo:
+                continue
+            valores = {
+                mes: self._numero_planilha(ws_apoio.cell(row=linha, column=2 + mes).value)
+                for mes in range(1, 13)
+            }
+            apoio_por_rotulo.setdefault(rotulo, valores)
+            apoio_por_rotulo_normalizado.setdefault(_normalizar_rotulo(rotulo), valores)
+
+        linhas_por_rotulo: dict[str, int] = {}
+        for linha in range(1, ws_dre.max_row + 1):
+            rotulo = str(ws_dre.cell(row=linha, column=1).value or "").strip()
+            if rotulo:
+                linhas_por_rotulo.setdefault(rotulo, linha)
+
+        linha_faturamento = linhas_por_rotulo.get(_FATURAMENTO_ROTULO)
+        linha_receita_liquida = linhas_por_rotulo.get(_RECEITA_LIQUIDA_ROTULO)
+        celulas_materializadas = 0
+
+        for linha in range(6, ws_dre.max_row + 1):
+            for coluna in _DRE_COLUNAS_VALOR:
+                celula = ws_dre.cell(row=linha, column=coluna)
+                valor_atual = celula.value
+                valor_calculado: float | None = None
+
+                if linha == linha_receita_liquida and linha_faturamento:
+                    valor_calculado = self._numero_planilha(
+                        ws_dre.cell(row=linha_faturamento, column=coluna).value
+                    )
+                elif isinstance(valor_atual, str) and valor_atual.startswith("="):
+                    valor_calculado = self._avaliar_formula_dre(
+                        ws=ws_dre,
+                        formula=valor_atual,
+                        linha=linha,
+                        coluna=coluna,
+                        apoio_por_rotulo=apoio_por_rotulo,
+                        apoio_por_rotulo_normalizado=apoio_por_rotulo_normalizado,
+                    )
+
+                if valor_calculado is not None:
+                    celula.value = valor_calculado
+                    celulas_materializadas += 1
+
+        for linha in range(6, ws_dre.max_row + 1):
+            for coluna in _DRE_COLUNAS_PERCENTUAL:
+                celula = ws_dre.cell(row=linha, column=coluna)
+                valor_atual = celula.value
+                if not isinstance(valor_atual, str) or not valor_atual.startswith("="):
+                    continue
+                valor_calculado = self._avaliar_formula_dre(
+                    ws=ws_dre,
+                    formula=valor_atual,
+                    linha=linha,
+                    coluna=coluna,
+                    apoio_por_rotulo=apoio_por_rotulo,
+                    apoio_por_rotulo_normalizado=apoio_por_rotulo_normalizado,
+                )
+                if valor_calculado is not None:
+                    celula.value = valor_calculado
+                    celulas_materializadas += 1
+
+        writer._modified_sheets.add("DRE")
+        logger.info("DRE materializada: %d células calculadas", celulas_materializadas)
+        return {
+            "celulas_materializadas": celulas_materializadas,
+            "linha_faturamento": linha_faturamento,
+            "linha_receita_liquida": linha_receita_liquida,
+        }
 
     # ------------------------------------------------------------------ #
     # BD_FLUXO                                                             #
@@ -844,6 +1153,7 @@ class DREGeracaoCompletaService:
         # 4. Preencher template
         visibilidade: dict[str, Any] = {}
         detalhe_meta: dict[str, Any] = {}
+        dre_meta: dict[str, Any] = {}
         with TemplateWriter(self.template_path) as writer:
             plano = self._ler_plano_contas(writer)
 
@@ -890,7 +1200,10 @@ class DREGeracaoCompletaService:
                 writer, meses_utilizados_planilha
             )
 
-            # 4f. Aba de detalhamento para uso operacional no workspace/painel.
+            # 4f. Materializar a DRE para evitar cache antigo de fórmulas no XLSX.
+            dre_meta = self._materializar_dre(writer)
+
+            # 4g. Aba de detalhamento para uso operacional no workspace/painel.
             detalhe_meta = self._escrever_aba_detalhamento_mensal(
                 writer=writer,
                 lancamentos=lancamentos,
@@ -909,7 +1222,7 @@ class DREGeracaoCompletaService:
                     colunas=list(tabela_colunas),
                 )
 
-            # 4g. Salvar
+            # 4h. Salvar
             writer.salvar(output_path)
 
         total_credito = sum(float(lanc.credito) for lanc in lancamentos)
@@ -949,4 +1262,5 @@ class DREGeracaoCompletaService:
             "linhas_resumo_mensal": detalhe_meta.get("linhas_resumo_mensal", 0),
             "linhas_resumo_agrupado": detalhe_meta.get("linhas_resumo_agrupado", 0),
             "linhas_lancamentos_granulares": detalhe_meta.get("linhas_lancamentos_granulares", 0),
+            "celulas_dre_materializadas": dre_meta.get("celulas_materializadas", 0),
         }

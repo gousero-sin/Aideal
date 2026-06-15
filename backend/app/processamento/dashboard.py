@@ -17,6 +17,16 @@ logger = logging.getLogger(__name__)
 class DashboardResumoService:
     """Agrega sinais operacionais de DRE, Fluxo de Caixa e logs recentes."""
 
+    DRE_IMPOSTO_DEBITO_EXPR = (
+        "CASE WHEN TRIM(rubrica) IN "
+        "('IR','IR Retido','ISS','ISS Retido','INSS','INSS Retido','PIS','COFINS','CSLL',"
+        "'Tarifa de Antecipação','Impostos sobre vendas','Deduções sobre vendas',"
+        "'(-)Deduções sobre vendas','Descontos sobre vendas','Simples Nacional') "
+        "THEN debito ELSE 0 END"
+    )
+    DRE_SAIDAS_LIQUIDAS_EXPR = f"(debito - ({DRE_IMPOSTO_DEBITO_EXPR}))"
+    DRE_SALDO_EXPR = f"(credito - {DRE_SAIDAS_LIQUIDAS_EXPR})"
+
     def __init__(
         self,
         db: DatabaseConnection | None = None,
@@ -120,12 +130,14 @@ class DashboardResumoService:
                 (ano, mes),
             ).fetchone()
             dre_totais = conn.execute(
-                """
+                f"""
                 SELECT
                     COUNT(*) AS total_lancamentos,
                     SUM(credito) AS total_credito,
                     SUM(debito) AS total_debito,
-                    SUM(credito - debito) AS saldo_liquido,
+                    SUM({self.DRE_IMPOSTO_DEBITO_EXPR}) AS total_impostos,
+                    SUM({self.DRE_SAIDAS_LIQUIDAS_EXPR}) AS total_saidas_liquidas,
+                    SUM({self.DRE_SALDO_EXPR}) AS saldo_liquido,
                     COUNT(DISTINCT conta_pai) AS total_contas_pai,
                     COUNT(DISTINCT centro_custo) AS total_centros_custo
                 FROM dre_lancamentos
@@ -226,6 +238,8 @@ class DashboardResumoService:
                 "total_lancamentos": int(dre_totais["total_lancamentos"] or 0),
                 "total_credito": self._float(dre_totais["total_credito"]),
                 "total_debito": self._float(dre_totais["total_debito"]),
+                "total_impostos": self._float(dre_totais["total_impostos"]),
+                "total_saidas_liquidas": self._float(dre_totais["total_saidas_liquidas"]),
                 "saldo_liquido": self._float(dre_totais["saldo_liquido"]),
                 "total_contas_pai": int(dre_totais["total_contas_pai"] or 0),
                 "total_centros_custo": int(dre_totais["total_centros_custo"] or 0),

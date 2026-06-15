@@ -214,7 +214,11 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
     { key: 'natureza', label: 'Natureza' },
   ]);
   const situations = useMemo(() => {
-    const mesMaiorSaida = pickTopBy(data?.series_mensais, 'debito');
+    const seriesComSaidas = (data?.series_mensais || []).map((item) => ({
+      ...item,
+      saidas_operacionais: item.saidas_liquidas ?? item.debito,
+    }));
+    const mesMaiorSaida = pickTopBy(seriesComSaidas, 'saidas_operacionais');
     const obraImpacto = pickTopBy(data?.ranking_obras, 'saldo', { absolute: true });
     const melhorMes = pickTopBy(data?.series_mensais, 'saldo');
     const piorMes = pickLowestBy(data?.series_mensais, 'saldo');
@@ -224,7 +228,9 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
       {
         label: 'Mês de maior saída',
         value: mesMaiorSaida?.mes_label,
-        helper: mesMaiorSaida ? `${formatCurrency(mesMaiorSaida.debito)} em débitos` : 'Sem saídas no filtro',
+        helper: mesMaiorSaida
+          ? `${formatCurrency(mesMaiorSaida.saidas_operacionais)} em saídas`
+          : 'Sem saídas no filtro',
         tone: 'red',
       },
       {
@@ -249,7 +255,7 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
       {
         label: 'Pressão de saídas',
         value: formatPercent(pressaoSaida),
-        helper: 'débitos sobre entradas no filtro',
+        helper: 'saídas sobre receita líquida no filtro',
         tone: pressaoSaida > 85 ? 'red' : 'yellow',
       },
     ];
@@ -265,14 +271,14 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
       {
         label: 'Margem do resultado',
         value: formatPercent(margem),
-        detail: 'saldo líquido / entradas',
+        detail: 'saldo / receita líquida',
         progress: margem,
         tone: margem < 0 ? 'red' : margem < 15 ? 'yellow' : 'cyan',
       },
       {
         label: 'Pressão de saídas',
         value: formatPercent(pressao),
-        detail: 'débitos / entradas',
+        detail: 'saídas / receita líquida',
         progress: pressao,
         tone: pressao > 90 ? 'red' : pressao > 65 ? 'yellow' : 'cyan',
       },
@@ -370,8 +376,8 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
                     créditos
                   </span>
                   <span>
-                    <strong>{formatCurrency(saldosProjeto.debito)}</strong>
-                    débitos
+                    <strong>{formatCurrency(saldosProjeto.saidas_liquidas ?? saldosProjeto.debito)}</strong>
+                    saídas
                   </span>
                   <span>
                     <strong>{formatSignedCurrency(saldosProjeto.saldo)}</strong>
@@ -387,7 +393,7 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
             <KpiCard label="Entradas" value={formatCurrency(kpis.total_credito)} detail="receita líquida" tone="cyan" icon={<TrendingUp size={20} />} />
             <KpiCard label="Saídas" value={formatCurrency(kpis.total_saidas_liquidas ?? kpis.total_debito)} detail="despesas (sem impostos)" tone="red" icon={<Download size={20} />} />
             <KpiCard label="Impostos" value={formatCurrency(kpis.total_impostos)} detail="IR, ISS, INSS, PIS, COFINS, CSLL, Tarifa" tone="orange" icon={<Receipt size={20} />} />
-            <KpiCard label="Saldo" value={formatCurrency(kpis.resultado_liquido ?? kpis.saldo_liquido)} detail="resultado líquido" tone="yellow" icon={<BarChart3 size={20} />} />
+            <KpiCard label="Saldo" value={formatCurrency(kpis.resultado_liquido ?? kpis.saldo_liquido)} detail="receita líquida - saídas" tone="yellow" icon={<BarChart3 size={20} />} />
             <KpiCard label="Fôlego" value={formatMonths(kpis.folego_caixa_meses)} detail="saldo / média de saídas" tone="cyan" icon={<Gauge size={20} />} />
           </section>
 

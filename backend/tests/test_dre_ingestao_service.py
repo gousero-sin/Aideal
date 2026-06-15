@@ -82,3 +82,48 @@ def test_ingestao_persiste_linhas_com_data_fora_da_competencia(tmp_path):
     assert result["success"] is True
     assert result["inseridos"] == 2
     assert result["linhas_outro_mes"] == 0  # não rejeitamos mais por data
+
+
+def test_ingestao_preserva_valor_bruto_e_credito_liquido(tmp_path):
+    service = _novo_servico()
+    arquivo = tmp_path / "relatorio_bruto_liquido.xlsx"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "RELATORIO"
+    ws.append(["metadata"])
+    ws.append(
+        [
+            "Emissão",
+            "Descri.",
+            "Vlr.bruto (R$)",
+            "Total líquido (R$)",
+            "C. gerencial",
+            "CLASSIFICAÇÃO",
+        ]
+    )
+    ws.append(
+        [
+            "30/07/2025",
+            "Venda com impostos",
+            1000.0,
+            870.0,
+            "1.1.1 - Recebimento de Clientes",
+            "1 - ENTRADA",
+        ]
+    )
+    wb.save(arquivo)
+
+    result = service.ingestar(
+        arquivo_path=arquivo,
+        arquivo_nome=arquivo.name,
+        competencia="07/2025",
+        replace=True,
+    )
+
+    assert result["success"] is True
+    lancamentos = service.repository.lancamentos.get_by_competencia(2025, 7)
+    assert len(lancamentos) == 1
+    assert lancamentos[0].valor_bruto == 1000
+    assert lancamentos[0].credito == 870
+    assert lancamentos[0].debito == 0

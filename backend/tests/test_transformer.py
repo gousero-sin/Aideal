@@ -285,6 +285,7 @@ class TestDRETransformerBasico:
 
         assert lote.total_registros == 1
         lanc = lote.lancamentos[0]
+        assert lanc.valor_bruto == Decimal("1000")
         assert lanc.credito == Decimal("870")
         assert lanc.debito == Decimal("0")
 

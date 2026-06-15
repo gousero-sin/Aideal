@@ -56,6 +56,74 @@ def _build_service_com_dados(meses: list[int] | None = None) -> DREGeracaoComple
     return DREGeracaoCompletaService(db)
 
 
+def _build_service_com_receita_liquida_e_impostos() -> DREGeracaoCompletaService:
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    db = DatabaseConnection(tmp.name)
+    MigrationManager(db).migrate()
+    repo = DRERepository(db)
+
+    upload = DREUpload(
+        id=str(uuid4()),
+        arquivo_nome="01_2026.xls",
+        arquivo_sha256="hash_receita_2026_01",
+        competencia_ano=2026,
+        competencia_mes=1,
+        status="completed",
+    )
+    repo.uploads.create(upload)
+
+    repo.lancamentos.create(
+        DRELancamentoDB(
+            upload_id=upload.id,
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="Recebimento cliente",
+            valor_bruto=Decimal("1300.00"),
+            credito=Decimal("1000.00"),
+            debito=Decimal("0"),
+            natureza_raw="1.1.1 - Recebimento de Clientes",
+            centro_custo="OBRA A",
+            hash_linha="hash_receita_liquida",
+        )
+    )
+    repo.lancamentos.create(
+        DRELancamentoDB(
+            upload_id=upload.id,
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="IR retido",
+            valor_bruto=Decimal("200.00"),
+            credito=Decimal("0"),
+            debito=Decimal("200.00"),
+            natureza_raw="IR",
+            rubrica="IR",
+            centro_custo="OBRA A",
+            hash_linha="hash_ir_retido",
+        )
+    )
+    repo.lancamentos.create(
+        DRELancamentoDB(
+            upload_id=upload.id,
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="CSLL retido",
+            valor_bruto=Decimal("100.00"),
+            credito=Decimal("0"),
+            debito=Decimal("100.00"),
+            natureza_raw="CSLL",
+            rubrica="CSLL",
+            centro_custo="OBRA A",
+            hash_linha="hash_csll_retido",
+        )
+    )
+
+    return DREGeracaoCompletaService(db)
+
+
 def _copiar_template(tmp_path: Path) -> Path:
     destino = tmp_path / "template_dre_teste.xlsx"
     shutil.copyfile(settings.template_dre_path, destino)
@@ -229,6 +297,39 @@ def test_gerar_arquivo_persiste_visibilidade_dre_no_arquivo_final(tmp_path):
         assert "/xl/tables/table5.xml" not in sheet6_rels
 
 
+def test_gerar_arquivo_materializa_dre_com_receita_liquida_igual_faturamento(tmp_path):
+    service = _build_service_com_receita_liquida_e_impostos()
+    output_path = tmp_path / "dre_receita_liquida.xlsx"
+
+    resultado = service.gerar_arquivo(
+        competencia="01/2026",
+        output_path=output_path,
+    )
+
+    assert resultado["success"] is True
+    assert resultado["celulas_dre_materializadas"] > 0
+
+    wb_valores = load_workbook(output_path, data_only=True)
+    ws_dre_valores = wb_valores["DRE"]
+    ws_apoio_valores = wb_valores["APOIO"]
+
+    assert ws_apoio_valores["C6"].value == 1300
+    assert ws_apoio_valores["C7"].value == 1300
+    assert ws_apoio_valores["C8"].value == 1000
+    assert ws_dre_valores["B6"].value == 1300
+    assert ws_dre_valores["B7"].value == 1000
+    assert ws_dre_valores["B8"].value == -200
+    assert ws_dre_valores["B19"].value == 1000
+    assert ws_dre_valores["AH6"].value == 1300
+    assert ws_dre_valores["AH7"].value == 1000
+    assert ws_dre_valores["AH19"].value == 1000
+
+    wb_formulas = load_workbook(output_path, data_only=False)
+    ws_dre_formulas = wb_formulas["DRE"]
+    assert not isinstance(ws_dre_formulas["B19"].value, str)
+    assert ws_dre_formulas["B19"].value == 1000
+
+
 def test_converte_linha_bd_fluxo_expandida_reaproveita_rubrica_e_conta_pai_do_banco():
     service = _build_service_com_dados([6])
     lanc = DRELancamentoDB(
@@ -255,3 +356,93 @@ def test_converte_linha_bd_fluxo_expandida_reaproveita_rubrica_e_conta_pai_do_ba
     assert linha[14] is None
     assert linha[15] == "Conta Pai Persistida"
     assert linha[16] is None
+
+
+def test_agregar_apoio_receita_bruta_e_faturamento_brutos_vs_liquidos():
+    """Receita Bruta soma valor_bruto; Faturamento soma o crédito líquido."""
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer)
+
+    lancamentos = [
+        # Recebimento de cliente com estorno parcial lançado como débito.
+        DRELancamentoDB(
+            upload_id="u1",
+            competencia_ano=2025,
+            competencia_mes=6,
+            data_lancamento="2025-06-10",
+            historico="Recebimento com impostos",
+            valor_bruto=Decimal("1300.00"),
+            credito=Decimal("1000.00"),
+            debito=Decimal("0"),
+            natureza_raw="1.1.1 - Recebimento de Clientes - prestação de serviço",
+            centro_custo="OBRA A",
+            hash_linha="h1",
+        ),
+        # Subconta irmã (herda classificação de Receita Bruta via família 1.1).
+        DRELancamentoDB(
+            upload_id="u1",
+            competencia_ano=2025,
+            competencia_mes=6,
+            data_lancamento="2025-06-12",
+            historico="Venda material",
+            valor_bruto=Decimal("700.00"),
+            credito=Decimal("500.00"),
+            debito=Decimal("0"),
+            natureza_raw="1.1.2 - Venda Material",
+            centro_custo="OBRA A",
+            hash_linha="h2",
+        ),
+    ]
+
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    por_label = {row[1]: row for row in linhas}
+
+    assert por_label["(=)Receita Bruta"][7] == 2000.0
+    assert por_label["(=)Receita Bruta"][14] == 2000.0
+    assert por_label["(+)Receita Bruta"][7] == 2000.0
+    assert por_label["Faturamento"][7] == 1500.0
+    assert por_label["Faturamento"][14] == 1500.0
+
+
+def test_agregar_apoio_receita_bruta_recompoe_bruto_de_banco_antigo_com_impostos():
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer)
+
+    lancamentos = [
+        DRELancamentoDB(
+            upload_id="u1",
+            competencia_ano=2025,
+            competencia_mes=6,
+            data_lancamento="2025-06-10",
+            historico="Recebimento líquido persistido antes do bruto",
+            valor_bruto=Decimal("1000.00"),
+            credito=Decimal("1000.00"),
+            debito=Decimal("0"),
+            natureza_raw="1.1.1 - Recebimento de Clientes",
+            centro_custo="OBRA A",
+            hash_linha="h1",
+        ),
+        DRELancamentoDB(
+            upload_id="u1",
+            competencia_ano=2025,
+            competencia_mes=6,
+            data_lancamento="2025-06-10",
+            historico="IR retido",
+            valor_bruto=Decimal("300.00"),
+            credito=Decimal("0"),
+            debito=Decimal("300.00"),
+            natureza_raw="IR",
+            rubrica="IR",
+            centro_custo="OBRA A",
+            hash_linha="h2",
+        ),
+    ]
+
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    por_label = {row[1]: row for row in linhas}
+
+    assert por_label["(=)Receita Bruta"][7] == 1300.0
+    assert por_label["(+)Receita Bruta"][7] == 1300.0
+    assert por_label["Faturamento"][7] == 1000.0

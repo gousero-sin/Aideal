@@ -58,7 +58,7 @@ class DREIngestaoService:
             competencia_mes=mes,
             data_lancamento=lanc.data.isoformat(),
             historico=lanc.historico,
-            valor_bruto=lanc.credito + lanc.debito,
+            valor_bruto=lanc.valor_bruto or (lanc.credito + lanc.debito),
             credito=lanc.credito,
             debito=lanc.debito,
             natureza_raw=lanc.natureza,
@@ -76,7 +76,7 @@ class DREIngestaoService:
     def _calcular_hash_linha(self, lanc: DRELancamento) -> str:
         """Calcula hash único para o lançamento."""
         content = (
-            f"{lanc.data.isoformat()}|{lanc.historico}|{lanc.credito}"
+            f"{lanc.data.isoformat()}|{lanc.historico}|{lanc.valor_bruto}|{lanc.credito}"
             f"|{lanc.debito}|{lanc.natureza}|{lanc.centro_custo}"
         )
         return hashlib.sha256(content.encode()).hexdigest()[:32]

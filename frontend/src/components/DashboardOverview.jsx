@@ -31,7 +31,7 @@ function FlowSummaryCard({ kind, title, icon, data, onOpenFlow }) {
   const isDre = kind === 'dre';
   const totalPrimary = isDre ? data?.total_lancamentos : data?.total_movimentos;
   const credito = isDre ? data?.total_credito : data?.total_creditos;
-  const debito = isDre ? data?.total_debito : data?.total_debitos;
+  const debito = isDre ? data?.total_saidas_liquidas ?? data?.total_debito : data?.total_debitos;
   const ultimo = data?.ultimo_upload;
 
   return (

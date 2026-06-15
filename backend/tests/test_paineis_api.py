@@ -228,6 +228,117 @@ def test_painel_dre_filtra_por_obra_natureza_e_meses_sem_recorte_de_conta():
     assert "conta_pai" not in body["ultimos_lancamentos"][0]
 
 
+def test_painel_dre_calcula_saldo_com_receita_liquida_sem_descontar_impostos_duas_vezes():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-liquida",
+                "2026-06-01T10:00:00",
+                "dre_liquida.xls",
+                "hash-dre-liquida",
+                2026,
+                6,
+                "completed",
+                3,
+                3,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-liquida",
+                    2026,
+                    6,
+                    "2026-06-10",
+                    "Receita líquida",
+                    2818408,
+                    2818408,
+                    0,
+                    "(=)Receita Líquida",
+                    "ENTRADA",
+                    "Obra Saldo",
+                    "(=)Receita Líquida",
+                    "(=)Receita Líquida",
+                    1,
+                    "liquida-h1",
+                    "2026-06-01T10:00:00",
+                ),
+                (
+                    "dre-liquida",
+                    2026,
+                    6,
+                    "2026-06-11",
+                    "Saídas operacionais",
+                    2372883,
+                    0,
+                    2372883,
+                    "Fornecedores",
+                    "SAIDA",
+                    "Obra Saldo",
+                    "Fornecedores",
+                    "(-)Custos Variavéis",
+                    2,
+                    "liquida-h2",
+                    "2026-06-01T10:00:00",
+                ),
+                (
+                    "dre-liquida",
+                    2026,
+                    6,
+                    "2026-06-12",
+                    "IR retido",
+                    100000,
+                    0,
+                    100000,
+                    "IR",
+                    "SAIDA",
+                    "Obra Saldo",
+                    "IR",
+                    "IR",
+                    3,
+                    "liquida-h3",
+                    "2026-06-01T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2026&meses=6")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["kpis"]["total_credito"] == 2818408.0
+    assert body["kpis"]["total_debito"] == 2472883.0
+    assert body["kpis"]["total_impostos"] == 100000.0
+    assert body["kpis"]["total_saidas_liquidas"] == 2372883.0
+    assert body["kpis"]["saldo_liquido"] == 445525.0
+    assert body["kpis"]["resultado_liquido"] == 445525.0
+
+    serie = body["series_mensais"][0]
+    assert serie["receita_liquida"] == 2818408.0
+    assert serie["saidas_liquidas"] == 2372883.0
+    assert serie["impostos"] == 100000.0
+    assert serie["saldo"] == 445525.0
+    assert body["ranking_obras"][0]["saldo"] == 445525.0
+    assert body["filtros_disponiveis"]["centro_custo"][0]["saldo"] == 445525.0
+
+
 def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
     db = _novo_db()
     with db.transaction() as conn:
@@ -477,6 +588,9 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
             "mes_label": "Nov/25",
             "credito": 1000.0,
             "debito": 500.0,
+            "impostos": 0.0,
+            "receita_liquida": 1000.0,
+            "saidas_liquidas": 500.0,
             "saldo": 500.0,
             "lancamentos": 3,
         },
@@ -487,13 +601,16 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
             "mes_label": "Mai/26",
             "credito": 2000.0,
             "debito": 1350.0,
-            "saldo": 650.0,
+            "impostos": 200.0,
+            "receita_liquida": 2000.0,
+            "saidas_liquidas": 1150.0,
+            "saldo": 850.0,
             "lancamentos": 6,
         },
     ]
     assert body["saldos_projeto"]["primeira_competencia"] == "11/2025"
     assert body["saldos_projeto"]["ultima_competencia"] == "05/2026"
-    assert body["saldos_projeto"]["saldo"] == 1150.0
+    assert body["saldos_projeto"]["saldo"] == 1350.0
 
     indicadores = {item["id"]: item for item in body["indicadores_viabilidade"]}
     assert set(indicadores) == {"mcl", "pel", "ebitda", "fcl", "roi", "ncg"}
