@@ -1,0 +1,42 @@
+# Lock de versões de runtime — fonte de verdade do deploy.
+#
+# Capturado do ambiente de referência validado (Python 3.14, openpyxl 3.1.5,
+# et_xmlfile 2.0.0, pandas 3.0.2). NÃO usar `>=`: o templates/writer.py monta o
+# .xlsx do DRE com patching de bytes/regex sobre o XML serializado por
+# openpyxl+et_xmlfile; qualquer divergência de versão corrompe o arquivo
+# ("erro de compatibilidade" no Excel) e diverge a ingestão (pandas/xlrd).
+#
+# Regerar após validar um upgrade:  pip freeze | grep -v '^-e ' > requirements.txt
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.13.0
+certifi==2026.2.25
+charset-normalizer==3.4.6
+click==8.3.1
+et_xmlfile==2.0.0
+fastapi==0.135.2
+h11==0.16.0
+httptools==0.7.1
+idna==3.11
+numpy==2.4.4
+openpyxl==3.1.5
+packaging==26.0
+pandas==3.0.2
+pydantic==2.12.5
+pydantic-settings==2.13.1
+pydantic_core==2.41.5
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+python-multipart==0.0.22
+PyYAML==6.0.3
+setuptools==82.0.1
+six==1.17.0
+starlette==1.0.0
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+uvicorn==0.42.0
+uvloop==0.22.1
+watchfiles==1.1.1
+websockets==16.0
+wheel==0.47.0
+xlrd==2.0.2
