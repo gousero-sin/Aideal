@@ -687,7 +687,11 @@ class PainelDREService(_PainelBaseService):
             if projeto_completo
             else self._periodo_payload(ano_ref, meses_ref, meses_disponiveis)
         )
-        componentes_dre = self._componentes_dre(componentes, saldo_liquido)
+        componentes_dre = self._componentes_dre(
+            componentes,
+            saldo_liquido,
+            receita_liquida_base=total_credito,
+        )
         return {
             "success": True,
             "periodo": periodo,
@@ -898,19 +902,25 @@ class PainelDREService(_PainelBaseService):
         indicadores.append(self._indicador_ncg(componentes, receita_liquida))
         return indicadores
 
-    def _componentes_dre(self, rows: list[Any], saldo_liquido: float) -> dict[str, Any]:
+    def _componentes_dre(
+        self,
+        rows: list[Any],
+        saldo_liquido: float,
+        receita_liquida_base: float | None = None,
+    ) -> dict[str, Any]:
         receita_bruta, tem_receita_bruta = self._somar_componente(rows, "receita_bruta")
         deducoes, _ = self._somar_componente(rows, "deducoes", absoluto=True)
         receita_liquida_explicita, tem_receita_liquida = self._somar_componente(
             rows, "receita_liquida"
         )
-        receita_liquida = (
-            receita_liquida_explicita
-            if tem_receita_liquida
-            else receita_bruta - deducoes
-            if tem_receita_bruta
-            else _float(saldo_liquido)
-        )
+        if tem_receita_liquida:
+            receita_liquida = receita_liquida_explicita
+        elif receita_liquida_base is not None:
+            receita_liquida = _float(receita_liquida_base)
+        elif tem_receita_bruta:
+            receita_liquida = receita_bruta - deducoes
+        else:
+            receita_liquida = _float(saldo_liquido)
         custos_variaveis, _ = self._somar_componente(rows, "custos_variaveis", absoluto=True)
         margem_contribuicao, tem_margem_contribuicao = self._somar_componente(
             rows, "margem_contribuicao"

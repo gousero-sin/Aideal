@@ -339,6 +339,107 @@ def test_painel_dre_calcula_saldo_com_receita_liquida_sem_descontar_impostos_dua
     assert body["filtros_disponiveis"]["centro_custo"][0]["saldo"] == 445525.0
 
 
+def test_painel_dre_margem_contribuicao_usa_credito_liquido_sem_deduzir_impostos():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-mcl-liquida",
+                "2026-07-01T10:00:00",
+                "dre_mcl_liquida.xls",
+                "hash-dre-mcl-liquida",
+                2026,
+                7,
+                "completed",
+                3,
+                3,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-mcl-liquida",
+                    2026,
+                    7,
+                    "2026-07-10",
+                    "Faturamento líquido",
+                    1300,
+                    1000,
+                    0,
+                    "1.1.1 - Recebimento de Clientes",
+                    "ENTRADA",
+                    "Obra MCL",
+                    "Faturamento",
+                    "(=)Receita Bruta",
+                    1,
+                    "mcl-h1",
+                    "2026-07-01T10:00:00",
+                ),
+                (
+                    "dre-mcl-liquida",
+                    2026,
+                    7,
+                    "2026-07-11",
+                    "Custo variável",
+                    200,
+                    0,
+                    200,
+                    "Fornecedores",
+                    "SAIDA",
+                    "Obra MCL",
+                    "Fornecedores",
+                    "(-)Custos Variavéis",
+                    2,
+                    "mcl-h2",
+                    "2026-07-01T10:00:00",
+                ),
+                (
+                    "dre-mcl-liquida",
+                    2026,
+                    7,
+                    "2026-07-12",
+                    "IR retido",
+                    300,
+                    0,
+                    300,
+                    "IR",
+                    "SAIDA",
+                    "Obra MCL",
+                    "IR",
+                    "IR",
+                    3,
+                    "mcl-h3",
+                    "2026-07-01T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2026&meses=7&centro_custo=Obra%20MCL")
+
+    assert resp.status_code == 200
+    indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
+    assert indicadores["mcl"]["valor"] == pytest.approx(800.0)
+    assert indicadores["mcl"]["percentual"] == pytest.approx(80.0)
+    assert indicadores["mcl"]["componentes"]["receita_liquida"] == pytest.approx(1000.0)
+    assert indicadores["mcl"]["componentes"]["custos_despesas_variaveis"] == pytest.approx(200.0)
+
+
 def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
     db = _novo_db()
     with db.transaction() as conn:
@@ -614,15 +715,15 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
 
     indicadores = {item["id"]: item for item in body["indicadores_viabilidade"]}
     assert set(indicadores) == {"mcl", "pel", "ebitda", "fcl", "roi", "ncg"}
-    assert indicadores["mcl"]["valor"] == pytest.approx(1800.0)
-    assert indicadores["mcl"]["percentual"] == pytest.approx(64.2857142857)
+    assert indicadores["mcl"]["valor"] == pytest.approx(2000.0)
+    assert indicadores["mcl"]["percentual"] == pytest.approx(66.6666666667)
     assert indicadores["mcl"]["ideal"] is None
     assert "meta" not in indicadores["mcl"]
     assert "meta_status" not in indicadores["mcl"]
-    assert indicadores["pel"]["valor"] == pytest.approx(622.2222222222)
+    assert indicadores["pel"]["valor"] == pytest.approx(600.0)
     assert indicadores["pel"]["ideal"] is None
-    assert indicadores["ebitda"]["valor"] == pytest.approx(1400.0)
-    assert indicadores["ebitda"]["percentual"] == pytest.approx(50.0)
+    assert indicadores["ebitda"]["valor"] == pytest.approx(1600.0)
+    assert indicadores["ebitda"]["percentual"] == pytest.approx(53.3333333333)
     assert indicadores["ebitda"]["ideal"] is None
     assert indicadores["fcl"]["ideal"] is None
     assert indicadores["roi"]["ideal"] is None
@@ -750,17 +851,17 @@ def test_painel_dre_indicadores_usam_contas_filhas_do_template_e_gasto_total_par
 
     assert resp.status_code == 200
     indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
-    assert indicadores["mcl"]["valor"] == pytest.approx(600.0)
+    assert indicadores["mcl"]["valor"] == pytest.approx(700.0)
     assert indicadores["pel"]["status"] == "calculado"
-    assert indicadores["pel"]["valor"] == pytest.approx(300.0)
-    assert indicadores["ebitda"]["percentual"] == pytest.approx(400 / 900 * 100)
+    assert indicadores["pel"]["valor"] == pytest.approx(200 / 0.7)
+    assert indicadores["ebitda"]["percentual"] == pytest.approx(500 / 1000 * 100)
     assert indicadores["roi"]["status"] == "indisponivel"
     assert indicadores["roi"]["componentes_faltantes"] == ["Investimento Total"]
 
     objetivos = {item["id"]: item for item in resp.json()["objetivos_estrategicos"]}
-    assert objetivos["ifsrl"]["valor"] == pytest.approx(200 / 900 * 100)
+    assert objetivos["ifsrl"]["valor"] == pytest.approx(200 / 1000 * 100)
     assert objetivos["ifsrl"]["meta_status"] == "ok"
-    assert objetivos["iefp"]["valor"] == pytest.approx(900 / 200)
+    assert objetivos["iefp"]["valor"] == pytest.approx(1000 / 200)
     assert objetivos["iefp"]["meta_status"] == "ok"
     assert objetivos["iirrl"]["status"] == "indisponivel"
     assert objetivos["itmir"]["componentes_faltantes"] == ["Total de Imposto Retido"]

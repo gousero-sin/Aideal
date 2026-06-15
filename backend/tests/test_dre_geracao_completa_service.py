@@ -120,6 +120,38 @@ def _build_service_com_receita_liquida_e_impostos() -> DREGeracaoCompletaService
             hash_linha="hash_csll_retido",
         )
     )
+    repo.lancamentos.create(
+        DRELancamentoDB(
+            upload_id=upload.id,
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="ICMS",
+            valor_bruto=Decimal("20.00"),
+            credito=Decimal("0"),
+            debito=Decimal("20.00"),
+            natureza_raw="17.9 - ICMS",
+            rubrica="ICMS",
+            centro_custo="OBRA A",
+            hash_linha="hash_icms",
+        )
+    )
+    repo.lancamentos.create(
+        DRELancamentoDB(
+            upload_id=upload.id,
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="Investimento sede",
+            valor_bruto=Decimal("50.00"),
+            credito=Decimal("0"),
+            debito=Decimal("50.00"),
+            natureza_raw="15.4 - DESPESAS C/ CONSTRUÇÃO ESCRITORIO ADM",
+            rubrica="Construção da Nova Sede",
+            centro_custo="OBRA A",
+            hash_linha="hash_investimento",
+        )
+    )
 
     return DREGeracaoCompletaService(db)
 
@@ -297,7 +329,7 @@ def test_gerar_arquivo_persiste_visibilidade_dre_no_arquivo_final(tmp_path):
         assert "/xl/tables/table5.xml" not in sheet6_rels
 
 
-def test_gerar_arquivo_materializa_dre_com_receita_liquida_igual_faturamento(tmp_path):
+def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_path):
     service = _build_service_com_receita_liquida_e_impostos()
     output_path = tmp_path / "dre_receita_liquida.xlsx"
 
@@ -313,21 +345,30 @@ def test_gerar_arquivo_materializa_dre_com_receita_liquida_igual_faturamento(tmp
     ws_dre_valores = wb_valores["DRE"]
     ws_apoio_valores = wb_valores["APOIO"]
 
-    assert ws_apoio_valores["C6"].value == 1300
-    assert ws_apoio_valores["C7"].value == 1300
+    assert ws_apoio_valores["C6"].value == 1320
+    assert ws_apoio_valores["C7"].value == 1320
     assert ws_apoio_valores["C8"].value == 1000
-    assert ws_dre_valores["B6"].value == 1300
+    assert ws_dre_valores["B6"].value == 1320
     assert ws_dre_valores["B7"].value == 1000
-    assert ws_dre_valores["B8"].value == -200
+    assert ws_dre_valores["B8"].value == -220
     assert ws_dre_valores["B19"].value == 1000
-    assert ws_dre_valores["AH6"].value == 1300
+    assert ws_dre_valores["B173"].value == -100
+    assert ws_dre_valores["B177"].value == 930
+    assert ws_dre_valores["B178"].value == -50
+    assert ws_dre_valores["B185"].value == 880
+    assert ws_dre_valores["AH6"].value == 1320
     assert ws_dre_valores["AH7"].value == 1000
     assert ws_dre_valores["AH19"].value == 1000
+    assert ws_dre_valores["AH177"].value == 930
+    assert ws_dre_valores["AH178"].value == -50
+    assert ws_dre_valores["AH185"].value == 880
 
     wb_formulas = load_workbook(output_path, data_only=False)
     ws_dre_formulas = wb_formulas["DRE"]
     assert not isinstance(ws_dre_formulas["B19"].value, str)
     assert ws_dre_formulas["B19"].value == 1000
+    assert ws_dre_formulas["B177"].value == 930
+    assert ws_dre_formulas["B185"].value == 880
 
 
 def test_converte_linha_bd_fluxo_expandida_reaproveita_rubrica_e_conta_pai_do_banco():

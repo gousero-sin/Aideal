@@ -36,8 +36,11 @@ _EMPRESA_PADRAO = "AIDEAL"
 _RECEITA_BRUTA_CONTA_PAI = "(=)Receita Bruta"
 _FATURAMENTO_ROTULO = "Faturamento"
 _RECEITA_LIQUIDA_ROTULO = "(=)Receita Líquida"
+_RESULTADO_LIQUIDO_ROTULO = "(=)RESULTADO LÍQUIDO"
+_RESULTADO_GERENCIAL_ROTULO = "(=)RESULTADO GERENCIAL"
 _DRE_COLUNAS_VALOR = (2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34)
 _DRE_COLUNAS_PERCENTUAL = tuple(col + 1 for col in _DRE_COLUNAS_VALOR)
+_DRE_COLUNA_ANO = 34
 _DRE_COLUNA_VALOR_POR_MES = {
     1: 2,
     2: 4,
@@ -53,6 +56,31 @@ _DRE_COLUNA_VALOR_POR_MES = {
     12: 30,
 }
 _DRE_MES_POR_COLUNA_VALOR = {col: mes for mes, col in _DRE_COLUNA_VALOR_POR_MES.items()}
+_DRE_MESES_POR_COLUNA_TRIMESTRE = {
+    8: (1, 2, 3),
+    16: (4, 5, 6),
+    24: (7, 8, 9),
+    32: (10, 11, 12),
+}
+_RUBRICAS_IMPOSTO_SALDO_PAINEL = frozenset(
+    (
+        "IR",
+        "IR Retido",
+        "ISS",
+        "ISS Retido",
+        "INSS",
+        "INSS Retido",
+        "PIS",
+        "COFINS",
+        "CSLL",
+        "Tarifa de Antecipação",
+        "Impostos sobre vendas",
+        "Deduções sobre vendas",
+        "(-)Deduções sobre vendas",
+        "Descontos sobre vendas",
+        "Simples Nacional",
+    )
+)
 _IMPOSTOS_RECEITA_ROTULOS = frozenset(
     valor.casefold()
     for valor in (
@@ -69,6 +97,7 @@ _IMPOSTOS_RECEITA_ROTULOS = frozenset(
         "Impostos sobre Vendas",
         "(-)Deduções sobre vendas",
         "Deduções sobre vendas",
+        "Descontos sobre vendas",
         "Simples Nacional",
     )
 )
@@ -409,6 +438,24 @@ class DREGeracaoCompletaService:
         )
         return any(_normalizar_rotulo(rotulo) in _IMPOSTOS_RECEITA_ROTULOS for rotulo in rotulos)
 
+    @staticmethod
+    def _saldos_painel_por_mes(lancamentos: list[DRELancamentoDB]) -> dict[int, float]:
+        """Calcula o saldo com a mesma regra do Painel DRE.
+
+        Painel: crédito líquido - (débitos - impostos). A classificação de
+        imposto aqui replica a regra do painel web, que usa a rubrica persistida.
+        """
+        saldos: dict[int, float] = defaultdict(float)
+        for lanc in lancamentos:
+            data = _data_lancamento_para_date(lanc.data_lancamento)
+            mes = lanc.competencia_mes or data.month
+            credito = float(lanc.credito or 0)
+            debito = float(lanc.debito or 0)
+            rubrica = str(lanc.rubrica or "").strip()
+            imposto = debito if rubrica in _RUBRICAS_IMPOSTO_SALDO_PAINEL else 0.0
+            saldos[mes] += credito - (debito - imposto)
+        return dict(saldos)
+
     def _escrever_apoio(
         self,
         writer: TemplateWriter,
@@ -509,7 +556,29 @@ class DREGeracaoCompletaService:
 
         return None
 
-    def _materializar_dre(self, writer: TemplateWriter) -> dict[str, Any]:
+    @staticmethod
+    def _valor_periodo_dre(
+        valores_por_mes: dict[int, float],
+        coluna: int,
+    ) -> float | None:
+        mes = _DRE_MES_POR_COLUNA_VALOR.get(coluna)
+        if mes:
+            return valores_por_mes.get(mes, 0.0)
+
+        meses_trimestre = _DRE_MESES_POR_COLUNA_TRIMESTRE.get(coluna)
+        if meses_trimestre:
+            return sum(valores_por_mes.get(mes, 0.0) for mes in meses_trimestre)
+
+        if coluna == _DRE_COLUNA_ANO:
+            return sum(valores_por_mes.get(mes, 0.0) for mes in range(1, 13))
+
+        return None
+
+    def _materializar_dre(
+        self,
+        writer: TemplateWriter,
+        saldos_painel_por_mes: dict[int, float] | None = None,
+    ) -> dict[str, Any]:
         """Resolve fórmulas do bloco gerencial da DRE para evitar cache antigo no XLSX.
 
         O arquivo gerado é um relatório estático: os números devem abrir corretos
@@ -547,6 +616,9 @@ class DREGeracaoCompletaService:
 
         linha_faturamento = linhas_por_rotulo.get(_FATURAMENTO_ROTULO)
         linha_receita_liquida = linhas_por_rotulo.get(_RECEITA_LIQUIDA_ROTULO)
+        linha_resultado_liquido = linhas_por_rotulo.get(_RESULTADO_LIQUIDO_ROTULO)
+        linha_resultado_gerencial = linhas_por_rotulo.get(_RESULTADO_GERENCIAL_ROTULO)
+        saldos_painel = saldos_painel_por_mes or {}
         celulas_materializadas = 0
 
         for linha in range(6, ws_dre.max_row + 1):
@@ -555,7 +627,9 @@ class DREGeracaoCompletaService:
                 valor_atual = celula.value
                 valor_calculado: float | None = None
 
-                if linha == linha_receita_liquida and linha_faturamento:
+                if linha == linha_resultado_liquido and saldos_painel:
+                    valor_calculado = self._valor_periodo_dre(saldos_painel, coluna)
+                elif linha == linha_receita_liquida and linha_faturamento:
                     valor_calculado = self._numero_planilha(
                         ws_dre.cell(row=linha_faturamento, column=coluna).value
                     )
@@ -597,6 +671,8 @@ class DREGeracaoCompletaService:
             "celulas_materializadas": celulas_materializadas,
             "linha_faturamento": linha_faturamento,
             "linha_receita_liquida": linha_receita_liquida,
+            "linha_resultado_liquido": linha_resultado_liquido,
+            "linha_resultado_gerencial": linha_resultado_gerencial,
         }
 
     # ------------------------------------------------------------------ #
@@ -1201,7 +1277,10 @@ class DREGeracaoCompletaService:
             )
 
             # 4f. Materializar a DRE para evitar cache antigo de fórmulas no XLSX.
-            dre_meta = self._materializar_dre(writer)
+            dre_meta = self._materializar_dre(
+                writer,
+                saldos_painel_por_mes=self._saldos_painel_por_mes(lancamentos),
+            )
 
             # 4g. Aba de detalhamento para uso operacional no workspace/painel.
             detalhe_meta = self._escrever_aba_detalhamento_mensal(
