@@ -7,6 +7,31 @@ from app.config import settings
 from app.templates.writer import TemplateWriter
 
 
+def _partes_sem_content_type(xlsx_path):
+    with zipfile.ZipFile(xlsx_path, "r") as zf:
+        nomes = set(zf.namelist())
+        content_types = ET.fromstring(zf.read("[Content_Types].xml"))
+
+    ns = "{http://schemas.openxmlformats.org/package/2006/content-types}"
+    overrides = {
+        node.attrib["PartName"].lstrip("/")
+        for node in content_types.findall(f"{ns}Override")
+    }
+    defaults = {
+        node.attrib["Extension"]
+        for node in content_types.findall(f"{ns}Default")
+    }
+
+    faltantes = []
+    for nome in sorted(nomes):
+        if nome.endswith("/") or nome.startswith("_rels/") or "/_rels/" in nome:
+            continue
+        extensao = nome.rsplit(".", 1)[-1] if "." in nome else ""
+        if nome not in overrides and extensao not in defaults:
+            faltantes.append(nome)
+    return faltantes
+
+
 def test_limpar_area_preserva_formulas_e_tabela(tmp_path):
     template_copy = tmp_path / "DRE_template.xlsx"
     shutil.copyfile(settings.template_dre_path, template_copy)
@@ -169,6 +194,27 @@ def test_excel_safe_limpar_sheet_xml_remove_drawing_com_xmlns_rid():
     ).decode("utf-8", errors="ignore")
 
     assert "<drawing" not in ajustado
+
+
+def test_excel_safe_content_types_reinjeta_defaults_de_midias_retidas():
+    content_types_xml = (
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" '
+        'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/worksheets/sheet1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        "</Types>"
+    ).encode("utf-8")
+
+    ajustado = TemplateWriter._excel_safe_limpar_content_types(content_types_xml).decode(
+        "utf-8",
+        errors="ignore",
+    )
+
+    assert 'Default Extension="jpeg" ContentType="image/jpeg"' in ajustado
+    assert 'Default Extension="png" ContentType="image/png"' in ajustado
+    assert 'Default Extension="svg" ContentType="image/svg+xml"' in ajustado
 
 
 def test_salvar_remove_override_orfao_de_calc_chain(tmp_path):
@@ -396,6 +442,36 @@ def test_registrar_table_ooxml_gera_table_part_consistente(tmp_path):
         assert "../tables/table5.xml" in sheet6_rels
         assert "/xl/tables/table5.xml" not in sheet6_rels
         assert "/xl/tables/table5.xml" in content_types
+
+
+def test_excel_safe_preserva_content_type_de_imagem_jpeg_retida(tmp_path):
+    template_copy = tmp_path / "DRE_template.xlsx"
+    output = tmp_path / "DRE_excel_safe_com_imagem.xlsx"
+    shutil.copyfile(settings.template_dre_path, template_copy)
+
+    with TemplateWriter(template_copy) as writer:
+        ws = writer._wb.create_sheet(title="DETALHE_MENSAL_DB")
+        writer._modified_sheets.add("DETALHE_MENSAL_DB")
+        cabecalho = ["Mes", "Valor"]
+        ws.append(cabecalho)
+        ws.append([5, 100.0])
+
+        writer.registrar_table_ooxml(
+            sheet_name="DETALHE_MENSAL_DB",
+            table_name="DETALHE_MENSAL_DB",
+            ref="A1:B2",
+            colunas=cabecalho,
+        )
+        writer.ativar_modo_excel_safe()
+        writer.salvar(output)
+
+    with zipfile.ZipFile(output, "r") as zf:
+        nomes = set(zf.namelist())
+        content_types = zf.read("[Content_Types].xml").decode("utf-8", errors="ignore")
+
+    assert "xl/media/image2.jpeg" in nomes
+    assert 'Default Extension="jpeg" ContentType="image/jpeg"' in content_types
+    assert _partes_sem_content_type(output) == []
 
 
 def test_registrar_slicer_sobre_table_gera_partes_e_referencias(tmp_path):

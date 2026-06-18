@@ -754,6 +754,40 @@ class TemplateWriter:
         return updated.encode("utf-8")
 
     @staticmethod
+    def _garantir_content_type_default(
+        content_types_xml: str,
+        *,
+        extension: str,
+        content_type: str,
+    ) -> str:
+        if re.search(
+            rf'<Default\b[^>]*Extension=(?:"|\'){re.escape(extension)}(?:"|\')',
+            content_types_xml,
+        ):
+            return content_types_xml
+
+        default_node = (
+            f'<Default Extension="{extension}" '
+            f'ContentType="{content_type}"/>'
+        )
+        first_override = re.search(r"<Override\b", content_types_xml)
+        if first_override:
+            return (
+                content_types_xml[: first_override.start()]
+                + default_node
+                + content_types_xml[first_override.start() :]
+            )
+
+        end_types = re.search(r"</(?:[A-Za-z0-9]+:)?Types>\s*$", content_types_xml)
+        if not end_types:
+            return content_types_xml
+        return (
+            content_types_xml[: end_types.start()]
+            + default_node
+            + content_types_xml[end_types.start() :]
+        )
+
+    @staticmethod
     def _excel_safe_limpar_content_types(content_types_bytes: bytes) -> bytes:
         """Remove Overrides de chart, pivot, drawing1, drawing3, printerSettings, themeOverride."""
         try:
@@ -773,6 +807,21 @@ class TemplateWriter:
         updated = xml
         for p in padroes:
             updated = re.sub(p, "", updated)
+
+        # O modo Excel-safe pode partir do [Content_Types] gerado pelo openpyxl,
+        # que não conhece as imagens preservadas do template (ex.: logo em JPEG).
+        # Sem estes defaults, o Excel Desktop abre com aviso/reparo de compatibilidade.
+        for extension, content_type in (
+            ("jpeg", "image/jpeg"),
+            ("png", "image/png"),
+            ("svg", "image/svg+xml"),
+        ):
+            updated = TemplateWriter._garantir_content_type_default(
+                updated,
+                extension=extension,
+                content_type=content_type,
+            )
+
         if updated == xml:
             return content_types_bytes
         return updated.encode("utf-8")
