@@ -1,0 +1,46 @@
+COMPARATIVO FLUXO DE CAIXA 05/2026
+Fonte: /Users/gousero/Downloads/movimentos_2026-06-16T16_19_55.073069Z.xlsx
+Gerado: /Users/gousero/Downloads/AIDEAL_Fluxo_Caixa_05-2026_20260618_175110.xlsx
+
+1) Estrutura e totais
+- Linhas válidas na fonte: 871
+- Linhas da competência 05/2026 na fonte: 871
+- Linhas de movimento no Consolidado 05/2026: 871
+- Linhas de saldo inseridas no Consolidado 05/2026: 2
+- Fonte créditos: 2,376,108.09
+- Consolidado créditos: 2,376,108.09 | Dif: 0.00
+- Apoio Maio créditos: 2,376,108.09 | Dif: 0.00
+- Fonte débitos: 2,115,372.54
+- Consolidado débitos: 2,115,372.54 | Dif: 0.00
+- Apoio Maio débitos: 2,110,015.35 | Dif: -5,357.19
+
+2) Fórmulas e visual
+- Fórmulas de divisão sem IFERROR/SEERRO: 0
+- Fórmulas/textos contendo tokens de erro: 0
+- Valores cacheados contendo tokens de erro: 0
+- Marcadores OK na lateral da Apresentação GMP: 0
+
+3) Comparação por rótulo/código
+- Rótulos da fonte não encontrados na Apoio: 1
+- Rótulos da fonte com diferença na Apoio: 4
+- Rótulos da fonte não encontrados no Consolidado: 2
+- Rótulos da fonte com diferença no Consolidado: 0
+  Primeiros ausentes Apoio:
+  - TRANSFERENCIA ENTRE BANCOS: qtd=7, cred=1,354,716.13, deb=0.00, codigos={'2.1': 7}
+  Primeiras diferenças Apoio:
+  - HOTEL COLABORADORES : fonte cred=0.00/deb=27,996.46; apoio cred=0.00/deb=27,996.45; dif cred=0.00/deb=-0.01
+  - COMBUSTIVEL VEICULOS: fonte cred=0.00/deb=46,140.34; apoio cred=0.00/deb=46,140.33; dif cred=0.00/deb=-0.01
+  - REFEIÇÕES COLABORADORES: fonte cred=0.00/deb=118,045.56; apoio cred=0.00/deb=118,045.57; dif cred=0.00/deb=0.01
+  - SERVIÇO LAUDO TECNICO: fonte cred=0.00/deb=2,700.00; apoio cred=0.00/deb=0.00; dif cred=0.00/deb=-2,700.00
+  Primeiros ausentes Consolidado:
+  - TRANSFERENCIA ENTRE BANCOS: qtd=7, cred=1,354,716.13, deb=0.00, codigos={'2.1': 7}
+  - SERVICO LAUDO TECNICO: qtd=1, cred=0.00, deb=2,700.00, codigos={'3.12': 1}
+
+4) Amostras das ligações Fluxo -> Apoio
+- Fluxo linha 21 (Recebimento de Clientes) usa =IFERROR(INDEX(Apoio!$B:$AB,MATCH($C21,Apoio!$B$1:$B$176,0),MATCH('Fluxo de Caixa '!H$5,Apoio!$B$4:$AB$4,0)),0); Apoio linha 31, Maio cred=913001.55, deb=None
+- Fluxo linha 34 (REFEIÇÕES COLABORADORES) usa =IFERROR(INDEX(Apoio!$B:$AB,MATCH($C34,Apoio!$B$1:$B$176,0),MATCH('Fluxo de Caixa '!H$5,Apoio!$B$4:$AB$4,0)+1),0); Apoio linha 54, Maio cred=None, deb=118045.5657420907
+- Fluxo linha 118 (MATERIAIS DE CONSUMO EM OBRAS ) usa =IFERROR(INDEX(Apoio!$B:$AB,MATCH($C118,Apoio!$B$1:$B$176,0),MATCH('Fluxo de Caixa '!H$5,Apoio!$B$4:$AB$4,0)+1),0); Apoio linha 45, Maio cred=None, deb=16937.13
+- Fluxo linha 175 (Aquisição de Maquinas e Equipamentos) usa =IFERROR(INDEX(Apoio!$B:$AB,MATCH($C175,Apoio!$B$1:$B$176,0),MATCH('Fluxo de Caixa '!H$5,Apoio!$B$4:$AB$4,0)+1),0); Apoio linha 145, Maio cred=None, deb=72374.3013277126
+- Fluxo linha 188 (Distribuição de Lucros) usa =IFERROR(INDEX(Apoio!$B:$AB,MATCH($C188,Apoio!$B$1:$B$176,0),MATCH('Fluxo de Caixa '!H$5,Apoio!$B$4:$AB$4,0)+1),0); Apoio linha 147, Maio cred=None, deb=79277.58
+
+RESULTADO: ATENÇÃO - há divergências listadas acima.

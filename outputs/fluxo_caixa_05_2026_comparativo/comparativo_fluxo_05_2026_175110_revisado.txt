@@ -1,0 +1,34 @@
+COMPARATIVO REVISADO - FLUXO DE CAIXA 05/2026
+
+Fonte:
+/Users/gousero/Downloads/movimentos_2026-06-16T16_19_55.073069Z.xlsx
+
+Arquivo gerado:
+/Users/gousero/Downloads/AIDEAL_Fluxo_Caixa_05-2026_20260618_175110.xlsx
+
+RESULTADO GERAL: OK
+
+1) Contagem
+- Fonte: 871 movimentos válidos de 05/2026.
+- Consolidado: 871 movimentos de 05/2026.
+- Linhas adicionais de saldo no Consolidado: 2, esperadas por causa do saldo bancário.
+
+2) Totais dos movimentos
+- Créditos no Consolidado: R$ 2.376.108,09.
+- Débitos no Consolidado: R$ 2.115.372,53.
+- A agregação por classificação efetiva do Consolidado bate com a aba Apoio, sem diferenças por rótulo quando arredondada ao centavo.
+
+3) Apresentação e fórmulas
+- Fórmulas de divisão sem IFERROR/SEERRO: 0.
+- Tokens de erro (#DIV/0!, #REF!, #VALUE!, #NAME?, #N/A, #NUM!): 0.
+- Marcadores OK/ok na lateral da Apresentação GMP: 0.
+
+4) Amostras validadas Fluxo -> Apoio
+- Recebimento de Clientes: Fluxo busca Apoio corretamente; Maio crédito = R$ 913.001,55.
+- REFEIÇÕES COLABORADORES: Fluxo busca Apoio corretamente; Maio débito = R$ 118.045,57.
+- MATERIAIS DE CONSUMO EM OBRAS: Fluxo busca Apoio corretamente; Maio débito = R$ 16.937,13.
+- Aquisição de Maquinas e Equipamentos: Fluxo busca Apoio corretamente; Maio débito = R$ 72.374,30.
+- Distribuição de Lucros: Fluxo busca Apoio corretamente; Maio débito = R$ 79.277,58.
+
+Observação técnica:
+- A aba Apoio contém uma linha de saldo "Saldo Final DESCONHECIDO" com valor negativo de saldo. Ela não é linha de movimento e não é usada pelos blocos visuais do Fluxo de Caixa. Por isso, somar todas as linhas brutas da Apoio como se fossem movimentos dá uma diferença artificial. A comparação correta é pelos movimentos do Consolidado e pelos rótulos efetivamente referenciados no template.

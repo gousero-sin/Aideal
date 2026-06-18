@@ -311,3 +311,168 @@ def test_escrita_recalcula_apoio_e_exibe_apenas_mes_selecionado(tmp_path):
     for col_idx in [*range(3, 10), *range(11, 15)]:
         assert apresentacao.column_dimensions[get_column_letter(col_idx)].hidden is True
     assert apresentacao.column_dimensions["P"].hidden is True
+
+
+def test_escrita_protege_formulas_de_divisao_herdadas_do_template(tmp_path):
+    template = tmp_path / "template_fluxo.xlsx"
+    output = tmp_path / "saida_fluxo.xlsx"
+    _criar_template_fluxo(template)
+    _adicionar_abas_resumo_fluxo(template)
+
+    wb = load_workbook(template)
+    fluxo = wb["Fluxo de Caixa "]
+    fluxo["Q169"] = "=Q168/Q20"
+    fluxo["D169"] = "=IFERROR(D168/D20,0)"
+    apresentacao = wb["Apresentação GMP"]
+    apresentacao["P21"] = "=P20+O21/$O$20"
+    apresentacao["Q21"] = "=O21/$O$20"
+    apresentacao["C34"] = "=IFERROR(C33/C$10,0)"
+    wb.save(template)
+
+    lote = FCLote(
+        periodo="08/2025",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2025, 8, 4),
+                tipo=TipoMovimento.DEBITO,
+                descricao="Pagamento sem recebimento",
+                valor=Decimal("200"),
+                saldo=None,
+                classificacao="Fornecedores",
+                banco_origem="cef",
+            ),
+        ],
+    )
+    service = FluxoCaixaProcessamentoService(
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    service._escrever_template(
+        lote,
+        output,
+        meses_visiveis=[8],
+        preservar_historico=False,
+    )
+
+    wb = load_workbook(output, data_only=False)
+    assert wb["Fluxo de Caixa "]["Q169"].value == "=IFERROR(Q168/Q20,0)"
+    assert wb["Fluxo de Caixa "]["D169"].value == "=IFERROR(D168/D20,0)"
+    assert wb["Apresentação GMP"]["P21"].value == "=IFERROR(P20+O21/$O$20,0)"
+    assert wb["Apresentação GMP"]["Q21"].value == "=IFERROR(O21/$O$20,0)"
+    assert wb["Apresentação GMP"]["C34"].value == "=IFERROR(C33/C$10,0)"
+
+
+def test_escrita_resolve_rotulo_visual_do_template_por_codigo_gerencial(tmp_path):
+    template = tmp_path / "template_fluxo.xlsx"
+    output = tmp_path / "saida_fluxo.xlsx"
+    _criar_template_fluxo(template)
+    _adicionar_abas_resumo_fluxo(template)
+
+    wb = load_workbook(template)
+    apoio = wb["Apoio"]
+    apoio["B6"] = "MATERIAIS DE CONSUMO EM OBRAS "
+    apoio["B7"] = "REFEIÇÕES COLABORADORES"
+    apoio["B8"] = None
+    wb.save(template)
+
+    lote = FCLote(
+        periodo="08/2025",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2025, 8, 4),
+                tipo=TipoMovimento.DEBITO,
+                descricao="Materiais obra",
+                valor=Decimal("300"),
+                saldo=None,
+                classificacao="8.9 - MATERIAIS DE CONSUMO EM OBRAS",
+                conta_gerencial="8.9 - MATERIAIS DE CONSUMO EM OBRAS",
+                banco_origem="cef",
+            ),
+            FCMovimento(
+                data_movimento=date(2025, 8, 5),
+                tipo=TipoMovimento.DEBITO,
+                descricao="Refeições",
+                valor=Decimal("120"),
+                saldo=None,
+                classificacao="12.5 - REFEIÇÕES FUNCIONARIOS",
+                conta_gerencial="12.5 - REFEIÇÕES FUNCIONARIOS",
+                banco_origem="cef",
+            ),
+        ],
+    )
+    service = FluxoCaixaProcessamentoService(
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    service._escrever_template(
+        lote,
+        output,
+        meses_visiveis=[8],
+        preservar_historico=False,
+    )
+
+    wb = load_workbook(output, data_only=False)
+    ws = wb["Consolidado"]
+    assert ws["F2"].value == "MATERIAIS DE CONSUMO EM OBRAS "
+    assert ws["F3"].value == "REFEIÇÕES COLABORADORES"
+
+    apoio = wb["Apoio"]
+    assert apoio["R6"].value == 300.0
+    assert apoio["R7"].value == 120.0
+    assert "8.9 - MATERIAIS DE CONSUMO EM OBRAS" not in [
+        apoio.cell(row=row, column=2).value for row in range(6, apoio.max_row + 1)
+    ]
+
+
+def test_escrita_remove_marcadores_ok_da_apresentacao(tmp_path):
+    template = tmp_path / "template_fluxo.xlsx"
+    output = tmp_path / "saida_fluxo.xlsx"
+    _criar_template_fluxo(template)
+    _adicionar_abas_resumo_fluxo(template)
+
+    wb = load_workbook(template)
+    apresentacao = wb["Apresentação GMP"]
+    apresentacao["A21"] = "OK"
+    apresentacao["A22"] = "ok"
+    apresentacao["A23"] = "Revisar"
+    wb.save(template)
+
+    lote = FCLote(
+        periodo="08/2025",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2025, 8, 4),
+                tipo=TipoMovimento.DEBITO,
+                descricao="Pagamento agosto",
+                valor=Decimal("200"),
+                saldo=None,
+                classificacao="Fornecedores",
+                banco_origem="cef",
+            ),
+        ],
+    )
+    service = FluxoCaixaProcessamentoService(
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    service._escrever_template(
+        lote,
+        output,
+        meses_visiveis=[8],
+        preservar_historico=False,
+    )
+
+    wb = load_workbook(output, data_only=False)
+    apresentacao = wb["Apresentação GMP"]
+    assert apresentacao["A21"].value is None
+    assert apresentacao["A22"].value is None
+    assert apresentacao["A23"].value == "Revisar"

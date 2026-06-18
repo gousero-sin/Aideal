@@ -25,6 +25,7 @@ from ..exportacao.exporter import Exporter
 from ..ingestao.parser import ExcelParser
 from ..templates.writer import TemplateWriter
 from ..transformacao.engine import FluxoCaixaTransformer
+from ..validacao.codigos_gerenciais import extrair_codigo_gerencial
 from ..validacao.validators import FluxoCaixaValidator
 
 logger = logging.getLogger(__name__)
@@ -264,7 +265,11 @@ class FluxoCaixaProcessamentoService:
             limite_fim = ws.max_row
 
             periodo = self._parse_periodo(lote.periodo)
-            classificacoes_template = self._mapear_classificacoes_template(ws, limite_fim)
+            classificacoes_template = self._mapear_classificacoes_template(
+                writer._wb,
+                ws,
+                limite_fim,
+            )
             linhas_existentes = (
                 self._linhas_fora_do_periodo(ws, limite_fim, periodo) if preservar_historico else []
             )
@@ -301,6 +306,8 @@ class FluxoCaixaProcessamentoService:
             self._recalcular_aba_apoio_fluxo(writer, linhas)
             if meses_visiveis:
                 self._aplicar_visibilidade_meses(writer, meses_visiveis)
+            self._limpar_marcadores_apresentacao(writer)
+            self._proteger_formulas_de_divisao(writer)
             writer.ajustar_tabela_range(
                 sheet_name="Consolidado",
                 table_name="FluxoConsol",
@@ -365,9 +372,20 @@ class FluxoCaixaProcessamentoService:
             return classificacao
 
         for candidata in (movimento.conta_gerencial, movimento.classificacao):
+            codigo = extrair_codigo_gerencial(candidata)
+            if codigo:
+                rotulo_por_codigo = classificacoes_template.get(f"@cod:{codigo}")
+                if rotulo_por_codigo:
+                    return rotulo_por_codigo
+
             chave = self._normalizar_chave_classificacao(candidata)
             if chave and chave in classificacoes_template:
                 return classificacoes_template[chave]
+
+            sem_codigo = self._remover_codigo_gerencial(candidata)
+            chave_sem_codigo = self._normalizar_chave_classificacao(sem_codigo)
+            if chave_sem_codigo and chave_sem_codigo in classificacoes_template:
+                return classificacoes_template[chave_sem_codigo]
         return classificacao
 
     @staticmethod
@@ -565,6 +583,53 @@ class FluxoCaixaProcessamentoService:
         ws.column_dimensions["AA"].hidden = False
         ws.column_dimensions["AB"].hidden = False
 
+    @staticmethod
+    def _proteger_formulas_de_divisao(writer: TemplateWriter) -> None:
+        wb = writer._wb
+        if wb is None:
+            return
+
+        for sheet_name in ("Fluxo de Caixa ", "Apresentação GMP"):
+            if sheet_name not in wb.sheetnames:
+                continue
+
+            ws = wb[sheet_name]
+            alterou = False
+            for row in ws.iter_rows():
+                for cell in row:
+                    formula = cell.value
+                    if not isinstance(formula, str) or not formula.startswith("="):
+                        continue
+                    formula_upper = formula.upper()
+                    if (
+                        "/" not in formula
+                        or "IFERROR(" in formula_upper
+                        or "SEERRO(" in formula_upper
+                    ):
+                        continue
+                    cell.value = f"=IFERROR({formula[1:]},0)"
+                    alterou = True
+
+            if alterou:
+                writer._modified_sheets.add(sheet_name)
+
+    @staticmethod
+    def _limpar_marcadores_apresentacao(writer: TemplateWriter) -> None:
+        wb = writer._wb
+        if wb is None or "Apresentação GMP" not in wb.sheetnames:
+            return
+
+        ws = wb["Apresentação GMP"]
+        alterou = False
+        for cell in ws["A"]:
+            valor = cell.value
+            if isinstance(valor, str) and valor.strip().upper() == "OK":
+                cell.value = None
+                alterou = True
+
+        if alterou:
+            writer._modified_sheets.add("Apresentação GMP")
+
     def _totais_linhas_periodo(
         self,
         linhas: list[list],
@@ -609,8 +674,17 @@ class FluxoCaixaProcessamentoService:
             return Decimal("0")
         return Decimal(str(valor))
 
-    def _mapear_classificacoes_template(self, ws, limite_fim: int) -> dict[str, str]:
+    def _mapear_classificacoes_template(self, wb, ws, limite_fim: int) -> dict[str, str]:
         mapa: dict[str, str] = {}
+        for rotulo in self._rotulos_visuais_fluxo(wb):
+            chave_rotulo = self._normalizar_chave_classificacao(rotulo)
+            if chave_rotulo:
+                mapa.setdefault(chave_rotulo, rotulo)
+
+        for codigo, rotulo in self._rotulos_template_por_codigo().items():
+            if rotulo:
+                mapa[f"@cod:{codigo}"] = rotulo
+
         for row in ws.iter_rows(min_row=2, max_row=limite_fim, min_col=1, max_col=11):
             descricao = row[1].value
             classificacao = row[5].value
@@ -626,6 +700,39 @@ class FluxoCaixaProcessamentoService:
                 if chave_descricao:
                     mapa[chave_descricao] = classificacao
         return mapa
+
+    def _rotulos_template_por_codigo(self) -> dict[str, str]:
+        saida = self.parser.mapping.get("saida", {})
+        rotulos = saida.get("rotulos_template_por_codigo", {})
+        if not isinstance(rotulos, dict):
+            return {}
+        return {str(codigo).strip(): str(rotulo) for codigo, rotulo in rotulos.items() if rotulo}
+
+    @staticmethod
+    def _rotulos_visuais_fluxo(wb) -> list[str]:
+        if wb is None:
+            return []
+
+        rotulos: list[str] = []
+        for sheet_name, column, primeira_linha in (
+            ("Apoio", 2, 6),
+            ("Fluxo de Caixa ", 3, 1),
+            ("Naturezas Financeiras", 1, 2),
+        ):
+            if sheet_name not in wb.sheetnames:
+                continue
+            ws = wb[sheet_name]
+            for row in range(primeira_linha, ws.max_row + 1):
+                valor = ws.cell(row=row, column=column).value
+                if isinstance(valor, str) and valor.strip():
+                    rotulos.append(valor)
+        return rotulos
+
+    @staticmethod
+    def _remover_codigo_gerencial(valor) -> str:
+        if valor is None:
+            return ""
+        return re.sub(r"^\s*\d+(?:\.\d+)+\s*[-–—]?\s*", "", str(valor).strip())
 
     @staticmethod
     def _normalizar_chave_classificacao(valor) -> str:
