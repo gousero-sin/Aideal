@@ -48,6 +48,7 @@ from .processamento.dre_geracao import DREGeracaoService
 from .processamento.dre_geracao_completa import DREGeracaoCompletaService
 from .processamento.fluxo_caixa_db import FluxoCaixaGeracaoService
 from .processamento.paineis import PainelDREService, PainelFluxoCaixaService
+from .runtime_compat import check_runtime_compatibility, require_runtime_compatibility
 from .templates.writer import TemplateWriter
 from .validacao.validators import DREValidator, FluxoCaixaValidator
 
@@ -75,6 +76,7 @@ def _ensure_runtime_dirs() -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Inicialização de produção: diretórios e migrações devem estar íntegros."""
+    require_runtime_compatibility()
     _ensure_runtime_dirs()
     run_migrations()
     logger.info("Migrações executadas com sucesso")
@@ -271,6 +273,7 @@ async def ready():
         "database": False,
         "templates": False,
         "directories": False,
+        "excel_runtime": False,
     }
     try:
         with db.get_connection() as conn:
@@ -287,9 +290,23 @@ async def ready():
         path.exists() and path.is_dir()
         for path in (settings.logs_dir, settings.temp_dir, settings.output_dir, settings.data_dir)
     )
+    runtime_mismatches = check_runtime_compatibility()
+    checks["excel_runtime"] = not runtime_mismatches
+    if runtime_mismatches:
+        logger.error("Readiness Excel runtime check failed: %s", runtime_mismatches)
 
     if not all(checks.values()):
-        raise HTTPException(status_code=503, detail={"status": "not_ready", "checks": checks})
+        detail = {"status": "not_ready", "checks": checks}
+        if runtime_mismatches:
+            detail["excel_runtime_mismatches"] = [
+                {
+                    "package": item.package,
+                    "expected": item.expected,
+                    "installed": item.installed,
+                }
+                for item in runtime_mismatches
+            ]
+        raise HTTPException(status_code=503, detail=detail)
     return {"status": "ready", "checks": checks}
 
 

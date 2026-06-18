@@ -8,14 +8,16 @@ version = "1.0.0"
 description = "MVP AIDEAL GoFlowOS - Motor de consolidação financeira DRE e Fluxo de Caixa"
 requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.115.0",
-    "uvicorn[standard]>=0.34.0",
-    "pandas>=2.2.0",
-    "openpyxl>=3.1.0",
-    "xlrd>=2.0.1",
-    "python-multipart>=0.0.18",
-    "pydantic>=2.10.0",
-    "pydantic-settings>=2.7.0",
+    "fastapi==0.135.2",
+    "uvicorn[standard]==0.42.0",
+    "pandas==3.0.2",
+    "numpy==2.4.4",
+    "openpyxl==3.1.5",
+    "et_xmlfile==2.0.0",
+    "xlrd==2.0.2",
+    "python-multipart==0.0.22",
+    "pydantic==2.12.5",
+    "pydantic-settings==2.13.1",
 ]
 
 [project.optional-dependencies]

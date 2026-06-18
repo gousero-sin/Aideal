@@ -270,11 +270,10 @@ prepare_backend() {
     "$PYTHON_BIN" -m ensurepip --upgrade >/dev/null 2>&1 || true
     "$PYTHON_BIN" -m pip install --upgrade pip setuptools wheel --quiet
 
-    # Versões fixadas garantem paridade com o ambiente validado. Sem o lock, o
-    # resolver de `pip install -e .` (constraints `>=` no pyproject) pode
-    # escolher versões diferentes de openpyxl/et_xmlfile/pandas por servidor —
-    # o que corrompe o OOXML do DRE (templates/writer.py) e diverge a ingestão.
-    # O lock é reaplicado mesmo em venv pré-existente (faz up/downgrade).
+    # Versões fixadas garantem paridade com o ambiente validado. O lock é
+    # reaplicado mesmo em venv pré-existente (faz up/downgrade), porque
+    # openpyxl/et_xmlfile fora da combinação homologada pode serializar OOXML
+    # diferente e corromper a abertura do DRE no Excel Desktop.
     if [ -f "$BACKEND_DIR/requirements.txt" ]; then
         "$PYTHON_BIN" -m pip install -r "$BACKEND_DIR/requirements.txt" --quiet
         "$PYTHON_BIN" -m pip install -e . --no-deps --quiet
