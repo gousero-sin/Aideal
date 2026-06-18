@@ -98,6 +98,28 @@ def test_transferencia_outro_banco_para_itau_vira_credito_pela_descricao():
     assert mov.classificacao == "Transferência Recebida"
 
 
+def test_conta_gerencial_usa_codigo_separado_como_rotulo_canonico():
+    df = pd.DataFrame(
+        {
+            "Data Mov.": ["16/06/2026"],
+            "Tipo": ["Débito"],
+            "Descrição": ["Pagamento parcelamento"],
+            "Valor": [1029.44],
+            "Saldo": [5000.0],
+            "Cód. Conta Gerencial": ["17.1"],
+            "Conta Gerencial": ["PARCELAMENTO"],
+        }
+    )
+
+    transformer = FluxoCaixaTransformer()
+    lote = transformer.transformar(_dados_fluxo(df), banco_origem="itau", periodo="06/2026")
+
+    assert lote.total_registros == 1
+    mov = lote.movimentos[0]
+    assert mov.classificacao == "17.1 - PARCELAMENTO"
+    assert mov.conta_gerencial == "17.1 - PARCELAMENTO"
+
+
 def test_detecta_itau_isolamento_antes_de_itau():
     parser = ExcelParser("fluxo")
 

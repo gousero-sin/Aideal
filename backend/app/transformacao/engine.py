@@ -11,6 +11,7 @@ from ..contracts.common import ErrorSeverity, ValidationError
 from ..contracts.dre import DRELancamento, DRELote
 from ..contracts.fluxo_caixa import FCLote, FCMovimento, TipoMovimento
 from ..ingestao.parser import ExcelParser
+from ..validacao.codigos_gerenciais import extrair_codigo_gerencial, montar_rotulo_gerencial
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,20 @@ def _safe_str(value) -> str:
     if pd.isna(value) or value is None:
         return ""
     return str(value).strip()
+
+
+def _safe_codigo_gerencial(value) -> str:
+    """Normaliza código gerencial vindo de texto combinado ou coluna dedicada."""
+    texto = _safe_str(value)
+    if not texto:
+        return ""
+
+    codigo = extrair_codigo_gerencial(texto)
+    if codigo:
+        return codigo
+
+    match = re.fullmatch(r"\d+(?:\.\d+)*", texto)
+    return match.group(0) if match else ""
 
 
 def _normalizar_ascii(value) -> str:
@@ -386,11 +401,7 @@ class FluxoCaixaTransformer:
             return None
 
         tipo = self._inferir_tipo(row, mapeamento, valor, descricao, banco)
-        classificacao = _safe_str(
-            row.get(mapeamento.get("classificacao", ""))
-            if mapeamento.get("classificacao")
-            else None
-        )
+        classificacao = self._conta_gerencial_canonica(row, mapeamento)
         conta_gerencial = classificacao
         if self._eh_transferencia(row, mapeamento, descricao):
             if tipo == TipoMovimento.DEBITO:
@@ -414,6 +425,19 @@ class FluxoCaixaTransformer:
             linha_origem=idx + 2,
             aba_origem=aba,
         )
+
+    @staticmethod
+    def _conta_gerencial_canonica(row: pd.Series, mapeamento: dict) -> str:
+        col_classificacao = mapeamento.get("classificacao")
+        nome = _safe_str(row.get(col_classificacao) if col_classificacao else None)
+
+        col_codigo = mapeamento.get("codigo_conta_gerencial")
+        codigo = _safe_codigo_gerencial(row.get(col_codigo) if col_codigo else None)
+        if codigo and nome:
+            return montar_rotulo_gerencial(codigo, nome)
+        if codigo:
+            return codigo
+        return nome
 
     def _inferir_tipo(
         self,

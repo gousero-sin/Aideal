@@ -4,9 +4,11 @@ import {
   Loader2,
   LockKeyhole,
   LogOut,
+  Receipt,
   ShieldCheck,
   WalletCards,
 } from 'lucide-react';
+import DREIndicatorsAdminPanel from './DREIndicatorsAdminPanel';
 import { PanelHero, PanelSkeleton } from './PanelShared';
 import StatusPanel from './StatusPanel';
 import UploadPanel from './UploadPanel';
@@ -20,6 +22,7 @@ import {
 const adminFlows = [
   { id: 'dre', label: 'DRE', icon: <BarChart3 size={16} aria-hidden="true" /> },
   { id: 'fluxo_caixa', label: 'Fluxo de Caixa', icon: <WalletCards size={16} aria-hidden="true" /> },
+  { id: 'indicadores_dre', label: 'Indicadores DRE', icon: <Receipt size={16} aria-hidden="true" /> },
 ];
 
 const emptyLogin = {
@@ -272,17 +275,25 @@ export default function AdminPanel({ apiBase, onNotify, onBusyChange }) {
         </div>
       </header>
 
-      <UploadPanel
-        key={activeFlow}
-        fluxo={activeFlow}
-        apiBase={apiBase}
-        onValidation={handleValidation}
-        onProcess={handleProcess}
-        processamento={activeState.processamento}
-        validacao={activeState.validacao}
-        onBusyChange={setOperationBusy}
-        statusSlot={statusSlot}
-      />
+      {activeFlow === 'indicadores_dre' ? (
+        <DREIndicatorsAdminPanel
+          apiBase={apiBase}
+          onNotify={onNotify}
+          onBusyChange={setOperationBusy}
+        />
+      ) : (
+        <UploadPanel
+          key={activeFlow}
+          fluxo={activeFlow}
+          apiBase={apiBase}
+          onValidation={handleValidation}
+          onProcess={handleProcess}
+          processamento={activeState.processamento}
+          validacao={activeState.validacao}
+          onBusyChange={setOperationBusy}
+          statusSlot={statusSlot}
+        />
+      )}
     </section>
   );
 }

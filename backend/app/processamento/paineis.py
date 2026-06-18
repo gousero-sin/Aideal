@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from datetime import date
 from typing import Any
 
+from ..config import settings
 from ..db.connection import DatabaseConnection
+from ..repository.dre_indicadores_manuais import DREIndicadoresManuaisRepository
+from ..templates.writer import TemplateWriter
+from .dre_geracao_completa import DREGeracaoCompletaService, _extrair_codigo_gerencial
 
 MESES_LABEL = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+
+logger = logging.getLogger(__name__)
 
 
 def _validar_ano(ano: int) -> None:
@@ -258,6 +265,11 @@ class _PainelBaseService:
 class PainelDREService(_PainelBaseService):
     """Agrega KPIs, séries e slicers web para DRE."""
 
+    def __init__(self, db: DatabaseConnection | None = None) -> None:
+        super().__init__(db)
+        self.indicadores_manuais = DREIndicadoresManuaisRepository(self.db)
+        self._plano_contas_gerado_cache: dict[str, dict] | None = None
+
     CENTRO_CUSTO_EXPR = "COALESCE(NULLIF(TRIM(centro_custo), ''), 'Sem obra')"
     NATUREZA_EXPR = (
         "COALESCE(NULLIF(TRIM(natureza_norm), ''), NULLIF(TRIM(natureza_raw), ''), 'Sem natureza')"
@@ -285,11 +297,46 @@ class PainelDREService(_PainelBaseService):
         "('IR','IR Retido','ISS','ISS Retido','INSS','INSS Retido','PIS','COFINS','CSLL',"
         "'Tarifa de Antecipação','Impostos sobre vendas','Deduções sobre vendas',"
         "'(-)Deduções sobre vendas','Descontos sobre vendas','Simples Nacional') "
+        "OR TRIM(rubrica) IN ('17.2','17.3','17.4','17.5','17.7','17.8') "
+        "OR TRIM(natureza_raw) IN ('17.2','17.3','17.4','17.5','17.7','17.8') "
+        "OR TRIM(rubrica) LIKE '17.2 - %' "
+        "OR TRIM(rubrica) LIKE '17.3 - %' "
+        "OR TRIM(rubrica) LIKE '17.4 - %' "
+        "OR TRIM(rubrica) LIKE '17.5 - %' "
+        "OR TRIM(rubrica) LIKE '17.7 - %' "
+        "OR TRIM(rubrica) LIKE '17.8 - %' "
+        "OR TRIM(natureza_raw) LIKE '17.2 - %' "
+        "OR TRIM(natureza_raw) LIKE '17.3 - %' "
+        "OR TRIM(natureza_raw) LIKE '17.4 - %' "
+        "OR TRIM(natureza_raw) LIKE '17.5 - %' "
+        "OR TRIM(natureza_raw) LIKE '17.7 - %' "
+        "OR TRIM(natureza_raw) LIKE '17.8 - %' "
         "THEN debito ELSE 0 END"
     )
     SAIDAS_LIQUIDAS_EXPR = f"(debito - ({IMPOSTO_DEBITO_EXPR}))"
     SALDO_DRE_EXPR = f"(credito - {SAIDAS_LIQUIDAS_EXPR})"
     ESCOPO_PROJETO_COMPLETO = "projeto_completo"
+    COMPONENTES_DRE_COM_CODIGO_OBRIGATORIO = {
+        "deducoes",
+        "custos_variaveis",
+        "gastos_fixos",
+        "depreciacao",
+        "investimentos_gerencial",
+        "investimentos",
+        "folha_pagamento",
+        "total_imposto_retido",
+        "estoques",
+        "fornecedores",
+        "passivos_operacionais",
+    }
+    COMPONENTES_DRE_CONTA_PAI_ESTRITA = {
+        "deducoes": _alias_set(["(-)Deduções sobre vendas"]),
+        "custos_variaveis": _alias_set(["(-)Custos Variavéis", "(-)Custos Variáveis"]),
+        "gastos_fixos": _alias_set(["(-)Gastos Fixos"]),
+        "depreciacao": _alias_set(["(-)Depreciação Imobilizado"]),
+        "investimentos_gerencial": _alias_set(["(-)Investimentos"]),
+        "folha_pagamento": _alias_set(["(-)Gastos Fixos"]),
+    }
     COMPONENTES_DRE = {
         "receita_bruta": _alias_set(
             ["(=)Receita Bruta", "Faturamento", "Recebimento de Clientes", "Receita Bruta"]
@@ -460,16 +507,11 @@ class PainelDREService(_PainelBaseService):
         ),
         "depreciacao": _alias_set(["(-)Depreciação Imobilizado", "Depreciação Imobilizado"]),
         "resultado_liquido": _alias_set(["(=)RESULTADO LÍQUIDO", "RESULTADO LÍQUIDO"]),
+        "investimentos_gerencial": _alias_set(["(-)Investimentos"]),
         "investimentos": _alias_set(
             [
-                "(-)Investimentos",
-                "Investimentos",
-                "Investimentos em Imobilizado",
-                "Aquisição de Bens de Pequeno Valor",
+                "Aquisição de Máquinas e Equipamentos",
                 "Aquisição de Maquinas e Equipamentos",
-                "Compra de veiculos",
-                "Construção da Nova Sede",
-                "Compras de Bens movéis",
                 "Equipamentos de Aferição",
                 "Materiais de Consumo e Obra",
                 "MATERIAIS DE CONSUMO EM OBRAS",
@@ -483,9 +525,13 @@ class PainelDREService(_PainelBaseService):
                 "Curso e Treinamento",
                 "CURSOS / TREINAMENTOS",
                 "Exames Médicos",
+                "EXAMES MÉDICOS",
+                "EXAMES",
                 "Uniformes",
+                "UNIFORMES",
                 "EPI´s",
                 "EPIS",
+                "Fornecedores",
                 "Fornecedores Total",
                 "Empréstimos de Terceiros",
                 "Empréstimos Bancários",
@@ -500,8 +546,16 @@ class PainelDREService(_PainelBaseService):
                 "130 SALARIO",
                 "13 SALÁRIO",
                 "13 SALARIO",
+                "PREVISÃO 13",
+                "PREVISAO 13",
+                "PREVISÃO 13°",
+                "PREVISAO 13°",
+                "12.3 - PREVISÃO 13°",
                 "FÉRIAS",
                 "FERIAS",
+                "PREVISÃO FÉRIAS",
+                "PREVISAO FERIAS",
+                "12.70 - PREVISÃO FÉRIAS",
                 "MULTA RESCISÓRIAS FGTS",
                 "MULTA RESCISORIAS FGTS",
                 "ACERTO RESCISÓRIOS",
@@ -687,10 +741,28 @@ class PainelDREService(_PainelBaseService):
             if projeto_completo
             else self._periodo_payload(ano_ref, meses_ref, meses_disponiveis)
         )
+        componentes_gerados = self._componentes_compativeis_dre_gerado(componentes)
+        competencias_indicadores = self._competencias_indicadores_painel(
+            ano_ref,
+            meses_ref,
+            meses_disponiveis,
+            competencias_series,
+        )
+        indicadores_impostos = self.indicadores_manuais.somar_competencias(
+            competencias_indicadores
+        )
+        indicadores_ncg = self.indicadores_manuais.somar_competencias(
+            self._competencias_subsequentes(competencias_indicadores)
+        )
         componentes_dre = self._componentes_dre(
-            componentes,
+            componentes_gerados,
             saldo_liquido,
             receita_liquida_base=total_credito,
+        )
+        componentes_dre = self._aplicar_indicadores_manuais(
+            componentes_dre,
+            indicadores_impostos,
+            indicadores_ncg,
         )
         return {
             "success": True,
@@ -723,6 +795,10 @@ class PainelDREService(_PainelBaseService):
                 "pressao_saida_percentual": _percent(total_saidas_liquidas, total_credito),
                 "meses_analise": meses_analise,
             },
+            "indicadores_manuais": self._indicadores_manuais_payload(
+                indicadores_impostos,
+                indicadores_ncg,
+            ),
             "saldos_projeto": (
                 self._saldos_projeto(
                     competencias_series,
@@ -756,6 +832,155 @@ class PainelDREService(_PainelBaseService):
                 for row in ultimos
             ],
         }
+
+    def _plano_contas_gerado(self) -> dict[str, dict]:
+        if self._plano_contas_gerado_cache is not None:
+            return self._plano_contas_gerado_cache
+
+        try:
+            with TemplateWriter(settings.template_dre_path) as writer:
+                self._plano_contas_gerado_cache = DREGeracaoCompletaService._ler_plano_contas(
+                    writer
+                )
+        except Exception as exc:
+            logger.warning("Não foi possível ler PLANO_CONTAS do DRE gerado: %s", exc)
+            self._plano_contas_gerado_cache = {}
+        return self._plano_contas_gerado_cache
+
+    def _componentes_compativeis_dre_gerado(self, rows: list[Any]) -> list[dict[str, Any]]:
+        plano = self._plano_contas_gerado()
+        if not plano:
+            return [self._row_to_dict(row) for row in rows]
+
+        linhas: list[dict[str, Any]] = []
+        for row in rows:
+            base = self._row_to_dict(row)
+            codigo_conta = self._codigo_conta_row(base)
+            rubrica, conta_filho, conta_pai, _cod = DREGeracaoCompletaService._resolver_conta_pai(
+                base.get("natureza_raw"),
+                base.get("rubrica"),
+                plano,
+            )
+            linhas.append(
+                {
+                    **base,
+                    "rubrica": rubrica or base.get("rubrica"),
+                    "conta_filho": conta_filho or base.get("conta_filho"),
+                    "conta_pai": conta_pai or base.get("conta_pai"),
+                    "codigo_conta": codigo_conta,
+                }
+            )
+        return linhas
+
+    @staticmethod
+    def _row_to_dict(row: Any) -> dict[str, Any]:
+        if isinstance(row, dict):
+            return dict(row)
+        keys = row.keys() if hasattr(row, "keys") else []
+        return {key: row[key] for key in keys}
+
+    @staticmethod
+    def _codigo_conta_row(row: Any) -> str | None:
+        for key in ("codigo_conta", "natureza_raw", "rubrica", "conta_filho", "conta_pai"):
+            codigo = _extrair_codigo_gerencial(PainelDREService._row_get(row, key))
+            if codigo:
+                return codigo
+        return None
+
+    @staticmethod
+    def _competencias_indicadores_painel(
+        ano: int,
+        meses: list[int],
+        meses_disponiveis: list[int],
+        competencias_series: list[tuple[int, int]],
+    ) -> list[tuple[int, int]]:
+        if competencias_series:
+            return sorted(set(competencias_series))
+        meses_ref = meses or meses_disponiveis
+        return [(ano, mes) for mes in meses_ref]
+
+    @staticmethod
+    def _competencias_subsequentes(
+        competencias: list[tuple[int, int]],
+    ) -> list[tuple[int, int]]:
+        subsequentes: set[tuple[int, int]] = set()
+        for ano, mes in competencias:
+            if mes == 12:
+                subsequentes.add((ano + 1, 1))
+            else:
+                subsequentes.add((ano, mes + 1))
+        return sorted(subsequentes)
+
+    @staticmethod
+    def _indicadores_periodo_payload(indicadores: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "existe": bool(indicadores.get("existe")),
+            "ano": indicadores.get("ano"),
+            "meses": indicadores.get("meses", []),
+            "competencias": indicadores.get("competencias", []),
+            "total_registros": int(indicadores.get("total_registros") or 0),
+        }
+
+    @staticmethod
+    def _indicadores_manuais_payload(
+        indicadores_impostos: dict[str, Any],
+        indicadores_ncg: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "existe": bool(
+                indicadores_impostos.get("existe") or indicadores_ncg.get("existe")
+            ),
+            "ano": indicadores_impostos.get("ano"),
+            "meses": indicadores_impostos.get("meses", []),
+            "total_registros": (
+                int(indicadores_impostos.get("total_registros") or 0)
+                + int(indicadores_ncg.get("total_registros") or 0)
+            ),
+            "contas_pagar": float(indicadores_ncg.get("contas_pagar") or 0),
+            "contas_receber": float(indicadores_ncg.get("contas_receber") or 0),
+            "total_impostos_retidos_acima_meta": float(
+                indicadores_impostos.get("total_impostos_retidos_acima_meta") or 0
+            ),
+            "total_impostos_retidos": float(
+                indicadores_impostos.get("total_impostos_retidos") or 0
+            ),
+            "periodo_dre": PainelDREService._indicadores_periodo_payload(
+                indicadores_impostos
+            ),
+            "periodo_ncg": PainelDREService._indicadores_periodo_payload(indicadores_ncg),
+        }
+
+    @staticmethod
+    def _aplicar_indicadores_manuais(
+        componentes: dict[str, Any],
+        indicadores_impostos: dict[str, Any],
+        indicadores_ncg: dict[str, Any],
+    ) -> dict[str, Any]:
+        atualizados = dict(componentes)
+
+        if indicadores_impostos.get("existe"):
+            atualizados = {
+                **atualizados,
+                "total_imposto_retido": float(
+                    indicadores_impostos.get("total_impostos_retidos") or 0
+                ),
+                "total_impostos_retidos_acima_meta": float(
+                    indicadores_impostos.get("total_impostos_retidos_acima_meta") or 0
+                ),
+                "_tem_total_imposto_retido": True,
+                "_tem_total_impostos_retidos_acima_meta": True,
+            }
+
+        if indicadores_ncg.get("existe"):
+            atualizados = {
+                **atualizados,
+                "contas_pagar": float(indicadores_ncg.get("contas_pagar") or 0),
+                "contas_receber": float(indicadores_ncg.get("contas_receber") or 0),
+                "_tem_contas_pagar": True,
+                "_tem_contas_receber": True,
+            }
+
+        return atualizados
 
     def _saldos_projeto(
         self,
@@ -876,7 +1101,12 @@ class PainelDREService(_PainelBaseService):
             )
         )
 
-        if investimento_total:
+        tem_resultado_liquido = bool(componentes.get("_tem_resultado_liquido"))
+        tem_investimento_total = bool(componentes.get("_tem_investimentos")) and (
+            investimento_total > 0
+        )
+
+        if tem_resultado_liquido and tem_investimento_total:
             indicadores.append(
                 _indicador_calculado(
                     "roi",
@@ -890,11 +1120,16 @@ class PainelDREService(_PainelBaseService):
                 )
             )
         else:
+            faltantes_roi = []
+            if not tem_resultado_liquido:
+                faltantes_roi.append("Resultado Líquido")
+            if not tem_investimento_total:
+                faltantes_roi.append("Investimento Total")
             indicadores.append(
                 _indicador_indisponivel(
                     "roi",
                     "ROI",
-                    ["Investimento Total"],
+                    faltantes_roi,
                     {"lucro_liquido": lucro_liquido, "investimento_total": investimento_total},
                 )
             )
@@ -930,30 +1165,41 @@ class PainelDREService(_PainelBaseService):
         resultado_operacional_explicito, tem_resultado_operacional = self._somar_componente(
             rows, "resultado_operacional"
         )
+        resultado_operacional_calculado = (
+            margem_contribuicao if tem_margem_contribuicao else receita_liquida - custos_variaveis
+        ) - gastos_fixos
         resultado_operacional = (
             resultado_operacional_explicito
             if tem_resultado_operacional
-            else receita_liquida - custos_variaveis - gastos_fixos
-        )
-        resultado_gerencial_explicito, tem_resultado_gerencial = self._somar_componente(
-            rows, "resultado_gerencial"
-        )
-        resultado_gerencial = (
-            resultado_gerencial_explicito if tem_resultado_gerencial else saldo_liquido
+            else resultado_operacional_calculado
         )
         resultado_liquido_explicito, tem_resultado_liquido = self._somar_componente(
             rows, "resultado_liquido"
         )
         resultado_liquido = (
-            resultado_liquido_explicito if tem_resultado_liquido else resultado_gerencial
+            resultado_liquido_explicito if tem_resultado_liquido else _float(saldo_liquido)
         )
-        investimentos, _ = self._somar_componente(rows, "investimentos", absoluto=True)
+        tem_resultado_liquido_calculado = tem_resultado_liquido or bool(rows)
+        investimentos, tem_investimentos = self._somar_componente(
+            rows, "investimentos", absoluto=True
+        )
+        investimentos_gerencial, _ = self._somar_componente(rows, "investimentos_gerencial")
+        resultado_gerencial_explicito, tem_resultado_gerencial = self._somar_componente(
+            rows, "resultado_gerencial"
+        )
+        resultado_gerencial = (
+            resultado_gerencial_explicito
+            if tem_resultado_gerencial
+            else resultado_liquido + investimentos_gerencial
+        )
         folha_pagamento, tem_folha_pagamento = self._somar_componente(
             rows, "folha_pagamento", absoluto=True
         )
         total_imposto_retido, tem_total_imposto_retido = self._somar_componente(
             rows, "total_imposto_retido", absoluto=True
         )
+        total_impostos_retidos_acima_meta = 0.0
+        tem_total_impostos_retidos_acima_meta = False
         contas_receber, tem_contas_receber = self._somar_componente(
             rows, "contas_receber", absoluto=True
         )
@@ -980,6 +1226,7 @@ class PainelDREService(_PainelBaseService):
             "investimentos": investimentos,
             "folha_pagamento": folha_pagamento,
             "total_imposto_retido": total_imposto_retido,
+            "total_impostos_retidos_acima_meta": total_impostos_retidos_acima_meta,
             "contas_receber": contas_receber,
             "contas_pagar": contas_pagar,
             "estoques": estoques,
@@ -987,8 +1234,11 @@ class PainelDREService(_PainelBaseService):
             "passivos_operacionais": passivos_operacionais,
             "_tem_receita_liquida": tem_receita_liquida or tem_receita_bruta,
             "_tem_margem_contribuicao": tem_margem_contribuicao,
+            "_tem_resultado_liquido": tem_resultado_liquido_calculado,
+            "_tem_investimentos": tem_investimentos,
             "_tem_folha_pagamento": tem_folha_pagamento,
             "_tem_total_imposto_retido": tem_total_imposto_retido,
+            "_tem_total_impostos_retidos_acima_meta": tem_total_impostos_retidos_acima_meta,
             "_tem_contas_receber": tem_contas_receber,
             "_tem_contas_pagar": tem_contas_pagar,
             "_tem_estoques": tem_estoques,
@@ -1009,7 +1259,7 @@ class PainelDREService(_PainelBaseService):
         total = 0.0
         encontrado = False
         for row in rows:
-            if not self._row_dre_matches(row, aliases):
+            if not self._row_dre_matches(row, aliases, componente):
                 continue
             encontrado = True
             valor = (
@@ -1021,14 +1271,38 @@ class PainelDREService(_PainelBaseService):
         return total, encontrado
 
     @staticmethod
-    def _row_dre_matches(row: Any, aliases: set[str]) -> bool:
+    def _row_dre_matches(row: Any, aliases: set[str], componente: str) -> bool:
+        if (
+            componente in PainelDREService.COMPONENTES_DRE_COM_CODIGO_OBRIGATORIO
+            and not PainelDREService._codigo_conta_row(row)
+        ):
+            return False
+
+        contas_pai_estritas = PainelDREService.COMPONENTES_DRE_CONTA_PAI_ESTRITA.get(
+            componente
+        )
+        if contas_pai_estritas is not None:
+            conta_pai = _normalizar_chave_conta(PainelDREService._row_get(row, "conta_pai"))
+            if conta_pai not in contas_pai_estritas:
+                return False
+            if componente in {"deducoes", "custos_variaveis", "gastos_fixos", "depreciacao"}:
+                return True
+
         valores = [
-            row["conta_pai"],
-            row["rubrica"],
-            row["natureza_raw"],
-            row["natureza_norm"],
+            PainelDREService._row_get(row, "conta_pai"),
+            PainelDREService._row_get(row, "conta_filho"),
+            PainelDREService._row_get(row, "rubrica"),
+            PainelDREService._row_get(row, "natureza_raw"),
+            PainelDREService._row_get(row, "natureza_norm"),
         ]
         return any(_normalizar_chave_conta(valor) in aliases for valor in valores)
+
+    @staticmethod
+    def _row_get(row: Any, key: str) -> Any:
+        try:
+            return row[key]
+        except (KeyError, IndexError):
+            return None
 
     def _indicador_ncg(
         self,
@@ -1065,9 +1339,11 @@ class PainelDREService(_PainelBaseService):
         receita_liquida = componentes["receita_liquida"]
         folha = componentes["folha_pagamento"]
         imposto_retido = componentes["total_imposto_retido"]
+        imposto_retido_acima_meta = componentes.get("total_impostos_retidos_acima_meta", 0.0)
         tem_receita = componentes["_tem_receita_liquida"] and receita_liquida > 0
         tem_folha = componentes["_tem_folha_pagamento"]
         tem_imposto = componentes["_tem_total_imposto_retido"]
+        tem_imposto_acima_meta = componentes["_tem_total_impostos_retidos_acima_meta"]
 
         return [
             self._objetivo_percentual(
@@ -1104,16 +1380,23 @@ class PainelDREService(_PainelBaseService):
             ),
             self._objetivo_percentual(
                 "iirrl",
-                "Total de Impostos Retidos sobre Receita Líquida",
+                "Total de Impostos Retidos Acima da Meta sobre Receita Líquida",
                 "IIRRL",
-                imposto_retido,
+                imposto_retido_acima_meta,
                 receita_liquida,
                 "≤ 10%",
                 lambda valor: valor <= 10,
-                {"total_imposto_retido": imposto_retido, "receita_liquida": receita_liquida},
+                {
+                    "total_imposto_retido": imposto_retido,
+                    "total_impostos_retidos_acima_meta": imposto_retido_acima_meta,
+                    "receita_liquida": receita_liquida,
+                },
                 self._faltantes_objetivo(
                     [
-                        (tem_imposto, "Total de Imposto Retido"),
+                        (
+                            tem_imposto_acima_meta,
+                            "Total de Imposto Retido Acima da Meta",
+                        ),
                         (tem_receita, "Receita Líquida positiva"),
                     ]
                 ),
@@ -1126,7 +1409,10 @@ class PainelDREService(_PainelBaseService):
                 "R$",
                 "< 7 MM",
                 lambda valor: valor < 7_000_000,
-                {"total_imposto_retido": imposto_retido},
+                {
+                    "total_imposto_retido": imposto_retido,
+                    "total_impostos_retidos_acima_meta": imposto_retido_acima_meta,
+                },
                 self._faltantes_objetivo([(tem_imposto, "Total de Imposto Retido")]),
             ),
         ]
@@ -1682,12 +1968,16 @@ class PainelFluxoCaixaService(_PainelBaseService):
             )
             contabilizadas_no_movimento: set[tuple[str, str, str]] = set()
             for parte in partes:
+                codigo_parte = parte["codigo"]
+                if not codigo_parte:
+                    continue
                 for grupo in self.CONTAS_DESTAQUE:
                     encontrou = False
                     for conta in grupo["contas"]:
-                        if parte["chave"] not in conta["aliases"]:
+                        codigo_conta = self._codigo_conta_label(conta["label"])
+                        if not codigo_conta or codigo_parte != codigo_conta:
                             continue
-                        chave = (grupo["id"], conta["label"], parte["chave"])
+                        chave = (grupo["id"], conta["label"], codigo_parte)
                         if chave in contabilizadas_no_movimento:
                             encontrou = True
                             break
@@ -1763,9 +2053,14 @@ class PainelFluxoCaixaService(_PainelBaseService):
                     percentual = None
             nome = re.sub(r"\([^)]*%\)", "", trecho).strip(" -;\t")
             chave = _normalizar_chave_conta(nome)
+            codigo = _extrair_codigo_gerencial(nome)
             if chave:
-                partes.append({"chave": chave, "percentual": percentual})
+                partes.append({"chave": chave, "codigo": codigo, "percentual": percentual})
         return partes
+
+    @staticmethod
+    def _codigo_conta_label(label: str) -> str | None:
+        return _extrair_codigo_gerencial(label)
 
     def _ranking(
         self,

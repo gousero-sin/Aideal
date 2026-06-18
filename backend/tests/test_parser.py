@@ -154,6 +154,56 @@ class TestLerArquivo:
         assert mapeamento["classificacao"] == "Conta Gerencial Mov"
         assert len(df) == 1
 
+    def test_fluxo_mapeia_codigo_gerencial_em_coluna_separada(self, tmp_path):
+        parser = ExcelParser("fluxo")
+        path = tmp_path / "movimentos_codigos_separados.xlsx"
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Resultado da consulta"
+        ws.append(
+            [
+                "Data Mov.",
+                "Número",
+                "Documento",
+                "NF",
+                "Parcela",
+                "Tipo",
+                "Descrição",
+                "Conciliado",
+                "Valor",
+                "Saldo",
+                "Cód. Conta Gerencial",
+                "Conta Gerencial",
+            ]
+        )
+        ws.append(
+            [
+                "01/06/2026",
+                "123",
+                "DOC",
+                "",
+                "",
+                "Débito",
+                "Pagamento parcelamento",
+                "Sim",
+                1029.44,
+                5000,
+                "17.1",
+                "PARCELAMENTO",
+            ]
+        )
+        wb.save(path)
+
+        resultado = parser.ler_arquivo(path)
+        df = resultado["dados"]["Resultado da consulta"]
+        mapeamento = parser.mapear_colunas(df)
+
+        assert mapeamento["data_movimento"] == "Data Mov."
+        assert mapeamento["descricao"] == "Descrição"
+        assert mapeamento["valor"] == "Valor"
+        assert mapeamento["codigo_conta_gerencial"] == "Cód. Conta Gerencial"
+        assert mapeamento["classificacao"] == "Conta Gerencial"
+
 
 class TestDetectarBanco:
     def test_dre_parser_retorna_none(self):

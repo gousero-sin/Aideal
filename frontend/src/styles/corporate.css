@@ -2940,6 +2940,56 @@ a:focus-visible {
   color: var(--aideal-text-muted);
 }
 
+.aideal-indicators-form {
+  align-content: start;
+}
+
+.aideal-indicator-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.aideal-money-field {
+  min-width: 0;
+}
+
+.aideal-money-field input {
+  min-height: 42px;
+  font-size: 1rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.aideal-money-field em {
+  font-style: normal;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--aideal-text-muted);
+}
+
+.aideal-indicator-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.aideal-indicator-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 7px 10px;
+  border: 1px solid var(--aideal-border);
+  border-radius: 999px;
+  background: rgba(7, 9, 13, 0.4);
+  color: var(--aideal-text-soft);
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
 .aideal-competencia-chip {
   display: inline-flex;
   align-items: center;
@@ -3276,6 +3326,7 @@ a:focus-visible {
   .aideal-grid-2,
   .aideal-grid-3,
   .aideal-grid-4,
+  .aideal-indicator-field-grid,
   .aideal-slicer-dock,
   .aideal-insight-grid,
   .aideal-indicator-grid,

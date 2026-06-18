@@ -740,17 +740,32 @@ class FluxoCaixaValidator(BaseValidator):
             return []
 
         coluna = mapeamento.get("classificacao")
-        if coluna is None or coluna not in df.columns:
+        coluna_codigo = mapeamento.get("codigo_conta_gerencial")
+        if (coluna is None or coluna not in df.columns) and (
+            coluna_codigo is None or coluna_codigo not in df.columns
+        ):
             return []
 
-        serie = df[coluna]
+        serie = (
+            df[coluna]
+            if coluna is not None and coluna in df.columns
+            else pd.Series("", index=df.index, dtype="object")
+        )
+        serie_codigo = (
+            df[coluna_codigo]
+            if coluna_codigo is not None and coluna_codigo in df.columns
+            else pd.Series("", index=df.index, dtype="object")
+        )
         mask_ignorar = (
             self._mask_placeholder(serie)
+            & self._mask_placeholder(serie_codigo)
             | self._mask_linhas_cabecalho_repetido(df, mapeamento)
             | self._mask_linhas_rodape_relatorio(df)
         )
         codigos_validos = self._codigos_gerenciais_validos()
-        codigos = serie.map(extrair_codigo_gerencial)
+        codigos_codigo = serie_codigo.map(self._extrair_codigo_gerencial_coluna_dedicada)
+        codigos_classificacao = serie.map(extrair_codigo_gerencial)
+        codigos = codigos_codigo.where(codigos_codigo.astype(bool), codigos_classificacao)
         mask_com_codigo = codigos.astype(bool)
         mask_invalida = (~mask_ignorar) & mask_com_codigo & ~codigos.map(
             lambda codigo: codigo_gerencial_valido(codigo, codigos_validos)
@@ -760,12 +775,13 @@ class FluxoCaixaValidator(BaseValidator):
             return []
 
         exemplos = sorted(v for v in codigos[mask_invalida].unique().tolist() if v)[:8]
+        coluna_origem = coluna_codigo or coluna
         return [
             ValidationError(
                 campo="classificacao",
                 mensagem=(
-                    f"Coluna '{coluna}' possui {total_invalidos} linha(s) com código gerencial "
-                    "não mapeado."
+                    f"Coluna '{coluna_origem}' possui {total_invalidos} linha(s) com código "
+                    "gerencial não mapeado."
                 ),
                 severidade=ErrorSeverity.BLOQUEANTE,
                 sugestao=(
@@ -775,6 +791,18 @@ class FluxoCaixaValidator(BaseValidator):
                 ),
             )
         ]
+
+    @staticmethod
+    def _extrair_codigo_gerencial_coluna_dedicada(valor) -> str:
+        codigo = extrair_codigo_gerencial(valor)
+        if codigo:
+            return codigo
+
+        if pd.isna(valor) or valor is None:
+            return ""
+        texto = str(valor).strip()
+        match = re.fullmatch(r"\d+(?:\.\d+)*", texto)
+        return match.group(0) if match else ""
 
     @staticmethod
     def _deve_ignorar_arquivo_por_estrutura(erros: list[ValidationError]) -> bool:

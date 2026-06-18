@@ -108,6 +108,25 @@ def test_fluxo_validacao_aceita_conta_gerencial_por_codigo():
     assert all(e.campo != "classificacao" for e in result.erros)
 
 
+def test_fluxo_validacao_aceita_codigo_gerencial_em_coluna_separada():
+    df = pd.DataFrame(
+        {
+            "Data Mov.": ["01/06/2026"],
+            "Tipo": ["Débito"],
+            "Descrição": ["Pagamento parcelamento"],
+            "Valor": [1029.44],
+            "Saldo": [5000.0],
+            "Cód. Conta Gerencial": ["17.1"],
+            "Conta Gerencial": ["PARCELAMENTO"],
+        }
+    )
+
+    result = FluxoCaixaValidator().validar(_dados_fluxo(df))
+
+    assert result.valido is True
+    assert all(e.campo != "classificacao" for e in result.erros)
+
+
 def test_fluxo_validacao_bloqueia_codigo_gerencial_desconhecido():
     df = pd.DataFrame(
         {
@@ -117,6 +136,25 @@ def test_fluxo_validacao_bloqueia_codigo_gerencial_desconhecido():
             "Valor (R$)": [350.0],
             "Saldo (R$)": [1000.0],
             "Conta Gerencial Mov": ["99.9 - CONTA NOVA (100,00%);"],
+        }
+    )
+
+    result = FluxoCaixaValidator().validar(_dados_fluxo(df))
+
+    assert result.valido is False
+    assert any(e.campo == "classificacao" for e in result.erros)
+
+
+def test_fluxo_validacao_bloqueia_codigo_separado_desconhecido():
+    df = pd.DataFrame(
+        {
+            "Data Mov.": ["01/06/2026"],
+            "Tipo": ["Débito"],
+            "Descrição": ["Conta desconhecida"],
+            "Valor": [350.0],
+            "Saldo": [1000.0],
+            "Cód. Conta Gerencial": ["99.9"],
+            "Conta Gerencial": ["CONTA NOVA"],
         }
     )
 

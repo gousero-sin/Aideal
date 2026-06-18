@@ -48,6 +48,18 @@
         "tipo": "decimal",
         "obrigatorio": false
       },
+      "codigo_conta_gerencial": {
+        "aliases": [
+          "Cód. Conta Gerencial",
+          "Cod. Conta Gerencial",
+          "Código Conta Gerencial",
+          "Codigo Conta Gerencial",
+          "Código da Conta Gerencial",
+          "Codigo da Conta Gerencial"
+        ],
+        "tipo": "string",
+        "obrigatorio": false
+      },
       "classificacao": {
         "aliases": [
           "Classificação",

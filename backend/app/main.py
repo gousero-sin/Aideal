@@ -1,9 +1,11 @@
 """AIDEAL GoFlowOS MVP — API FastAPI principal."""
 
 import logging
+import math
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 from fastapi import (
@@ -32,6 +34,7 @@ from .auth import (
 )
 from .config import settings
 from .contracts.common import FlowType
+from .contracts.persistence import DREIndicadoresManuais
 from .contracts.processamento import DREProcessamentoResponse
 from .db.connection import db
 from .db.manager import run_migrations
@@ -174,8 +177,44 @@ def _exigir_confirmacao(confirmar: bool) -> None:
     if not confirmar:
         raise HTTPException(
             status_code=400,
-            detail="Confirmação explícita obrigatória para limpar dados.",
+            detail="Confirmação explícita obrigatória para executar operação administrativa.",
         )
+
+
+def _validar_competencia_admin(ano: int, mes: int) -> None:
+    if ano < 2000 or ano > 2100:
+        raise HTTPException(status_code=400, detail="Ano deve estar entre 2000 e 2100.")
+    if mes < 1 or mes > 12:
+        raise HTTPException(status_code=400, detail="Mês deve estar entre 1 e 12.")
+
+
+def _valor_monetario_admin(nome: str, valor: float) -> Decimal:
+    if not math.isfinite(valor) or valor < 0:
+        raise HTTPException(status_code=400, detail=f"{nome} deve ser um valor maior ou igual a 0.")
+    return Decimal(str(valor))
+
+
+def _payload_indicadores_manuais(
+    registro: DREIndicadoresManuais,
+    existe: bool,
+) -> dict:
+    return {
+        "success": True,
+        "existe": existe,
+        "ano": registro.competencia_ano,
+        "mes": registro.competencia_mes,
+        "competencia": f"{registro.competencia_mes:02d}/{registro.competencia_ano}",
+        "indicadores": {
+            "contas_pagar": float(registro.contas_pagar),
+            "contas_receber": float(registro.contas_receber),
+            "total_impostos_retidos_acima_meta": float(
+                registro.total_impostos_retidos_acima_meta
+            ),
+            "total_impostos_retidos": float(registro.total_impostos_retidos),
+        },
+        "created_at": registro.created_at.isoformat() if existe else None,
+        "updated_at": registro.updated_at.isoformat() if existe else None,
+    }
 
 
 def _resolver_output_xlsx(arquivo_nome: str) -> Path:
@@ -835,6 +874,54 @@ async def limpar_base_dre(
     except Exception as exc:
         logger.error("Erro ao limpar base DRE: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/dre/admin/indicadores", dependencies=[Depends(require_admin_session)])
+async def consultar_indicadores_manuais_dre(
+    ano: int = Query(..., description="Ano da competência"),
+    mes: int = Query(..., description="Mês da competência"),
+):
+    """Consulta indicadores manuais DRE da competência selecionada na ADM."""
+    _validar_competencia_admin(ano, mes)
+    registro = dre_painel_service.indicadores_manuais.get_by_competencia(ano, mes)
+    existe = registro is not None
+    if registro is None:
+        registro = DREIndicadoresManuais(competencia_ano=ano, competencia_mes=mes)
+    return _payload_indicadores_manuais(registro, existe)
+
+
+@app.post("/api/dre/admin/indicadores", dependencies=[Depends(require_admin_session)])
+async def salvar_indicadores_manuais_dre(
+    ano: int = Form(..., description="Ano da competência"),
+    mes: int = Form(..., description="Mês da competência"),
+    contas_pagar: float = Form(0, description="Contas a pagar"),
+    contas_receber: float = Form(0, description="Contas a receber"),
+    total_impostos_retidos_acima_meta: float = Form(
+        0,
+        description="Total de impostos retidos acima da meta",
+    ),
+    total_impostos_retidos: float = Form(0, description="Total de impostos retidos"),
+    confirmar: bool = Form(False, description="Confirmação explícita do salvamento"),
+):
+    """Salva ou atualiza indicadores manuais DRE da competência selecionada."""
+    _exigir_confirmacao(confirmar)
+    _validar_competencia_admin(ano, mes)
+    registro = DREIndicadoresManuais(
+        competencia_ano=ano,
+        competencia_mes=mes,
+        contas_pagar=_valor_monetario_admin("Contas a pagar", contas_pagar),
+        contas_receber=_valor_monetario_admin("Contas a receber", contas_receber),
+        total_impostos_retidos_acima_meta=_valor_monetario_admin(
+            "Total de impostos retidos acima da meta",
+            total_impostos_retidos_acima_meta,
+        ),
+        total_impostos_retidos=_valor_monetario_admin(
+            "Total de impostos retidos",
+            total_impostos_retidos,
+        ),
+    )
+    salvo = dre_painel_service.indicadores_manuais.upsert(registro)
+    return _payload_indicadores_manuais(salvo, True)
 
 
 # ============================================================================

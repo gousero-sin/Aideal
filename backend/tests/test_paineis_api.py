@@ -94,8 +94,8 @@ def test_painel_dre_filtra_por_obra_natureza_e_meses_sem_recorte_de_conta():
                 2025,
                 5,
                 "completed",
-                5,
-                5,
+                6,
+                6,
                 0,
                 None,
             ),
@@ -399,10 +399,10 @@ def test_painel_dre_margem_contribuicao_usa_credito_liquido_sem_deduzir_impostos
                     200,
                     0,
                     200,
-                    "Fornecedores",
+                    "4.1 - TINTAS E SOLVENTES",
                     "SAIDA",
                     "Obra MCL",
-                    "Fornecedores",
+                    "4.1 - TINTAS E SOLVENTES",
                     "(-)Custos Variavéis",
                     2,
                     "mcl-h2",
@@ -438,6 +438,223 @@ def test_painel_dre_margem_contribuicao_usa_credito_liquido_sem_deduzir_impostos
     assert indicadores["mcl"]["percentual"] == pytest.approx(80.0)
     assert indicadores["mcl"]["componentes"]["receita_liquida"] == pytest.approx(1000.0)
     assert indicadores["mcl"]["componentes"]["custos_despesas_variaveis"] == pytest.approx(200.0)
+
+
+def test_painel_dre_ebitda_usa_margem_contribuicao_explicita_quando_sem_resultado_operacional():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-ebitda-mcl",
+                "2026-07-01T10:00:00",
+                "dre_ebitda_mcl.xls",
+                "hash-dre-ebitda-mcl",
+                2026,
+                7,
+                "completed",
+                4,
+                4,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-ebitda-mcl",
+                    2026,
+                    7,
+                    "2026-07-10",
+                    "Receita líquida",
+                    1000,
+                    1000,
+                    0,
+                    "(=)Receita Líquida",
+                    "ENTRADA",
+                    "Obra EBITDA",
+                    "(=)Receita Líquida",
+                    "(=)Receita Líquida",
+                    1,
+                    "ebitda-mcl-h1",
+                    "2026-07-01T10:00:00",
+                ),
+                (
+                    "dre-ebitda-mcl",
+                    2026,
+                    7,
+                    "2026-07-11",
+                    "Custo variável",
+                    100,
+                    0,
+                    100,
+                    "4.1 - TINTAS E SOLVENTES",
+                    "SAIDA",
+                    "Obra EBITDA",
+                    "4.1 - TINTAS E SOLVENTES",
+                    "(-)Custos Variavéis",
+                    2,
+                    "ebitda-mcl-h2",
+                    "2026-07-01T10:00:00",
+                ),
+                (
+                    "dre-ebitda-mcl",
+                    2026,
+                    7,
+                    "2026-07-12",
+                    "Margem materializada",
+                    800,
+                    800,
+                    0,
+                    "(=)MARGEM DE CONTRIBUIÇÃO",
+                    "ENTRADA",
+                    "Obra EBITDA",
+                    "(=)MARGEM DE CONTRIBUIÇÃO",
+                    "(=)MARGEM DE CONTRIBUIÇÃO",
+                    3,
+                    "ebitda-mcl-h3",
+                    "2026-07-01T10:00:00",
+                ),
+                (
+                    "dre-ebitda-mcl",
+                    2026,
+                    7,
+                    "2026-07-13",
+                    "Fixos",
+                    300,
+                    0,
+                    300,
+                    "12.1 - SALARIO",
+                    "SAIDA",
+                    "Obra EBITDA",
+                    "12.1 - SALARIO",
+                    "(-)Gastos Fixos",
+                    4,
+                    "ebitda-mcl-h4",
+                    "2026-07-01T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2026&meses=7&centro_custo=Obra%20EBITDA")
+
+    assert resp.status_code == 200
+    indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
+    assert indicadores["mcl"]["valor"] == pytest.approx(800.0)
+    assert indicadores["ebitda"]["valor"] == pytest.approx(500.0)
+    assert indicadores["ebitda"]["percentual"] == pytest.approx(50.0)
+
+
+def test_painel_dre_fcl_reproduz_resultado_gerencial_quando_linha_nao_materializada():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-fcl-gerencial",
+                "2026-07-01T10:00:00",
+                "dre_fcl_gerencial.xls",
+                "hash-dre-fcl-gerencial",
+                2026,
+                7,
+                "completed",
+                3,
+                3,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-fcl-gerencial",
+                    2026,
+                    7,
+                    "2026-07-10",
+                    "Receita líquida",
+                    1000,
+                    1000,
+                    0,
+                    "(=)Receita Líquida",
+                    "ENTRADA",
+                    "Obra FCL",
+                    "(=)Receita Líquida",
+                    "(=)Receita Líquida",
+                    1,
+                    "fcl-gerencial-h1",
+                    "2026-07-01T10:00:00",
+                ),
+                (
+                    "dre-fcl-gerencial",
+                    2026,
+                    7,
+                    "2026-07-11",
+                    "Resultado líquido",
+                    1000,
+                    1000,
+                    0,
+                    "(=)RESULTADO LÍQUIDO",
+                    "ENTRADA",
+                    "Obra FCL",
+                    "(=)RESULTADO LÍQUIDO",
+                    "(=)RESULTADO LÍQUIDO",
+                    2,
+                    "fcl-gerencial-h2",
+                    "2026-07-01T10:00:00",
+                ),
+                (
+                    "dre-fcl-gerencial",
+                    2026,
+                    7,
+                    "2026-07-12",
+                    "Investimento gerencial",
+                    5,
+                    0,
+                    5,
+                    "15.4 - DESPESAS C/ CONSTRUÇÃO ESCRITORIO ADM",
+                    "SAIDA",
+                    "Obra FCL",
+                    "15.4 - DESPESAS C/ CONSTRUÇÃO ESCRITORIO ADM",
+                    "(-)Investimentos",
+                    3,
+                    "fcl-gerencial-h3",
+                    "2026-07-01T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2026&meses=7&centro_custo=Obra%20FCL")
+
+    assert resp.status_code == 200
+    indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
+    assert indicadores["fcl"]["valor"] == pytest.approx(995.0)
+    assert indicadores["fcl"]["componentes"]["resultado_gerencial"] == pytest.approx(995.0)
 
 
 def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
@@ -515,10 +732,10 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
                     400,
                     0,
                     400,
-                    "Fornecedores",
+                    "4.1 - TINTAS E SOLVENTES",
                     "SAIDA",
                     "Obra Alpha",
-                    "Fornecedores",
+                    "4.1 - TINTAS E SOLVENTES",
                     "(-)Custos Variavéis",
                     2,
                     "alpha-h2",
@@ -533,10 +750,10 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
                     100,
                     0,
                     100,
-                    "Despesas com Pessoal",
+                    "12.1 - SALARIO",
                     "SAIDA",
                     "Obra Alpha",
-                    "Despesas com Pessoal",
+                    "12.1 - SALARIO",
                     "(-)Gastos Fixos",
                     3,
                     "alpha-h3",
@@ -569,10 +786,10 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
                     200,
                     0,
                     200,
-                    "Impostos sobre vendas",
+                    "17.7 - SIMPLES NASCIONAL",
                     "SAIDA",
                     "Obra Alpha",
-                    "Impostos sobre vendas",
+                    "17.7 - SIMPLES NASCIONAL",
                     "(-)Deduções sobre vendas",
                     5,
                     "alpha-h5",
@@ -587,10 +804,10 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
                     600,
                     0,
                     600,
-                    "Fornecedores",
+                    "4.1 - TINTAS E SOLVENTES",
                     "SAIDA",
                     "Obra Alpha",
-                    "Fornecedores",
+                    "4.1 - TINTAS E SOLVENTES",
                     "(-)Custos Variavéis",
                     6,
                     "alpha-h6",
@@ -605,10 +822,10 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
                     300,
                     0,
                     300,
-                    "Despesas com Pessoal",
+                    "12.1 - SALARIO",
                     "SAIDA",
                     "Obra Alpha",
-                    "Despesas com Pessoal",
+                    "12.1 - SALARIO",
                     "(-)Gastos Fixos",
                     7,
                     "alpha-h7",
@@ -855,8 +1072,10 @@ def test_painel_dre_indicadores_usam_contas_filhas_do_template_e_gasto_total_par
     assert indicadores["pel"]["status"] == "calculado"
     assert indicadores["pel"]["valor"] == pytest.approx(200 / 0.7)
     assert indicadores["ebitda"]["percentual"] == pytest.approx(500 / 1000 * 100)
-    assert indicadores["roi"]["status"] == "indisponivel"
-    assert indicadores["roi"]["componentes_faltantes"] == ["Investimento Total"]
+    assert indicadores["roi"]["status"] == "calculado"
+    assert indicadores["roi"]["valor"] == pytest.approx((500 / 300) * 100)
+    assert indicadores["roi"]["componentes"]["lucro_liquido"] == pytest.approx(500.0)
+    assert indicadores["roi"]["componentes"]["investimento_total"] == pytest.approx(300.0)
 
     objetivos = {item["id"]: item for item in resp.json()["objetivos_estrategicos"]}
     assert objetivos["ifsrl"]["valor"] == pytest.approx(200 / 1000 * 100)
@@ -865,6 +1084,243 @@ def test_painel_dre_indicadores_usam_contas_filhas_do_template_e_gasto_total_par
     assert objetivos["iefp"]["meta_status"] == "ok"
     assert objetivos["iirrl"]["status"] == "indisponivel"
     assert objetivos["itmir"]["componentes_faltantes"] == ["Total de Imposto Retido"]
+
+
+def test_painel_dre_roi_usa_saldo_liquido_quando_resultado_liquido_nao_explicito():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-roi-saldo-liquido",
+                "2026-04-01T10:00:00",
+                "dre_roi_saldo_liquido.xls",
+                "hash-dre-roi-saldo-liquido",
+                2025,
+                5,
+                "completed",
+                2,
+                2,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-roi-saldo-liquido",
+                    2025,
+                    5,
+                    "2025-05-10",
+                    "Receita",
+                    1000,
+                    1000,
+                    0,
+                    "(=)Receita Líquida",
+                    "ENTRADA",
+                    "Obra ROI",
+                    "(=)Receita Líquida",
+                    "(=)Receita Líquida",
+                    1,
+                    "roi-saldo-liquido-h1",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-roi-saldo-liquido",
+                    2025,
+                    5,
+                    "2025-05-12",
+                    "Investimento",
+                    200,
+                    0,
+                    200,
+                    "8.4 - MAQUINAS / EQUIPAMENTOS",
+                    "SAIDA",
+                    "Obra ROI",
+                    "8.4 - MAQUINAS / EQUIPAMENTOS",
+                    "(-)Investimentos",
+                    2,
+                    "roi-saldo-liquido-h2",
+                    "2026-04-01T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2025&meses=5&centro_custo=Obra%20ROI")
+
+    assert resp.status_code == 200
+    indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
+    assert indicadores["roi"]["status"] == "calculado"
+    assert indicadores["roi"]["valor"] == pytest.approx(400.0)
+    assert indicadores["roi"]["componentes"]["lucro_liquido"] == pytest.approx(800.0)
+    assert indicadores["roi"]["componentes"]["investimento_total"] == pytest.approx(200.0)
+
+
+def test_painel_dre_roi_soma_itens_explicitos_do_investimento_total():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-roi-itens-investimento",
+                "2026-04-01T10:00:00",
+                "dre_roi_itens_investimento.xls",
+                "hash-dre-roi-itens-investimento",
+                2025,
+                5,
+                "completed",
+                5,
+                5,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-roi-itens-investimento",
+                    2025,
+                    5,
+                    "2025-05-10",
+                    "Receita",
+                    1000,
+                    1000,
+                    0,
+                    "(=)Receita Líquida",
+                    "ENTRADA",
+                    "Obra ROI Itens",
+                    "(=)Receita Líquida",
+                    "(=)Receita Líquida",
+                    1,
+                    "roi-itens-h1",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-roi-itens-investimento",
+                    2025,
+                    5,
+                    "2025-05-11",
+                    "Resultado líquido",
+                    100,
+                    100,
+                    0,
+                    "(=)RESULTADO LÍQUIDO",
+                    "ENTRADA",
+                    "Obra ROI Itens",
+                    "(=)RESULTADO LÍQUIDO",
+                    "(=)RESULTADO LÍQUIDO",
+                    2,
+                    "roi-itens-h2",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-roi-itens-investimento",
+                    2025,
+                    5,
+                    "2025-05-12",
+                    "Despesa administrativa",
+                    200,
+                    0,
+                    200,
+                    "3.3 - SERVIÇOS DE CONSULTORIA",
+                    "SAIDA",
+                    "Obra ROI Itens",
+                    "3.3 - SERVIÇOS DE CONSULTORIA",
+                    "(-)Gastos Fixos",
+                    3,
+                    "roi-itens-h3",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-roi-itens-investimento",
+                    2025,
+                    5,
+                    "2025-05-13",
+                    "Fornecedor",
+                    300,
+                    0,
+                    300,
+                    "4.1 - TINTAS E SOLVENTES",
+                    "SAIDA",
+                    "Obra ROI Itens",
+                    "4.1 - TINTAS E SOLVENTES",
+                    "(-)Custos Variavéis",
+                    4,
+                    "roi-itens-h4",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-roi-itens-investimento",
+                    2025,
+                    5,
+                    "2025-05-14",
+                    "Empréstimo bancário",
+                    400,
+                    0,
+                    400,
+                    "11.9 - PAGAMENTOS EMPRESTIMOS",
+                    "SAIDA",
+                    "Obra ROI Itens",
+                    "11.9 - PAGAMENTOS EMPRESTIMOS",
+                    "(-) Despesas Financeiras",
+                    5,
+                    "roi-itens-h5",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-roi-itens-investimento",
+                    2025,
+                    5,
+                    "2025-05-15",
+                    "Fornecedor sem numero nao deve entrar",
+                    1000,
+                    0,
+                    1000,
+                    "Fornecedores",
+                    "SAIDA",
+                    "Obra ROI Itens",
+                    "Fornecedores",
+                    "(-)Custos Variavéis",
+                    6,
+                    "roi-itens-h6",
+                    "2026-04-01T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2025&meses=5&centro_custo=Obra%20ROI%20Itens")
+
+    assert resp.status_code == 200
+    indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
+    assert indicadores["roi"]["status"] == "calculado"
+    assert indicadores["roi"]["valor"] == pytest.approx((100 / 900) * 100)
+    assert indicadores["roi"]["componentes"]["investimento_total"] == pytest.approx(900.0)
 
 
 def test_painel_dre_indicadores_viabilidade_nao_expoem_metas():
@@ -945,11 +1401,11 @@ def test_painel_dre_indicadores_viabilidade_nao_expoem_metas():
                     500,
                     0,
                     500,
-                    "Despesas com Pessoal",
+                    "12.1 - SALARIO",
                     "SAIDA",
                     "Obra Alerta",
-                    "Despesas com Pessoal",
-                    "Despesas com Pessoal",
+                    "12.1 - SALARIO",
+                    "(-)Gastos Fixos",
                     3,
                     "alerta-h3",
                     "2026-04-01T10:00:00",
@@ -1017,11 +1473,11 @@ def test_painel_dre_indicadores_viabilidade_nao_expoem_metas():
                     1000,
                     0,
                     1000,
-                    "Aquisição de Maquinas e Equipamentos",
+                    "8.4 - MAQUINAS / EQUIPAMENTOS",
                     "SAIDA",
                     "Obra Alerta",
-                    "Aquisição de Maquinas e Equipamentos",
-                    "Aquisição de Maquinas e Equipamentos",
+                    "8.4 - MAQUINAS / EQUIPAMENTOS",
+                    "(-)Investimentos",
                     7,
                     "alerta-h7",
                     "2026-04-01T10:00:00",
@@ -1072,6 +1528,8 @@ def test_painel_dre_indicadores_viabilidade_nao_expoem_metas():
     indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
     assert indicadores["mcl"]["percentual"] == pytest.approx(20.0)
     assert indicadores["pel"]["valor"] == pytest.approx(2500.0)
+    assert indicadores["fcl"]["valor"] == pytest.approx(100.0)
+    assert indicadores["fcl"]["componentes"]["resultado_gerencial"] == pytest.approx(100.0)
     assert indicadores["roi"]["valor"] == pytest.approx(-5.0)
     assert indicadores["ncg"]["valor"] == pytest.approx(200.0)
     assert all("meta" not in indicador for indicador in indicadores.values())
@@ -1185,6 +1643,24 @@ def test_painel_dre_objetivos_estrategicos_calculam_metas_com_imposto_retido():
                 ),
             ],
         )
+        conn.execute(
+            """
+            INSERT INTO dre_indicadores_manuais
+            (competencia_ano, competencia_mes, contas_pagar, contas_receber,
+             total_impostos_retidos_acima_meta, total_impostos_retidos, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                2025,
+                5,
+                0,
+                0,
+                80,
+                80,
+                "2026-04-01T12:00:00",
+                "2026-04-01T12:00:00",
+            ),
+        )
 
     client = _client_com_db(db)
     resp = client.get("/api/dre/painel?ano=2025&meses=5&centro_custo=Obra%20KPI")
@@ -1206,6 +1682,451 @@ def test_painel_dre_objetivos_estrategicos_calculam_metas_com_imposto_retido():
     assert objetivos["itmir"]["unidade"] == "R$"
     assert objetivos["itmir"]["meta"] == "< 7 MM"
     assert objetivos["itmir"]["meta_status"] == "ok"
+
+
+def test_painel_dre_folha_usa_previsoes_13_e_ferias_do_dre_gerado():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-folha-previsoes",
+                "2026-04-01T10:00:00",
+                "dre_folha_previsoes.xls",
+                "hash-dre-folha-previsoes",
+                2025,
+                5,
+                "completed",
+                6,
+                6,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-folha-previsoes",
+                    2025,
+                    5,
+                    "2025-05-10",
+                    "Receita Liquida",
+                    1000,
+                    1000,
+                    0,
+                    "(=)Receita Líquida",
+                    "ENTRADA",
+                    "Obra Folha",
+                    "(=)Receita Líquida",
+                    "(=)Receita Líquida",
+                    1,
+                    "folha-prev-h1",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-folha-previsoes",
+                    2025,
+                    5,
+                    "2025-05-11",
+                    "Salario",
+                    200,
+                    0,
+                    200,
+                    "12.1 - SALARIO",
+                    "SAIDA",
+                    "Obra Folha",
+                    "12.1 - SALARIO",
+                    "12.1 - SALARIO",
+                    2,
+                    "folha-prev-h2",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-folha-previsoes",
+                    2025,
+                    5,
+                    "2025-05-12",
+                    "Previsao 13",
+                    50,
+                    0,
+                    50,
+                    "12.3 - PREVISÃO 13°",
+                    "SAIDA",
+                    "Obra Folha",
+                    "12.3 - PREVISÃO 13°",
+                    "12.3 - PREVISÃO 13°",
+                    3,
+                    "folha-prev-h3",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-folha-previsoes",
+                    2025,
+                    5,
+                    "2025-05-13",
+                    "Previsao ferias",
+                    60,
+                    0,
+                    60,
+                    "12.70 - PREVISÃO FÉRIAS",
+                    "SAIDA",
+                    "Obra Folha",
+                    "12.70 - PREVISÃO FÉRIAS",
+                    "12.70 - PREVISÃO FÉRIAS",
+                    4,
+                    "folha-prev-h4",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-folha-previsoes",
+                    2025,
+                    5,
+                    "2025-05-14",
+                    "Rescisao",
+                    20,
+                    0,
+                    20,
+                    "12.8 - ACERTO RESCISORIOS",
+                    "SAIDA",
+                    "Obra Folha",
+                    "12.8 - ACERTO RESCISORIOS",
+                    "12.8 - ACERTO RESCISORIOS",
+                    5,
+                    "folha-prev-h5",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-folha-previsoes",
+                    2025,
+                    5,
+                    "2025-05-15",
+                    "FGTS",
+                    30,
+                    0,
+                    30,
+                    "12.14 - FGTS FUNCIONARIOS",
+                    "SAIDA",
+                    "Obra Folha",
+                    "12.14 - FGTS FUNCIONARIOS",
+                    "12.14 - FGTS FUNCIONARIOS",
+                    6,
+                    "folha-prev-h6",
+                    "2026-04-01T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2025&meses=5&centro_custo=Obra%20Folha")
+
+    assert resp.status_code == 200
+    objetivos = {item["id"]: item for item in resp.json()["objetivos_estrategicos"]}
+    assert objetivos["ifsrl"]["valor"] == pytest.approx(36.0)
+    assert objetivos["ifsrl"]["componentes"]["folha_pagamento"] == pytest.approx(360.0)
+    assert objetivos["iefp"]["valor"] == pytest.approx(1000 / 360)
+
+
+def test_painel_dre_usa_indicadores_manuais_para_ncg_e_impostos_retidos():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-manual-kpi",
+                "2026-04-01T10:00:00",
+                "dre_manual_kpi.xls",
+                "hash-dre-manual-kpi",
+                2025,
+                5,
+                "completed",
+                3,
+                3,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-manual-kpi",
+                    2025,
+                    5,
+                    "2025-05-10",
+                    "Receita Liquida",
+                    1000,
+                    1000,
+                    0,
+                    "(=)Receita Líquida",
+                    "ENTRADA",
+                    "Obra Manual KPI",
+                    "(=)Receita Líquida",
+                    "(=)Receita Líquida",
+                    1,
+                    "manual-kpi-h1",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-manual-kpi",
+                    2025,
+                    5,
+                    "2025-05-11",
+                    "Salario",
+                    200,
+                    0,
+                    200,
+                    "12.1 - SALARIO",
+                    "SAIDA",
+                    "Obra Manual KPI",
+                    "12.1 - SALARIO",
+                    "12.1 - SALARIO",
+                    2,
+                    "manual-kpi-h2",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-manual-kpi",
+                    2025,
+                    5,
+                    "2025-05-12",
+                    "Imposto retido importado",
+                    80,
+                    0,
+                    80,
+                    "TOTAL DE IMPOSTO RETIDO",
+                    "SAIDA",
+                    "Obra Manual KPI",
+                    "TOTAL DE IMPOSTO RETIDO",
+                    "TOTAL DE IMPOSTO RETIDO",
+                    3,
+                    "manual-kpi-h3",
+                    "2026-04-01T10:00:00",
+                ),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_indicadores_manuais
+            (competencia_ano, competencia_mes, contas_pagar, contas_receber,
+             total_impostos_retidos_acima_meta, total_impostos_retidos, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    2025,
+                    5,
+                    30,
+                    40,
+                    20,
+                    120,
+                    "2026-04-01T12:00:00",
+                    "2026-04-01T12:00:00",
+                ),
+                (
+                    2025,
+                    6,
+                    300,
+                    500,
+                    999,
+                    999,
+                    "2026-04-01T12:00:00",
+                    "2026-04-01T12:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2025&meses=5")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    indicadores = {item["id"]: item for item in body["indicadores_viabilidade"]}
+    objetivos = {item["id"]: item for item in body["objetivos_estrategicos"]}
+
+    assert body["indicadores_manuais"]["existe"] is True
+    assert body["indicadores_manuais"]["contas_pagar"] == pytest.approx(300.0)
+    assert body["indicadores_manuais"]["contas_receber"] == pytest.approx(500.0)
+    assert body["indicadores_manuais"]["total_impostos_retidos"] == pytest.approx(120.0)
+    assert body["indicadores_manuais"]["total_impostos_retidos_acima_meta"] == pytest.approx(
+        20.0
+    )
+    assert body["indicadores_manuais"]["periodo_dre"]["competencias"] == [
+        {"ano": 2025, "mes": 5, "periodo": "2025-05"}
+    ]
+    assert body["indicadores_manuais"]["periodo_ncg"]["competencias"] == [
+        {"ano": 2025, "mes": 6, "periodo": "2025-06"}
+    ]
+    assert indicadores["ncg"]["status"] == "calculado"
+    assert indicadores["ncg"]["valor"] == pytest.approx(200.0)
+    assert indicadores["ncg"]["componentes"]["contas_receber"] == pytest.approx(500.0)
+    assert indicadores["ncg"]["componentes"]["contas_pagar"] == pytest.approx(300.0)
+    assert objetivos["iirrl"]["valor"] == pytest.approx(2.0)
+    assert objetivos["iirrl"]["meta_status"] == "ok"
+    assert objetivos["iirrl"]["componentes"]["total_impostos_retidos_acima_meta"] == (
+        pytest.approx(20.0)
+    )
+    assert objetivos["iirrl"]["componentes"]["total_imposto_retido"] == pytest.approx(120.0)
+    assert objetivos["itmir"]["valor"] == pytest.approx(120.0)
+    assert objetivos["itmir"]["componentes"]["total_imposto_retido"] == pytest.approx(120.0)
+
+
+def test_painel_dre_componentes_usam_mapeamento_da_geracao():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-mapeamento-geracao",
+                "2026-04-01T10:00:00",
+                "dre_mapeamento_geracao.xls",
+                "hash-dre-mapeamento-geracao",
+                2025,
+                5,
+                "completed",
+                2,
+                2,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-mapeamento-geracao",
+                    2025,
+                    5,
+                    "2025-05-10",
+                    "Receita Liquida",
+                    1000,
+                    1000,
+                    0,
+                    "(=)Receita Líquida",
+                    "ENTRADA",
+                    "Obra Mapeamento",
+                    "(=)Receita Líquida",
+                    "(=)Receita Líquida",
+                    1,
+                    "map-h1",
+                    "2026-04-01T10:00:00",
+                ),
+                (
+                    "dre-mapeamento-geracao",
+                    2025,
+                    5,
+                    "2025-05-11",
+                    "Conta irmã de consultoria",
+                    100,
+                    0,
+                    100,
+                    "3.99 - OUTRA CONSULTORIA",
+                    "SAIDA",
+                    "Obra Mapeamento",
+                    "3.99 - OUTRA CONSULTORIA",
+                    "",
+                    2,
+                    "map-h2",
+                    "2026-04-01T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2025&meses=5")
+
+    assert resp.status_code == 200
+    indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
+    assert indicadores["pel"]["status"] == "calculado"
+    assert indicadores["pel"]["valor"] == pytest.approx(100.0)
+    assert indicadores["pel"]["componentes"]["custos_fixos"] == pytest.approx(100.0)
+
+
+def test_admin_indicadores_manuais_exige_sessao_confirmacao_e_salva(monkeypatch):
+    _configurar_admin(monkeypatch)
+    db = _novo_db()
+    client = _client_com_db(db)
+
+    sem_sessao = client.get("/api/dre/admin/indicadores?ano=2025&mes=5")
+    assert sem_sessao.status_code == 401
+
+    _login_admin(client)
+    inicial = client.get("/api/dre/admin/indicadores?ano=2025&mes=5")
+    assert inicial.status_code == 200
+    assert inicial.json()["existe"] is False
+    assert inicial.json()["indicadores"]["contas_pagar"] == 0
+
+    sem_confirmar = client.post(
+        "/api/dre/admin/indicadores",
+        data={
+            "ano": "2025",
+            "mes": "5",
+            "contas_pagar": "300",
+            "contas_receber": "500",
+            "total_impostos_retidos_acima_meta": "20",
+            "total_impostos_retidos": "120",
+        },
+    )
+    assert sem_confirmar.status_code == 400
+
+    salvo = client.post(
+        "/api/dre/admin/indicadores",
+        data={
+            "ano": "2025",
+            "mes": "5",
+            "contas_pagar": "300",
+            "contas_receber": "500",
+            "total_impostos_retidos_acima_meta": "20",
+            "total_impostos_retidos": "120",
+            "confirmar": "true",
+        },
+    )
+
+    assert salvo.status_code == 200
+    assert salvo.json()["existe"] is True
+    assert salvo.json()["indicadores"]["contas_pagar"] == pytest.approx(300.0)
+    assert salvo.json()["indicadores"]["contas_receber"] == pytest.approx(500.0)
+    assert salvo.json()["indicadores"]["total_impostos_retidos"] == pytest.approx(120.0)
+
+    consulta = client.get("/api/dre/admin/indicadores?ano=2025&mes=5")
+    assert consulta.status_code == 200
+    assert consulta.json()["existe"] is True
+    assert consulta.json()["indicadores"]["total_impostos_retidos_acima_meta"] == pytest.approx(
+        20.0
+    )
 
 
 def test_painel_fluxo_vazio_retorna_kpis_zerados():
@@ -1332,7 +2253,7 @@ def test_painel_fluxo_filtra_por_banco_tipo_classificacao_e_meses():
     assert body["ranking_classificacoes"][0]["nome"] == "Receita"
 
 
-def test_painel_fluxo_retorna_cinco_contas_em_destaque_com_aliases():
+def test_painel_fluxo_retorna_cinco_contas_em_destaque_por_codigo():
     db = _novo_db()
     with db.transaction() as conn:
         conn.execute(
@@ -1483,8 +2404,8 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_com_aliases():
                     "Rateio locação e folha",
                     100,
                     None,
-                    "LOCAÇÃO COMPRESSORES (40,00%);\n\nSALARIO (60,00%);",
-                    "LOCAÇÃO COMPRESSORES (40,00%);\n\nSALARIO (60,00%);",
+                    "7.2 - LOCAÇÃO COMPRESSORES (40,00%);\n\n12.1 - SALARIO (60,00%);",
+                    "7.2 - LOCAÇÃO COMPRESSORES (40,00%);\n\n12.1 - SALARIO (60,00%);",
                     "itau",
                     "fluxo.xlsx",
                     7,
@@ -1501,8 +2422,8 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_com_aliases():
                     "Rateio fornecedores",
                     200,
                     None,
-                    "EPIS (25,00%);\n\nMATERIAIS DE CONSUMO EM OBRAS  (75,00%);",
-                    "EPIS (25,00%);\n\nMATERIAIS DE CONSUMO EM OBRAS  (75,00%);",
+                    "13.1 - EPIS (25,00%);\n\n8.9 - MATERIAIS DE CONSUMO EM OBRAS  (75,00%);",
+                    "13.1 - EPIS (25,00%);\n\n8.9 - MATERIAIS DE CONSUMO EM OBRAS  (75,00%);",
                     "itau",
                     "fluxo.xlsx",
                     8,
