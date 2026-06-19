@@ -107,11 +107,12 @@ export function MonthlyEvolutionChart({ data, countKey }) {
     return <div className="aideal-chart-empty">Sem dados para o período filtrado.</div>;
   }
 
-  // Painel DRE: Entradas já são receita líquida; as saídas do gráfico excluem
-  // impostos para manter saldo = receita líquida - saídas. Fluxo de Caixa usa brutos.
+  // Painel DRE usa a linha de Receita Líquida do DRE gerado. Fluxo de Caixa usa brutos.
   const temImpostos = data.some((item) => item?.impostos != null);
   const entradasKey = temImpostos ? 'receita_liquida' : 'credito';
   const saidasKey = temImpostos ? 'saidas_liquidas' : 'debito';
+  const entradasName = temImpostos ? 'Receita líquida' : 'Entradas';
+  const saidasName = temImpostos ? 'Saídas operacionais' : 'Saídas';
 
   return (
     <div className="aideal-chart-frame">
@@ -129,8 +130,8 @@ export function MonthlyEvolutionChart({ data, countKey }) {
           <YAxis yAxisId="count" orientation="right" hide />
           <Tooltip content={<ChartTooltip />} />
           <Legend wrapperStyle={{ color: '#a9b9c8', fontSize: 12 }} />
-          <Bar yAxisId="money" dataKey={entradasKey} name="Entradas" fill="#35c7f2" radius={[6, 6, 0, 0]} />
-          <Bar yAxisId="money" dataKey={saidasKey} name="Saídas" fill="#f01821" radius={[6, 6, 0, 0]} />
+          <Bar yAxisId="money" dataKey={entradasKey} name={entradasName} fill="#35c7f2" radius={[6, 6, 0, 0]} />
+          <Bar yAxisId="money" dataKey={saidasKey} name={saidasName} fill="#f01821" radius={[6, 6, 0, 0]} />
           <Line
             yAxisId="money"
             type="monotone"

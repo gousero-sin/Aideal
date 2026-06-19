@@ -783,10 +783,21 @@ class PainelDREService(_PainelBaseService):
             saldo_liquido,
             receita_liquida_base=total_credito,
         )
+        componentes_series = self._componentes_por_competencia(componentes_gerados)
         componentes_dre = self._aplicar_indicadores_manuais(
             componentes_dre,
             indicadores_impostos,
             indicadores_ncg,
+        )
+        receita_liquida_dre = _float(componentes_dre["receita_liquida"])
+        receita_bruta_dre = _float(componentes_dre["receita_bruta"])
+        deducoes_vendas = _float(componentes_dre["deducoes"])
+        irpj_csll = max(total_impostos - deducoes_vendas, 0)
+        series_mensais = self._series_rows(series, "lancamentos")
+        series_mensais = self._aplicar_componentes_series(
+            series_mensais,
+            componentes_series,
+            ano_ref,
         )
         return {
             "success": True,
@@ -804,6 +815,10 @@ class PainelDREService(_PainelBaseService):
             "kpis": {
                 "total_lancamentos": total_lancamentos,
                 "total_credito": total_credito,
+                "receita_bruta": receita_bruta_dre,
+                "receita_liquida": receita_liquida_dre,
+                "deducoes_vendas": deducoes_vendas,
+                "irpj_csll": irpj_csll,
                 "total_debito": total_debito,
                 "total_saidas_liquidas": total_saidas_liquidas,
                 "total_impostos": total_impostos,
@@ -815,8 +830,8 @@ class PainelDREService(_PainelBaseService):
                 "media_saida_mensal": media_saida_mensal,
                 "saldo_medio_mensal": saldo_medio_mensal,
                 "folego_caixa_meses": folego_caixa_meses,
-                "margem_resultado_percentual": _percent(saldo_liquido, total_credito),
-                "pressao_saida_percentual": _percent(total_saidas_liquidas, total_credito),
+                "margem_resultado_percentual": _percent(saldo_liquido, receita_liquida_dre),
+                "pressao_saida_percentual": _percent(total_saidas_liquidas, receita_liquida_dre),
                 "meses_analise": meses_analise,
             },
             "indicadores_manuais": self._indicadores_manuais_payload(
@@ -839,7 +854,7 @@ class PainelDREService(_PainelBaseService):
                 componentes_dre,
             ),
             "objetivos_estrategicos": self._objetivos_estrategicos(componentes_dre),
-            "series_mensais": self._series_rows(series, "lancamentos"),
+            "series_mensais": series_mensais,
             "ranking_obras": self._ranking_rows(ranking_obras, "lancamentos"),
             "ranking_naturezas": self._ranking_rows(ranking_naturezas, "lancamentos"),
             "ultimos_lancamentos": [
@@ -898,6 +913,58 @@ class PainelDREService(_PainelBaseService):
                 }
             )
         return linhas
+
+    def _componentes_por_competencia(
+        self,
+        rows: list[dict[str, Any]],
+    ) -> dict[tuple[int, int], dict[str, Any]]:
+        grupos: dict[tuple[int, int], list[dict[str, Any]]] = {}
+        creditos: dict[tuple[int, int], float] = {}
+        saldos: dict[tuple[int, int], float] = {}
+
+        for row in rows:
+            ano = self._row_get(row, "ano")
+            mes = self._row_get(row, "mes")
+            if ano is None or mes is None:
+                continue
+            key = (int(ano), int(mes))
+            grupos.setdefault(key, []).append(row)
+            credito = _float(self._row_get(row, "credito"))
+            debito = _float(self._row_get(row, "debito"))
+            creditos[key] = creditos.get(key, 0.0) + credito
+            saldos[key] = saldos.get(key, 0.0) + (credito - debito)
+
+        return {
+            key: self._componentes_dre(
+                grupo,
+                saldos.get(key, 0.0),
+                receita_liquida_base=creditos.get(key, 0.0),
+            )
+            for key, grupo in grupos.items()
+        }
+
+    @staticmethod
+    def _aplicar_componentes_series(
+        series: list[dict[str, Any]],
+        componentes_por_competencia: dict[tuple[int, int], dict[str, Any]],
+        ano_ref: int,
+    ) -> list[dict[str, Any]]:
+        atualizadas: list[dict[str, Any]] = []
+        for item in series:
+            key = (int(item.get("ano") or ano_ref), int(item["mes"]))
+            componentes = componentes_por_competencia.get(key)
+            if not componentes:
+                atualizadas.append(item)
+                continue
+            atualizadas.append(
+                {
+                    **item,
+                    "receita_bruta": _float(componentes.get("receita_bruta")),
+                    "receita_liquida": _float(componentes.get("receita_liquida")),
+                    "deducoes_vendas": _float(componentes.get("deducoes")),
+                }
+            )
+        return atualizadas
 
     @staticmethod
     def _row_to_dict(row: Any) -> dict[str, Any]:
@@ -1242,6 +1309,8 @@ class PainelDREService(_PainelBaseService):
         )
 
         return {
+            "receita_bruta": receita_bruta,
+            "deducoes": deducoes,
             "receita_liquida": receita_liquida,
             "custos_variaveis": custos_variaveis,
             "margem_contribuicao": margem_contribuicao,

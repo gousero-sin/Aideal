@@ -189,6 +189,8 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
   };
 
   const kpis = data?.kpis || {};
+  const receitaBruta = kpis.receita_bruta ?? kpis.total_credito;
+  const receitaLiquida = kpis.receita_liquida ?? kpis.total_credito;
   const filtros = data?.filtros_disponiveis || {};
   const projetoCompletoAtivo = data?.filtros_aplicados?.escopo_periodo === 'projeto_completo';
   const indicadores = Array.isArray(data?.indicadores_viabilidade)
@@ -381,10 +383,11 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
 
           <section className="aideal-insight-grid">
             <KpiCard label="Lançamentos" value={formatNumber(kpis.total_lancamentos)} detail="movimentos no filtro" icon={<FileSpreadsheet size={20} />} />
-            <KpiCard label="Entradas" value={formatCurrency(kpis.total_credito)} detail="receita líquida" tone="cyan" icon={<TrendingUp size={20} />} />
+            <KpiCard label="Receita Bruta" value={formatCurrency(receitaBruta)} detail="faturamento bruto" tone="cyan" icon={<TrendingUp size={20} />} />
+            <KpiCard label="Receita Líquida" value={formatCurrency(receitaLiquida)} detail={`deduções ${formatCurrency(kpis.deducoes_vendas)}`} tone="cyan" icon={<TrendingUp size={20} />} />
             <KpiCard label="Saídas" value={formatCurrency(kpis.total_saidas_liquidas ?? kpis.total_debito)} detail="despesas (sem impostos)" tone="red" icon={<Download size={20} />} />
-            <KpiCard label="Impostos" value={formatCurrency(kpis.total_impostos)} detail="IR, ISS, INSS, PIS, COFINS, CSLL, Tarifa" tone="orange" icon={<Receipt size={20} />} />
-            <KpiCard label="Saldo" value={formatCurrency(kpis.resultado_liquido ?? kpis.saldo_liquido)} detail="receita líquida - saídas" tone="yellow" icon={<BarChart3 size={20} />} />
+            <KpiCard label="Impostos" value={formatCurrency(kpis.total_impostos)} detail={`IRPJ/CSLL ${formatCurrency(kpis.irpj_csll)}`} tone="orange" icon={<Receipt size={20} />} />
+            <KpiCard label="Saldo" value={formatCurrency(kpis.resultado_liquido ?? kpis.saldo_liquido)} detail="resultado líquido do DRE" tone="yellow" icon={<BarChart3 size={20} />} />
             <KpiCard label="Fôlego" value={formatMonths(kpis.folego_caixa_meses)} detail="saldo / média de saídas" tone="cyan" icon={<Gauge size={20} />} />
           </section>
 

@@ -598,6 +598,16 @@ def test_painel_dre_reproduz_receita_liquida_recomposta_do_dre_gerado():
     assert indicadores["ebitda"]["valor"] == pytest.approx(550.0)
     assert indicadores["ebitda"]["percentual"] == pytest.approx(550 / 850 * 100)
 
+    body = resp.json()
+    assert body["kpis"]["receita_bruta"] == pytest.approx(930.0)
+    assert body["kpis"]["receita_liquida"] == pytest.approx(850.0)
+    assert body["kpis"]["deducoes_vendas"] == pytest.approx(80.0)
+    assert body["kpis"]["irpj_csll"] == pytest.approx(150.0)
+    assert body["kpis"]["margem_resultado_percentual"] == pytest.approx(400 / 850 * 100)
+    assert body["kpis"]["pressao_saida_percentual"] == pytest.approx(300 / 850 * 100)
+    assert body["series_mensais"][0]["receita_bruta"] == pytest.approx(930.0)
+    assert body["series_mensais"][0]["receita_liquida"] == pytest.approx(850.0)
+
 
 def test_painel_dre_ebitda_usa_margem_contribuicao_explicita_quando_sem_resultado_operacional():
     db = _novo_db()
@@ -1066,7 +1076,9 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
             "credito": 1000.0,
             "debito": 500.0,
             "impostos": 0.0,
+            "receita_bruta": 1000.0,
             "receita_liquida": 1000.0,
+            "deducoes_vendas": 0.0,
             "saidas_liquidas": 500.0,
             "saldo": 500.0,
             "lancamentos": 3,
@@ -1079,7 +1091,9 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
             "credito": 2000.0,
             "debito": 1350.0,
             "impostos": 200.0,
+            "receita_bruta": 2200.0,
             "receita_liquida": 2000.0,
+            "deducoes_vendas": 200.0,
             "saidas_liquidas": 1150.0,
             "saldo": 850.0,
             "lancamentos": 6,
