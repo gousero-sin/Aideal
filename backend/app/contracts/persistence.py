@@ -209,6 +209,36 @@ class DREIndicadoresManuais(BaseModel):
         )
 
 
+class FluxoIndicadoresManuais(BaseModel):
+    """Indicadores do Fluxo de Caixa informados manualmente por ano."""
+
+    id: int | None = Field(None, description="ID auto-incrementado no banco")
+    competencia_ano: int = Field(..., ge=2000, le=2100)
+    saldo_ano_anterior: Decimal = Field(default=Decimal("0"))
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+
+    def model_to_db(self) -> tuple:
+        """Converte modelo para tupla de upsert no banco."""
+        return (
+            self.competencia_ano,
+            float(self.saldo_ano_anterior),
+            self.created_at.isoformat(),
+            self.updated_at.isoformat(),
+        )
+
+    @classmethod
+    def from_db_row(cls, row: Any) -> "FluxoIndicadoresManuais":
+        """Cria instância a partir de row do banco."""
+        return cls(
+            id=row["id"],
+            competencia_ano=row["competencia_ano"],
+            saldo_ano_anterior=Decimal(str(row["saldo_ano_anterior"])),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+        )
+
+
 class FluxoUpload(BaseModel):
     """Registro de upload de arquivo do Fluxo de Caixa."""
 

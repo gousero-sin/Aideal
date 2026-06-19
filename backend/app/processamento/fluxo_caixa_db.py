@@ -10,6 +10,7 @@ from ..contracts.common import FlowType
 from ..contracts.fluxo_caixa import FCLote, TipoMovimento
 from ..db.connection import DatabaseConnection
 from ..exportacao.exporter import Exporter
+from ..repository.fluxo_indicadores_manuais import FluxoIndicadoresManuaisRepository
 from ..repository.fluxo_repository import FluxoCaixaRepository
 from .fluxo_caixa import FluxoCaixaProcessamentoService
 
@@ -27,6 +28,7 @@ class FluxoCaixaGeracaoService:
     ):
         self.db = db or DatabaseConnection()
         self.repository = FluxoCaixaRepository(self.db)
+        self.indicadores_manuais = FluxoIndicadoresManuaisRepository(self.db)
         self.template_path = Path(template_path) if template_path else settings.template_fluxo_path
         self.exporter = Exporter(
             base_dir=settings.base_dir,
@@ -137,6 +139,10 @@ class FluxoCaixaGeracaoService:
         meses_utilizados = list(verificacao["meses_utilizados"])
         movimentos_db = self.repository.movimentos.get_by_meses(ano, meses_utilizados)
         movimentos = [mov.to_movimento() for mov in movimentos_db]
+        indicadores_manuais = self.indicadores_manuais.get_by_ano(ano)
+        saldo_ano_anterior = (
+            indicadores_manuais.saldo_ano_anterior if indicadores_manuais else None
+        )
         lote = FCLote(
             periodo=competencia,
             arquivos_origem=sorted(
@@ -156,6 +162,7 @@ class FluxoCaixaGeracaoService:
             output_path,
             meses_visiveis=meses_utilizados,
             preservar_historico=False,
+            saldo_ano_anterior=saldo_ano_anterior,
         )
 
         total_creditos = sum(mov.valor for mov in movimentos if mov.tipo == TipoMovimento.CREDITO)
@@ -171,6 +178,10 @@ class FluxoCaixaGeracaoService:
             "total_creditos": float(total_creditos),
             "total_debitos": float(total_debitos),
             "saldo_liquido": float(total_creditos - total_debitos),
+            "saldo_ano_anterior": float(saldo_ano_anterior or 0),
+            "saldo_com_ano_anterior": float(
+                (saldo_ano_anterior or 0) + total_creditos - total_debitos
+            ),
             "total_creditos_apresentacao": totais_saida["creditos"],
             "total_debitos_apresentacao": totais_saida["debitos"],
             "saldo_liquido_apresentacao": totais_saida["saldo_liquido"],

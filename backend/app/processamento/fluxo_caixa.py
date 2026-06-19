@@ -45,6 +45,7 @@ _MESES_NOMES = [
     "Dezembro",
 ]
 _EMPRESA_PADRAO = "A IDEAL"
+_SALDO_ANO_ANTERIOR_LABEL = "Saldo do Ano Anterior"
 _BANCO_ROTULOS = {
     "cef": "CEF",
     "itau": "ITAU",
@@ -259,6 +260,7 @@ class FluxoCaixaProcessamentoService:
         output_path: Path,
         meses_visiveis: list[int] | None = None,
         preservar_historico: bool = True,
+        saldo_ano_anterior: Decimal | None = None,
     ) -> dict[str, float]:
         with TemplateWriter(self.template_path) as writer:
             ws = writer._wb["Consolidado"]
@@ -279,6 +281,22 @@ class FluxoCaixaProcessamentoService:
                 linhas.append(
                     self._normalizar_linha_consolidado(
                         linha,
+                        row_number=1 + len(linhas) + 1,
+                    )
+                )
+
+            if saldo_ano_anterior and saldo_ano_anterior != Decimal("0"):
+                meses_saldo_validos = (
+                    sorted(int(mes) for mes in meses_visiveis if 1 <= int(mes) <= 12)
+                    if meses_visiveis
+                    else []
+                )
+                mes_saldo_ano_anterior = meses_saldo_validos[0] if meses_saldo_validos else 1
+                linhas.append(
+                    self._linha_saldo_ano_anterior(
+                        periodo[1] if periodo else date.today().year,
+                        mes_saldo_ano_anterior,
+                        saldo_ano_anterior,
                         row_number=1 + len(linhas) + 1,
                     )
                 )
@@ -304,6 +322,7 @@ class FluxoCaixaProcessamentoService:
                 writer._modified_sheets.add("Consolidado")
 
             self._recalcular_aba_apoio_fluxo(writer, linhas)
+            self._garantir_saldo_ano_anterior_no_fluxo(writer)
             if meses_visiveis:
                 self._aplicar_visibilidade_meses(writer, meses_visiveis)
             self._limpar_marcadores_apresentacao(writer)
@@ -360,6 +379,27 @@ class FluxoCaixaProcessamentoService:
             f"=INDEX(mês[],Consolidado!H{row_number},2)",  # I - Mês
             self._rotulo_banco(movimento.banco_origem),  # J - Banco
             _EMPRESA_PADRAO,  # K - Empresa
+        ]
+
+    def _linha_saldo_ano_anterior(
+        self,
+        ano: int,
+        mes: int,
+        saldo_ano_anterior: Decimal,
+        row_number: int,
+    ) -> list:
+        return [
+            date(ano, mes, 1),
+            _SALDO_ANO_ANTERIOR_LABEL,
+            float(saldo_ano_anterior),
+            None,
+            float(saldo_ano_anterior),
+            _SALDO_ANO_ANTERIOR_LABEL,
+            f"=YEAR(A{row_number})",
+            f"=MONTH(A{row_number})",
+            f"=INDEX(mês[],Consolidado!H{row_number},2)",
+            "MANUAL",
+            _EMPRESA_PADRAO,
         ]
 
     def _classificacao_canonica(
@@ -544,6 +584,71 @@ class FluxoCaixaProcessamentoService:
     @staticmethod
     def _float_ou_vazio(valor: Decimal):
         return None if valor == Decimal("0") else float(valor)
+
+    def _garantir_saldo_ano_anterior_no_fluxo(self, writer: TemplateWriter) -> None:
+        wb = writer._wb
+        if wb is None or "Fluxo de Caixa " not in wb.sheetnames:
+            return
+
+        ws = wb["Fluxo de Caixa "]
+        linha_grupo = self._encontrar_linha_rotulo(ws, "(+) SALDO INICIAL", coluna=2)
+        if not linha_grupo:
+            return
+
+        linha_saldo = self._encontrar_linha_rotulo(
+            ws,
+            _SALDO_ANO_ANTERIOR_LABEL,
+            coluna=3,
+        ) or linha_grupo + 1
+        linha_fim = self._fim_bloco_saldo_inicial(ws, linha_grupo, linha_saldo)
+
+        ws.cell(row=linha_saldo, column=3, value=_SALDO_ANO_ANTERIOR_LABEL)
+        for col in range(4, 16):
+            col_letter = get_column_letter(col)
+            ws.cell(
+                row=linha_saldo,
+                column=col,
+                value=(
+                    "=IFERROR("
+                    f"INDEX(Apoio!$B:$AB,MATCH($C{linha_saldo},Apoio!$B:$B,0),"
+                    f"MATCH('Fluxo de Caixa '!{col_letter}$5,Apoio!$B$4:$AB$4,0))"
+                    ",0)"
+                ),
+            )
+            ws.cell(
+                row=linha_grupo,
+                column=col,
+                value=f"=SUM({col_letter}{linha_saldo}:{col_letter}{linha_fim})",
+            )
+
+        ws.cell(row=linha_saldo, column=17, value=f"=SUM(D{linha_saldo}:O{linha_saldo})")
+        ws.cell(row=linha_grupo, column=17, value=f"=SUM(Q{linha_saldo}:Q{linha_fim})")
+        writer._modified_sheets.add("Fluxo de Caixa ")
+
+    @staticmethod
+    def _encontrar_linha_rotulo(ws, rotulo: str, coluna: int) -> int | None:
+        chave = FluxoCaixaProcessamentoService._normalizar_chave_classificacao(rotulo)
+        for row in range(1, ws.max_row + 1):
+            valor = ws.cell(row=row, column=coluna).value
+            if FluxoCaixaProcessamentoService._normalizar_chave_classificacao(valor) == chave:
+                return row
+        return None
+
+    @staticmethod
+    def _fim_bloco_saldo_inicial(ws, linha_grupo: int, linha_saldo: int) -> int:
+        formula = ws.cell(row=linha_grupo, column=4).value
+        if isinstance(formula, str):
+            match = re.search(r":\$?[A-Z]+\$?(\d+)", formula)
+            if match:
+                return max(linha_saldo, int(match.group(1)))
+
+        linha_fim = linha_saldo
+        for row in range(linha_saldo + 1, min(ws.max_row, linha_saldo + 40) + 1):
+            if ws.cell(row=row, column=3).value:
+                linha_fim = row
+                continue
+            break
+        return linha_fim
 
     def _aplicar_visibilidade_meses(
         self,

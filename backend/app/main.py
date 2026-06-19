@@ -34,7 +34,7 @@ from .auth import (
 )
 from .config import settings
 from .contracts.common import FlowType
-from .contracts.persistence import DREIndicadoresManuais
+from .contracts.persistence import DREIndicadoresManuais, FluxoIndicadoresManuais
 from .contracts.processamento import DREProcessamentoResponse
 from .db.connection import db
 from .db.manager import run_migrations
@@ -213,6 +213,22 @@ def _payload_indicadores_manuais(
                 registro.total_impostos_retidos_acima_meta
             ),
             "total_impostos_retidos": float(registro.total_impostos_retidos),
+        },
+        "created_at": registro.created_at.isoformat() if existe else None,
+        "updated_at": registro.updated_at.isoformat() if existe else None,
+    }
+
+
+def _payload_indicadores_manuais_fluxo(
+    registro: FluxoIndicadoresManuais,
+    existe: bool,
+) -> dict:
+    return {
+        "success": True,
+        "existe": existe,
+        "ano": registro.competencia_ano,
+        "indicadores": {
+            "saldo_ano_anterior": float(registro.saldo_ano_anterior),
         },
         "created_at": registro.created_at.isoformat() if existe else None,
         "updated_at": registro.updated_at.isoformat() if existe else None,
@@ -942,6 +958,39 @@ async def salvar_indicadores_manuais_dre(
     )
     salvo = dre_painel_service.indicadores_manuais.upsert(registro)
     return _payload_indicadores_manuais(salvo, True)
+
+
+@app.get("/api/fluxo_caixa/admin/indicadores", dependencies=[Depends(require_admin_session)])
+async def consultar_indicadores_manuais_fluxo(
+    ano: int = Query(..., description="Ano de referência do Fluxo de Caixa"),
+):
+    """Consulta indicadores manuais anuais do Fluxo de Caixa na ADM."""
+    _validar_competencia_admin(ano, 1)
+    registro = fluxo_painel_service.indicadores_manuais.get_by_ano(ano)
+    existe = registro is not None
+    if registro is None:
+        registro = FluxoIndicadoresManuais(competencia_ano=ano)
+    return _payload_indicadores_manuais_fluxo(registro, existe)
+
+
+@app.post("/api/fluxo_caixa/admin/indicadores", dependencies=[Depends(require_admin_session)])
+async def salvar_indicadores_manuais_fluxo(
+    ano: int = Form(..., description="Ano de referência do Fluxo de Caixa"),
+    saldo_ano_anterior: float = Form(0, description="Saldo do ano anterior"),
+    confirmar: bool = Form(False, description="Confirmação explícita do salvamento"),
+):
+    """Salva ou atualiza indicadores manuais anuais do Fluxo de Caixa."""
+    _exigir_confirmacao(confirmar)
+    _validar_competencia_admin(ano, 1)
+    registro = FluxoIndicadoresManuais(
+        competencia_ano=ano,
+        saldo_ano_anterior=_valor_monetario_admin(
+            "Saldo do ano anterior",
+            saldo_ano_anterior,
+        ),
+    )
+    salvo = fluxo_painel_service.indicadores_manuais.upsert(registro)
+    return _payload_indicadores_manuais_fluxo(salvo, True)
 
 
 # ============================================================================

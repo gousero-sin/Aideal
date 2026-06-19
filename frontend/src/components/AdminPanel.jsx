@@ -9,6 +9,7 @@ import {
   WalletCards,
 } from 'lucide-react';
 import DREIndicatorsAdminPanel from './DREIndicatorsAdminPanel';
+import FluxoIndicatorsAdminPanel from './FluxoIndicatorsAdminPanel';
 import { PanelHero, PanelSkeleton } from './PanelShared';
 import StatusPanel from './StatusPanel';
 import UploadPanel from './UploadPanel';
@@ -23,6 +24,7 @@ const adminFlows = [
   { id: 'dre', label: 'DRE', icon: <BarChart3 size={16} aria-hidden="true" /> },
   { id: 'fluxo_caixa', label: 'Fluxo de Caixa', icon: <WalletCards size={16} aria-hidden="true" /> },
   { id: 'indicadores_dre', label: 'Indicadores DRE', icon: <Receipt size={16} aria-hidden="true" /> },
+  { id: 'indicadores_fluxo', label: 'Indicadores Fluxo', icon: <WalletCards size={16} aria-hidden="true" /> },
 ];
 
 const emptyLogin = {
@@ -277,6 +279,12 @@ export default function AdminPanel({ apiBase, onNotify, onBusyChange }) {
 
       {activeFlow === 'indicadores_dre' ? (
         <DREIndicatorsAdminPanel
+          apiBase={apiBase}
+          onNotify={onNotify}
+          onBusyChange={setOperationBusy}
+        />
+      ) : activeFlow === 'indicadores_fluxo' ? (
+        <FluxoIndicatorsAdminPanel
           apiBase={apiBase}
           onNotify={onNotify}
           onBusyChange={setOperationBusy}

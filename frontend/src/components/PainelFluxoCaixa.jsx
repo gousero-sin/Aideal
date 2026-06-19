@@ -274,6 +274,14 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
             <KpiCard label="Entradas" value={formatCurrency(kpis.total_creditos)} detail="créditos bancários" tone="cyan" icon={<TrendingUp size={20} />} />
             <KpiCard label="Saídas" value={formatCurrency(kpis.total_debitos)} detail="débitos bancários" tone="red" icon={<TrendingDown size={20} />} />
             <KpiCard label="Saldo" value={formatCurrency(kpis.saldo_liquido)} detail="posição líquida" tone="yellow" icon={<WalletCards size={20} />} />
+            <KpiCard label="Saldo ano ant." value={formatCurrency(kpis.saldo_ano_anterior)} detail="base manual anual" icon={<WalletCards size={20} />} />
+            <KpiCard
+              label="Saldo final"
+              value={formatSignedCurrency(kpis.saldo_com_ano_anterior)}
+              detail="saldo anterior + posição"
+              tone={Number(kpis.saldo_com_ano_anterior || 0) >= 0 ? 'cyan' : 'red'}
+              icon={<WalletCards size={20} />}
+            />
             <KpiCard label="Bancos" value={formatNumber(kpis.total_bancos)} detail="origens bancárias" icon={<Landmark size={20} />} />
           </section>
 

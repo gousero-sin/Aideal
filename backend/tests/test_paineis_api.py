@@ -340,7 +340,7 @@ def test_painel_dre_calcula_saldo_com_receita_liquida_sem_descontar_impostos_dua
     assert body["filtros_disponiveis"]["centro_custo"][0]["saldo"] == 445525.0
 
 
-def test_painel_dre_margem_contribuicao_usa_credito_liquido_sem_deduzir_impostos():
+def test_painel_dre_margem_contribuicao_usa_receita_liquida_do_dre_gerado():
     db = _novo_db()
     with db.transaction() as conn:
         conn.execute(
@@ -435,10 +435,168 @@ def test_painel_dre_margem_contribuicao_usa_credito_liquido_sem_deduzir_impostos
 
     assert resp.status_code == 200
     indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
-    assert indicadores["mcl"]["valor"] == pytest.approx(800.0)
-    assert indicadores["mcl"]["percentual"] == pytest.approx(80.0)
-    assert indicadores["mcl"]["componentes"]["receita_liquida"] == pytest.approx(1000.0)
+    assert indicadores["mcl"]["valor"] == pytest.approx(1100.0)
+    assert indicadores["mcl"]["percentual"] == pytest.approx(1100 / 1300 * 100)
+    assert indicadores["mcl"]["componentes"]["receita_liquida"] == pytest.approx(1300.0)
     assert indicadores["mcl"]["componentes"]["custos_despesas_variaveis"] == pytest.approx(200.0)
+
+
+def test_painel_dre_reproduz_receita_liquida_recomposta_do_dre_gerado():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-receita-recomposta",
+                "2026-08-01T10:00:00",
+                "dre_receita_recomposta.xls",
+                "hash-dre-receita-recomposta",
+                2026,
+                8,
+                "completed",
+                6,
+                6,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-receita-recomposta",
+                    2026,
+                    8,
+                    "2026-08-10",
+                    "Faturamento líquido",
+                    700,
+                    700,
+                    0,
+                    "1.1.1 - Recebimento de Clientes",
+                    "ENTRADA",
+                    "Obra Receita Recomposta",
+                    "Faturamento",
+                    "",
+                    1,
+                    "recomposta-h1",
+                    "2026-08-01T10:00:00",
+                ),
+                (
+                    "dre-receita-recomposta",
+                    2026,
+                    8,
+                    "2026-08-10",
+                    "ISS retido",
+                    80,
+                    0,
+                    80,
+                    "ISS",
+                    "SAIDA",
+                    "Obra Receita Recomposta",
+                    "ISS",
+                    "",
+                    2,
+                    "recomposta-h2",
+                    "2026-08-01T10:00:00",
+                ),
+                (
+                    "dre-receita-recomposta",
+                    2026,
+                    8,
+                    "2026-08-10",
+                    "IR retido",
+                    100,
+                    0,
+                    100,
+                    "IR",
+                    "SAIDA",
+                    "Obra Receita Recomposta",
+                    "IR",
+                    "",
+                    3,
+                    "recomposta-h3",
+                    "2026-08-01T10:00:00",
+                ),
+                (
+                    "dre-receita-recomposta",
+                    2026,
+                    8,
+                    "2026-08-10",
+                    "CSLL retida",
+                    50,
+                    0,
+                    50,
+                    "CSLL",
+                    "SAIDA",
+                    "Obra Receita Recomposta",
+                    "CSLL",
+                    "",
+                    4,
+                    "recomposta-h4",
+                    "2026-08-01T10:00:00",
+                ),
+                (
+                    "dre-receita-recomposta",
+                    2026,
+                    8,
+                    "2026-08-11",
+                    "Custo variável",
+                    200,
+                    0,
+                    200,
+                    "4.1 - TINTAS E SOLVENTES",
+                    "SAIDA",
+                    "Obra Receita Recomposta",
+                    "4.1 - TINTAS E SOLVENTES",
+                    "",
+                    5,
+                    "recomposta-h5",
+                    "2026-08-01T10:00:00",
+                ),
+                (
+                    "dre-receita-recomposta",
+                    2026,
+                    8,
+                    "2026-08-12",
+                    "Gasto fixo",
+                    100,
+                    0,
+                    100,
+                    "12.1 - SALARIO",
+                    "SAIDA",
+                    "Obra Receita Recomposta",
+                    "12.1 - SALARIO",
+                    "",
+                    6,
+                    "recomposta-h6",
+                    "2026-08-01T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get(
+        "/api/dre/painel?ano=2026&meses=8&centro_custo=Obra%20Receita%20Recomposta"
+    )
+
+    assert resp.status_code == 200
+    indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
+    assert indicadores["mcl"]["componentes"]["receita_liquida"] == pytest.approx(850.0)
+    assert indicadores["mcl"]["valor"] == pytest.approx(650.0)
+    assert indicadores["mcl"]["percentual"] == pytest.approx(650 / 850 * 100)
+    assert indicadores["ebitda"]["valor"] == pytest.approx(550.0)
+    assert indicadores["ebitda"]["percentual"] == pytest.approx(550 / 850 * 100)
 
 
 def test_painel_dre_ebitda_usa_margem_contribuicao_explicita_quando_sem_resultado_operacional():
@@ -1069,19 +1227,19 @@ def test_painel_dre_indicadores_usam_contas_filhas_do_template_e_gasto_total_par
 
     assert resp.status_code == 200
     indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
-    assert indicadores["mcl"]["valor"] == pytest.approx(700.0)
+    assert indicadores["mcl"]["valor"] == pytest.approx(800.0)
     assert indicadores["pel"]["status"] == "calculado"
-    assert indicadores["pel"]["valor"] == pytest.approx(200 / 0.7)
-    assert indicadores["ebitda"]["percentual"] == pytest.approx(500 / 1000 * 100)
+    assert indicadores["pel"]["valor"] == pytest.approx(200 / (800 / 1100))
+    assert indicadores["ebitda"]["percentual"] == pytest.approx(600 / 1100 * 100)
     assert indicadores["roi"]["status"] == "calculado"
     assert indicadores["roi"]["valor"] == pytest.approx((500 / 300) * 100)
     assert indicadores["roi"]["componentes"]["lucro_liquido"] == pytest.approx(500.0)
     assert indicadores["roi"]["componentes"]["investimento_total"] == pytest.approx(300.0)
 
     objetivos = {item["id"]: item for item in resp.json()["objetivos_estrategicos"]}
-    assert objetivos["ifsrl"]["valor"] == pytest.approx(200 / 1000 * 100)
+    assert objetivos["ifsrl"]["valor"] == pytest.approx(200 / 1100 * 100)
     assert objetivos["ifsrl"]["meta_status"] == "ok"
-    assert objetivos["iefp"]["valor"] == pytest.approx(1000 / 200)
+    assert objetivos["iefp"]["valor"] == pytest.approx(1100 / 200)
     assert objetivos["iefp"]["meta_status"] == "ok"
     assert objetivos["iirrl"]["status"] == "indisponivel"
     assert objetivos["itmir"]["componentes_faltantes"] == ["Total de Imposto Retido"]
@@ -2128,6 +2286,50 @@ def test_admin_indicadores_manuais_exige_sessao_confirmacao_e_salva(monkeypatch)
     assert consulta.json()["indicadores"]["total_impostos_retidos_acima_meta"] == pytest.approx(
         20.0
     )
+
+
+def test_admin_indicadores_manuais_fluxo_exige_sessao_confirmacao_e_alimenta_painel(
+    monkeypatch,
+):
+    _configurar_admin(monkeypatch)
+    db = _novo_db()
+    client = _client_com_db(db)
+
+    sem_sessao = client.get("/api/fluxo_caixa/admin/indicadores?ano=2025")
+    assert sem_sessao.status_code == 401
+
+    _login_admin(client)
+    inicial = client.get("/api/fluxo_caixa/admin/indicadores?ano=2025")
+    assert inicial.status_code == 200
+    assert inicial.json()["existe"] is False
+    assert inicial.json()["indicadores"]["saldo_ano_anterior"] == 0
+
+    sem_confirmar = client.post(
+        "/api/fluxo_caixa/admin/indicadores",
+        data={"ano": "2025", "saldo_ano_anterior": "4321.98"},
+    )
+    assert sem_confirmar.status_code == 400
+
+    salvo = client.post(
+        "/api/fluxo_caixa/admin/indicadores",
+        data={
+            "ano": "2025",
+            "saldo_ano_anterior": "4321.98",
+            "confirmar": "true",
+        },
+    )
+
+    assert salvo.status_code == 200
+    assert salvo.json()["existe"] is True
+    assert salvo.json()["indicadores"]["saldo_ano_anterior"] == pytest.approx(4321.98)
+
+    painel = client.get("/api/fluxo_caixa/painel?ano=2025")
+    assert painel.status_code == 200
+    body = painel.json()
+    assert body["indicadores_manuais"]["existe"] is True
+    assert body["indicadores_manuais"]["saldo_ano_anterior"] == pytest.approx(4321.98)
+    assert body["kpis"]["saldo_ano_anterior"] == pytest.approx(4321.98)
+    assert body["kpis"]["saldo_com_ano_anterior"] == pytest.approx(4321.98)
 
 
 def test_painel_fluxo_vazio_retorna_kpis_zerados():

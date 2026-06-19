@@ -11,6 +11,7 @@ from typing import Any
 from ..config import settings
 from ..db.connection import DatabaseConnection
 from ..repository.dre_indicadores_manuais import DREIndicadoresManuaisRepository
+from ..repository.fluxo_indicadores_manuais import FluxoIndicadoresManuaisRepository
 from ..templates.writer import TemplateWriter
 from .dre_geracao_completa import DREGeracaoCompletaService, _extrair_codigo_gerencial
 
@@ -340,6 +341,25 @@ class PainelDREService(_PainelBaseService):
     COMPONENTES_DRE_CODIGOS_EXPLICITOS = {
         "folha_pagamento": frozenset(("12.100", "12.101")),
     }
+    RECEITA_BRUTA_RECOMPOSICAO_ALIASES = _alias_set(
+        [
+            "(-)Deduções sobre vendas",
+            "Impostos sobre vendas",
+            "Descontos sobre vendas",
+            "Simples Nacional",
+            "IR",
+            "IR Retido",
+            "ISS",
+            "ISS Retido",
+            "INSS",
+            "INSS Retido",
+            "Tarifa de Antecipação",
+            "PIS",
+            "COFINS",
+            "CSLL",
+            "ICMS",
+        ]
+    )
     COMPONENTES_DRE = {
         "receita_bruta": _alias_set(
             ["(=)Receita Bruta", "Faturamento", "Recebimento de Clientes", "Receita Bruta"]
@@ -691,6 +711,7 @@ class PainelDREService(_PainelBaseService):
                 SELECT
                     competencia_ano AS ano,
                     competencia_mes AS mes,
+                    valor_bruto,
                     credito,
                     debito,
                     natureza_raw,
@@ -843,7 +864,8 @@ class PainelDREService(_PainelBaseService):
         try:
             with TemplateWriter(settings.template_dre_path) as writer:
                 self._plano_contas_gerado_cache = DREGeracaoCompletaService._ler_plano_contas(
-                    writer
+                    writer,
+                    aplicar_overrides_dre_gerado=True,
                 )
         except Exception as exc:
             logger.warning("Não foi possível ler PLANO_CONTAS do DRE gerado: %s", exc)
@@ -871,6 +893,8 @@ class PainelDREService(_PainelBaseService):
                     "conta_filho": conta_filho or base.get("conta_filho"),
                     "conta_pai": conta_pai or base.get("conta_pai"),
                     "codigo_conta": codigo_conta,
+                    "_plano_contas_resolvido": bool(rubrica or conta_filho or conta_pai),
+                    "_plano_contas_cod": _cod,
                 }
             )
         return linhas
@@ -1146,17 +1170,17 @@ class PainelDREService(_PainelBaseService):
         saldo_liquido: float,
         receita_liquida_base: float | None = None,
     ) -> dict[str, Any]:
-        receita_bruta, tem_receita_bruta = self._somar_componente(rows, "receita_bruta")
+        receita_bruta, tem_receita_bruta = self._somar_receita_bruta(rows)
         deducoes, _ = self._somar_componente(rows, "deducoes", absoluto=True)
         receita_liquida_explicita, tem_receita_liquida = self._somar_componente(
             rows, "receita_liquida"
         )
         if tem_receita_liquida:
             receita_liquida = receita_liquida_explicita
-        elif receita_liquida_base is not None:
-            receita_liquida = _float(receita_liquida_base)
         elif tem_receita_bruta:
             receita_liquida = receita_bruta - deducoes
+        elif receita_liquida_base is not None:
+            receita_liquida = _float(receita_liquida_base)
         else:
             receita_liquida = _float(saldo_liquido)
         custos_variaveis, _ = self._somar_componente(rows, "custos_variaveis", absoluto=True)
@@ -1273,14 +1297,49 @@ class PainelDREService(_PainelBaseService):
             total += abs(valor) if absoluto else valor
         return total, encontrado
 
+    def _somar_receita_bruta(self, rows: list[Any]) -> tuple[float, bool]:
+        receita_bruta_informada = 0.0
+        faturamento_liquido = 0.0
+        deducoes_receita = 0.0
+        encontrado = False
+
+        for row in rows:
+            credito = _float(self._row_get(row, "credito"))
+            debito = _float(self._row_get(row, "debito"))
+            valor = credito - debito
+
+            if self._row_dre_matches(row, self.COMPONENTES_DRE["receita_bruta"], "receita_bruta"):
+                encontrado = True
+                valor_bruto = _float(self._row_get(row, "valor_bruto"))
+                receita_bruta_informada += max(valor_bruto, credito, valor)
+                faturamento_liquido += valor
+                continue
+
+            if debito > 0 and self._row_recompoe_receita_bruta(row):
+                deducoes_receita += debito
+
+        receita_bruta_recomposta = faturamento_liquido + deducoes_receita
+        return max(receita_bruta_informada, receita_bruta_recomposta), encontrado
+
+    @staticmethod
+    def _row_recompoe_receita_bruta(row: Any) -> bool:
+        valores = [
+            PainelDREService._row_get(row, "conta_pai"),
+            PainelDREService._row_get(row, "conta_filho"),
+            PainelDREService._row_get(row, "rubrica"),
+            PainelDREService._row_get(row, "natureza_raw"),
+            PainelDREService._row_get(row, "natureza_norm"),
+        ]
+        return any(
+            _normalizar_chave_conta(valor)
+            in PainelDREService.RECEITA_BRUTA_RECOMPOSICAO_ALIASES
+            for valor in valores
+        )
+
     @staticmethod
     def _row_dre_matches(row: Any, aliases: set[str], componente: str) -> bool:
         codigo_conta = PainelDREService._codigo_conta_row(row)
-        if (
-            componente in PainelDREService.COMPONENTES_DRE_COM_CODIGO_OBRIGATORIO
-            and not codigo_conta
-        ):
-            return False
+        resolvido_plano = bool(PainelDREService._row_get(row, "_plano_contas_resolvido"))
 
         codigos_explicitos = PainelDREService.COMPONENTES_DRE_CODIGOS_EXPLICITOS.get(
             componente, frozenset()
@@ -1296,7 +1355,14 @@ class PainelDREService(_PainelBaseService):
             if conta_pai not in contas_pai_estritas:
                 return False
             if componente in {"deducoes", "custos_variaveis", "gastos_fixos", "depreciacao"}:
-                return True
+                return bool(codigo_conta or resolvido_plano)
+
+        if (
+            componente in PainelDREService.COMPONENTES_DRE_COM_CODIGO_OBRIGATORIO
+            and not codigo_conta
+            and not resolvido_plano
+        ):
+            return False
 
         valores = [
             PainelDREService._row_get(row, "conta_pai"),
@@ -1591,6 +1657,10 @@ class PainelDREService(_PainelBaseService):
 
 class PainelFluxoCaixaService(_PainelBaseService):
     """Agrega KPIs, séries e slicers web para Fluxo de Caixa."""
+
+    def __init__(self, db: DatabaseConnection | None = None) -> None:
+        super().__init__(db)
+        self.indicadores_manuais = FluxoIndicadoresManuaisRepository(self.db)
 
     BANCO_EXPR = "COALESCE(NULLIF(TRIM(banco_origem), ''), 'Sem banco')"
     TIPO_EXPR = "COALESCE(NULLIF(TRIM(tipo), ''), 'sem_tipo')"
@@ -1917,10 +1987,15 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 ),
             }
 
+            indicadores_manuais = self.indicadores_manuais.get_by_ano(ano_ref, conn)
+
         total_movimentos = int(kpis["total_movimentos"] or 0)
         total_creditos = _float(kpis["total_creditos"])
         total_debitos = _float(kpis["total_debitos"])
         saldo_liquido = _float(kpis["saldo_liquido"])
+        saldo_ano_anterior = (
+            float(indicadores_manuais.saldo_ano_anterior) if indicadores_manuais else 0
+        )
         contas_destaque = self._contas_destaque(contas_destaque_rows, total_debitos)
         return {
             "success": True,
@@ -1938,6 +2013,8 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 "total_creditos": total_creditos,
                 "total_debitos": total_debitos,
                 "saldo_liquido": saldo_liquido,
+                "saldo_ano_anterior": saldo_ano_anterior,
+                "saldo_com_ano_anterior": saldo_ano_anterior + saldo_liquido,
                 "total_bancos": int(kpis["total_bancos"] or 0),
                 "total_classificacoes": int(kpis["total_classificacoes"] or 0),
                 "ticket_medio": (
@@ -1950,6 +2027,10 @@ class PainelFluxoCaixaService(_PainelBaseService):
             "contas_destaque": contas_destaque,
             "equilibrio_contas_destaque": self._equilibrio_contas_destaque(
                 contas_destaque, total_creditos, total_debitos, saldo_liquido
+            ),
+            "indicadores_manuais": self._indicadores_manuais_payload(
+                indicadores_manuais,
+                ano_ref,
             ),
             "movimentos_recentes": [
                 {
@@ -1964,6 +2045,21 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 }
                 for row in recentes
             ],
+        }
+
+    @staticmethod
+    def _indicadores_manuais_payload(
+        indicadores: Any | None,
+        ano: int,
+    ) -> dict[str, Any]:
+        return {
+            "existe": indicadores is not None,
+            "ano": ano,
+            "saldo_ano_anterior": (
+                float(indicadores.saldo_ano_anterior) if indicadores else 0
+            ),
+            "created_at": indicadores.created_at.isoformat() if indicadores else None,
+            "updated_at": indicadores.updated_at.isoformat() if indicadores else None,
         }
 
     def _contas_destaque(self, rows: list[Any], total_debitos: float) -> list[dict[str, Any]]:
