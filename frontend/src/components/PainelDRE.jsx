@@ -25,7 +25,7 @@ import {
 import { FilterDock, MonthSlicer, SearchableSlicer, YearSelect } from './PanelSlicers';
 import {
   buildFilterSummary,
-  buildPanelQuery,
+  buildDREPanelQuery,
   countSelectedFilters,
   formatCurrency,
   formatDecimal,
@@ -145,16 +145,7 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const obraSelecionada = filters.centro_custo.length > 0;
-  const panelFilters = useMemo(
-    () => (
-      obraSelecionada
-        ? { ...filters, escopo_periodo: 'projeto_completo' }
-        : filters
-    ),
-    [filters, obraSelecionada],
-  );
-  const query = useMemo(() => buildPanelQuery(panelFilters), [panelFilters]);
+  const query = useMemo(() => buildDREPanelQuery(filters), [filters]);
 
   const carregarPainel = useCallback(async () => {
     setLoading(true);
@@ -211,7 +202,7 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
   const filterSummary = buildFilterSummary(filters, [
     { key: 'meses', label: 'Mês' },
     { key: 'centro_custo', label: 'Obra' },
-    { key: 'natureza', label: 'Natureza' },
+    { key: 'natureza', label: 'Centro de custos' },
   ]);
   const situations = useMemo(() => {
     const seriesComSaidas = (data?.series_mensais || []).map((item) => ({
@@ -300,8 +291,8 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
     <section className="aideal-panel-page">
       <PanelHero
         kicker="Painel DRE"
-        title="Resultado por obra e natureza"
-        description="Visão executiva do DRE com filtros por período, obra e natureza, evolução mensal e indicadores de saúde financeira."
+        title="Resultado por obra e centro de custos"
+        description="Visão executiva do DRE com filtros por período, obra e centro de custos, evolução mensal e indicadores de saúde financeira."
         meta={[
           { label: 'Período', value: data?.periodo?.label || filters.ano || '-' },
           { label: 'Recortes', value: activeFilterCount > 0 ? formatNumber(activeFilterCount) : 'Todos' },
@@ -331,7 +322,7 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
 
       <FilterDock
         title="Filtros do DRE"
-        subtitle="Recorte por competência, obra e natureza sem perder o contexto dos gráficos."
+        subtitle="Recorte por competência, obra e centro de custos sem perder o contexto dos gráficos."
         activeCount={activeFilterCount}
         activeItems={filterSummary}
         onClear={clearFilters}
@@ -349,7 +340,7 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
           onChange={(value) => updateFilter('centro_custo', value)}
         />
         <SearchableSlicer
-          title="Naturezas"
+          title="Centros de custos"
           options={filtros.natureza}
           selected={filters.natureza}
           onChange={(value) => updateFilter('natureza', value)}

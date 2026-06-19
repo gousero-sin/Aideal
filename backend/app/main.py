@@ -364,7 +364,10 @@ async def painel_dre(
     ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
     meses: list[int] | None = Query(None, description="Meses a incluir, repetível"),
     centro_custo: list[str] | None = Query(None, description="Obras/centros de custo"),
-    natureza: list[str] | None = Query(None, description="Naturezas normalizadas"),
+    natureza: list[str] | None = Query(
+        None,
+        description="Centros de custos (campo tecnico natureza normalizada)",
+    ),
     escopo_periodo: str | None = Query(
         None,
         description="Use 'projeto_completo' para ignorar ano/meses quando houver obra filtrada",

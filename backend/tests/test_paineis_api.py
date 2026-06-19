@@ -205,23 +205,24 @@ def test_painel_dre_filtra_por_obra_natureza_e_meses_sem_recorte_de_conta():
     client = _client_com_db(db)
     resp = client.get(
         "/api/dre/painel"
-        "?ano=2025&meses=5&centro_custo=Obra%20A&conta_pai=Conta%20Receita"
+        "?ano=2025&meses=5&centro_custo=Obra%20A&natureza=ENTRADA&conta_pai=Conta%20Receita"
     )
 
     assert resp.status_code == 200
     body = resp.json()
     assert body["filtros_aplicados"]["meses"] == [5]
     assert body["filtros_aplicados"]["centro_custo"] == ["Obra A"]
+    assert body["filtros_aplicados"]["natureza"] == ["ENTRADA"]
     assert "conta_pai" not in body["filtros_aplicados"]
-    assert body["kpis"]["total_lancamentos"] == 3
+    assert body["kpis"]["total_lancamentos"] == 2
     assert body["kpis"]["total_credito"] == 1200
-    assert body["kpis"]["total_debito"] == 250
-    assert body["kpis"]["saldo_liquido"] == 950
-    assert body["kpis"]["media_saida_mensal"] == 250
-    assert body["kpis"]["saldo_medio_mensal"] == 950
-    assert body["kpis"]["folego_caixa_meses"] == pytest.approx(3.8)
-    assert body["kpis"]["margem_resultado_percentual"] == pytest.approx(79.1666666667)
-    assert body["kpis"]["pressao_saida_percentual"] == pytest.approx(20.8333333333)
+    assert body["kpis"]["total_debito"] == 0
+    assert body["kpis"]["saldo_liquido"] == 1200
+    assert body["kpis"]["media_saida_mensal"] == 0
+    assert body["kpis"]["saldo_medio_mensal"] == 1200
+    assert body["kpis"]["folego_caixa_meses"] == 0
+    assert body["kpis"]["margem_resultado_percentual"] == pytest.approx(100)
+    assert body["kpis"]["pressao_saida_percentual"] == pytest.approx(0)
     assert body["ranking_obras"][0]["nome"] == "Obra A"
     assert body["ranking_naturezas"][0]["nome"] == "ENTRADA"
     assert "ranking_contas" not in body

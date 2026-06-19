@@ -50,6 +50,8 @@ export const buildPanelQuery = (filters) => {
   return params.toString();
 };
 
+export const buildDREPanelQuery = (filters) => buildPanelQuery(filters);
+
 export const mergeCurrentYear = (anos, currentYear) => {
   const parsed = Number(currentYear);
   const normalized = [...new Set([...(anos || []), ...(Number.isFinite(parsed) ? [parsed] : [])])];

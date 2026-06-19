@@ -14,7 +14,7 @@ const API_BASE = '/api';
 const views = {
   dre: {
     title: 'Painel DRE',
-    subtitle: 'Resultado por obra e natureza',
+    subtitle: 'Resultado por obra e centro de custos',
     icon: <BarChart3 size={15} />,
   },
   fluxo_caixa: {
