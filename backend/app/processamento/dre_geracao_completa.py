@@ -52,6 +52,22 @@ _PLANO_CONTAS_CODIGO_OVERRIDES = {
         "cod": 4,
     },
 }
+_PLANO_CONTAS_TEXTO_OVERRIDES = {
+    # No template legado, "IR" aparece como dedução sobre vendas. A regra atual
+    # do DRE lança IR depois do resultado antes do IR, no bloco IRPJ/CSLL.
+    "IR": {
+        "rubrica": "IRPJ",
+        "conta_filho": "IRPJ/CSLL",
+        "conta_pai": "(-)IRPJ/CSLL",
+        "cod": 7,
+    },
+    "IR Retido": {
+        "rubrica": "IRPJ",
+        "conta_filho": "IRPJ/CSLL",
+        "conta_pai": "(-)IRPJ/CSLL",
+        "cod": 7,
+    },
+}
 _DRE_COLUNAS_VALOR = (2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34)
 _DRE_COLUNAS_PERCENTUAL = tuple(col + 1 for col in _DRE_COLUNAS_VALOR)
 _DRE_COLUNA_ANO = 34
@@ -96,6 +112,8 @@ _RUBRICAS_IMPOSTO_SALDO_PAINEL = frozenset(
     )
 )
 _CODIGOS_IMPOSTO_SALDO_PAINEL = ("17.2", "17.3", "17.4", "17.5", "17.7", "17.8")
+# Usado apenas para recompor Receita Bruta quando bases antigas persistiram
+# recebimentos líquidos; a linha do DRE é definida pelo PLANO_CONTAS resolvido.
 _IMPOSTOS_RECEITA_ROTULOS = frozenset(
     valor.casefold()
     for valor in (
@@ -273,7 +291,11 @@ class DREGeracaoCompletaService:
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _ler_plano_contas(writer: TemplateWriter) -> dict[str, dict]:
+    def _ler_plano_contas(
+        writer: TemplateWriter,
+        *,
+        aplicar_overrides_dre_gerado: bool = False,
+    ) -> dict[str, dict]:
         """Lê PLANO_CONTAS do template para mapeamento natureza → contas.
 
         Além das chaves textuais (classificação e rubrica), indexa cada conta
@@ -306,6 +328,9 @@ class DREGeracaoCompletaService:
                     plano.setdefault(f"@fam:{familia}", entry)
         for codigo, entry in _PLANO_CONTAS_CODIGO_OVERRIDES.items():
             plano.setdefault(f"@cod:{codigo}", dict(entry))
+        if aplicar_overrides_dre_gerado:
+            for chave, entry in _PLANO_CONTAS_TEXTO_OVERRIDES.items():
+                plano[chave] = dict(entry)
         return plano
 
     @staticmethod
@@ -615,7 +640,8 @@ class DREGeracaoCompletaService:
 
         O arquivo gerado é um relatório estático: os números devem abrir corretos
         mesmo em leitores que não recalculam fórmulas. A Receita Líquida segue a
-        regra de negócio atual e espelha o Faturamento, que já é líquido.
+        estrutura do DRE: Receita Bruta menos deduções sobre vendas; IR é lançado
+        depois, no bloco IRPJ/CSLL.
         """
         if (
             not writer._wb
@@ -661,10 +687,6 @@ class DREGeracaoCompletaService:
 
                 if linha == linha_resultado_liquido and saldos_painel:
                     valor_calculado = self._valor_periodo_dre(saldos_painel, coluna)
-                elif linha == linha_receita_liquida and linha_faturamento:
-                    valor_calculado = self._numero_planilha(
-                        ws_dre.cell(row=linha_faturamento, column=coluna).value
-                    )
                 elif isinstance(valor_atual, str) and valor_atual.startswith("="):
                     valor_calculado = self._avaliar_formula_dre(
                         ws=ws_dre,
@@ -1263,7 +1285,7 @@ class DREGeracaoCompletaService:
         detalhe_meta: dict[str, Any] = {}
         dre_meta: dict[str, Any] = {}
         with TemplateWriter(self.template_path) as writer:
-            plano = self._ler_plano_contas(writer)
+            plano = self._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
 
             # 4a. Limpar e escrever BD_FLUXO (A:R) já com campos derivados
             # materializados. Isso remove dependência de recálculo intermediário.

@@ -94,12 +94,28 @@ def _build_service_com_receita_liquida_e_impostos() -> DREGeracaoCompletaService
             competencia_ano=2026,
             competencia_mes=1,
             data_lancamento="2026-01-10",
+            historico="Recebimento de empréstimo",
+            valor_bruto=Decimal("100.00"),
+            credito=Decimal("100.00"),
+            debito=Decimal("0"),
+            natureza_raw="2.2 - Recebimento de empréstimo",
+            rubrica="2.2 - Recebimento de empréstimo",
+            centro_custo="OBRA A",
+            hash_linha="hash_emprestimo",
+        )
+    )
+    repo.lancamentos.create(
+        DRELancamentoDB(
+            upload_id=upload.id,
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
             historico="IR retido",
             valor_bruto=Decimal("200.00"),
             credito=Decimal("0"),
             debito=Decimal("200.00"),
-            natureza_raw="IR",
-            rubrica="IR",
+            natureza_raw="IR Retido",
+            rubrica="IR Retido",
             centro_custo="OBRA A",
             hash_linha="hash_ir_retido",
         )
@@ -350,25 +366,40 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     assert ws_apoio_valores["C8"].value == 1000
     assert ws_dre_valores["B6"].value == 1320
     assert ws_dre_valores["B7"].value == 1000
-    assert ws_dre_valores["B8"].value == -220
-    assert ws_dre_valores["B19"].value == 1000
-    assert ws_dre_valores["B173"].value == -100
-    assert ws_dre_valores["B177"].value == 930
+    assert ws_dre_valores["B8"].value == -20
+    assert ws_dre_valores["B12"].value == 0
+    assert ws_dre_valores["B19"].value == 1300
+    assert ws_dre_valores["B34"].value == 1300
+    assert ws_dre_valores["B148"].value == 1300
+    assert ws_dre_valores["B173"].value == -300
+    assert ws_dre_valores["B174"].value == -100
+    assert ws_dre_valores["B175"].value == -200
+    assert ws_dre_valores["B177"].value == 1030
     assert ws_dre_valores["B178"].value == -50
-    assert ws_dre_valores["B185"].value == 880
+    assert ws_dre_valores["B185"].value == 980
     assert ws_dre_valores["AH6"].value == 1320
     assert ws_dre_valores["AH7"].value == 1000
-    assert ws_dre_valores["AH19"].value == 1000
-    assert ws_dre_valores["AH177"].value == 930
+    assert ws_dre_valores["AH8"].value == -20
+    assert ws_dre_valores["AH12"].value == 0
+    assert ws_dre_valores["AH19"].value == 1300
+    assert ws_dre_valores["AH34"].value == 1300
+    assert ws_dre_valores["AH148"].value == 1300
+    assert ws_dre_valores["AH173"].value == -300
+    assert ws_dre_valores["AH174"].value == -100
+    assert ws_dre_valores["AH175"].value == -200
+    assert ws_dre_valores["AH177"].value == 1030
     assert ws_dre_valores["AH178"].value == -50
-    assert ws_dre_valores["AH185"].value == 880
+    assert ws_dre_valores["AH185"].value == 980
 
     wb_formulas = load_workbook(output_path, data_only=False)
     ws_dre_formulas = wb_formulas["DRE"]
     assert not isinstance(ws_dre_formulas["B19"].value, str)
-    assert ws_dre_formulas["B19"].value == 1000
-    assert ws_dre_formulas["B177"].value == 930
-    assert ws_dre_formulas["B185"].value == 880
+    assert ws_dre_formulas["B19"].value == 1300
+    assert ws_dre_formulas["B34"].value == 1300
+    assert ws_dre_formulas["B148"].value == 1300
+    assert ws_dre_formulas["B173"].value == -300
+    assert ws_dre_formulas["B177"].value == 1030
+    assert ws_dre_formulas["B185"].value == 980
 
 
 def test_converte_linha_bd_fluxo_expandida_reaproveita_rubrica_e_conta_pai_do_banco():
@@ -527,10 +558,10 @@ def test_saldos_painel_por_mes_trata_codigos_de_imposto_como_deducao():
     assert DREGeracaoCompletaService._saldos_painel_por_mes(lancamentos) == {2: 1000.0}
 
 
-def test_agregar_apoio_receita_bruta_recompoe_bruto_de_banco_antigo_com_impostos():
+def test_agregar_apoio_receita_bruta_recompoe_bruto_sem_abater_ir_na_receita_liquida():
     service = _build_service_com_dados([6])
     with TemplateWriter(settings.template_dre_path) as writer:
-        plano = service._ler_plano_contas(writer)
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
 
     lancamentos = [
         DRELancamentoDB(
@@ -555,8 +586,8 @@ def test_agregar_apoio_receita_bruta_recompoe_bruto_de_banco_antigo_com_impostos
             valor_bruto=Decimal("300.00"),
             credito=Decimal("0"),
             debito=Decimal("300.00"),
-            natureza_raw="IR",
-            rubrica="IR",
+            natureza_raw="IR Retido",
+            rubrica="IR Retido",
             centro_custo="OBRA A",
             hash_linha="h2",
         ),
@@ -568,3 +599,8 @@ def test_agregar_apoio_receita_bruta_recompoe_bruto_de_banco_antigo_com_impostos
     assert por_label["(=)Receita Bruta"][7] == 1300.0
     assert por_label["(+)Receita Bruta"][7] == 1300.0
     assert por_label["Faturamento"][7] == 1000.0
+    assert "IR Retido" not in por_label
+    assert "(-)Deduções sobre vendas" not in por_label
+    assert por_label["IRPJ"][7] == -300.0
+    assert por_label["IRPJ/CSLL"][7] == -300.0
+    assert por_label["(-)IRPJ/CSLL"][7] == -300.0
