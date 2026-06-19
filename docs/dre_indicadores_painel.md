@@ -55,8 +55,8 @@ Meta: <= 30%
 
 No DRE gerado, 13º e férias entram sempre como previsão:
 
-- `13º SALÁRIO` deve buscar `12.3 - PREVISÃO 13°`
-- `FÉRIAS` deve buscar `12.70 - PREVISÃO FÉRIAS`
+- `13º SALÁRIO` deve buscar o código `12.101` (`PREVISÃO 13°`)
+- `FÉRIAS` deve buscar o código `12.100` (`PREVISÃO FÉRIAS`)
 
 ### IEFP
 

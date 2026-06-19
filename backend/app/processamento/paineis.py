@@ -337,6 +337,9 @@ class PainelDREService(_PainelBaseService):
         "investimentos_gerencial": _alias_set(["(-)Investimentos"]),
         "folha_pagamento": _alias_set(["(-)Gastos Fixos"]),
     }
+    COMPONENTES_DRE_CODIGOS_EXPLICITOS = {
+        "folha_pagamento": frozenset(("12.100", "12.101")),
+    }
     COMPONENTES_DRE = {
         "receita_bruta": _alias_set(
             ["(=)Receita Bruta", "Faturamento", "Recebimento de Clientes", "Receita Bruta"]
@@ -1272,11 +1275,18 @@ class PainelDREService(_PainelBaseService):
 
     @staticmethod
     def _row_dre_matches(row: Any, aliases: set[str], componente: str) -> bool:
+        codigo_conta = PainelDREService._codigo_conta_row(row)
         if (
             componente in PainelDREService.COMPONENTES_DRE_COM_CODIGO_OBRIGATORIO
-            and not PainelDREService._codigo_conta_row(row)
+            and not codigo_conta
         ):
             return False
+
+        codigos_explicitos = PainelDREService.COMPONENTES_DRE_CODIGOS_EXPLICITOS.get(
+            componente, frozenset()
+        )
+        if codigo_conta in codigos_explicitos:
+            return True
 
         contas_pai_estritas = PainelDREService.COMPONENTES_DRE_CONTA_PAI_ESTRITA.get(
             componente
@@ -1619,6 +1629,14 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 {
                     "label": "12.2 13° salário",
                     "aliases": _alias_set(["12.2 13 salário", "13 SALARIO"]),
+                },
+                {
+                    "label": "12.100 previsão férias",
+                    "aliases": _alias_set(["12.100 previsão férias", "PREVISAO FERIAS"]),
+                },
+                {
+                    "label": "12.101 previsão 13°",
+                    "aliases": _alias_set(["12.101 previsão 13°", "PREVISAO 13"]),
                 },
                 {"label": "12.3 férias", "aliases": _alias_set(["12.3 férias", "FERIAS"])},
                 {

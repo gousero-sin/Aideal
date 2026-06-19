@@ -446,6 +446,87 @@ def test_agregar_apoio_receita_bruta_e_faturamento_brutos_vs_liquidos():
     assert por_label["Faturamento"][14] == 1500.0
 
 
+def test_agregar_apoio_mapeia_previsoes_atuais_de_ferias_e_13_por_codigo():
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer)
+
+    lancamentos = [
+        DRELancamentoDB(
+            upload_id="u1",
+            competencia_ano=2026,
+            competencia_mes=5,
+            data_lancamento="2026-05-10",
+            historico="Previsão férias",
+            valor_bruto=Decimal("45.00"),
+            credito=Decimal("0"),
+            debito=Decimal("45.00"),
+            natureza_raw="12.100 - PREVISÃO FÉRIAS",
+            rubrica="12.100 - PREVISÃO FÉRIAS",
+            centro_custo="OBRA A",
+            hash_linha="h-ferias",
+        ),
+        DRELancamentoDB(
+            upload_id="u1",
+            competencia_ano=2026,
+            competencia_mes=5,
+            data_lancamento="2026-05-10",
+            historico="Previsão 13",
+            valor_bruto=Decimal("55.00"),
+            credito=Decimal("0"),
+            debito=Decimal("55.00"),
+            natureza_raw="12.101 - PREVISÃO 13°",
+            rubrica="12.101 - PREVISÃO 13°",
+            centro_custo="OBRA A",
+            hash_linha="h-decimo",
+        ),
+    ]
+
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    por_label = {row[1]: row for row in linhas}
+
+    assert por_label["PREVISAO FÉRIAS"][6] == -45.0
+    assert por_label["13° PREVISAO"][6] == -55.0
+    assert por_label["Despesas com Pessoal"][6] == -100.0
+    assert por_label["(-)Gastos Fixos"][6] == -100.0
+    assert "SALARIO" not in por_label
+
+
+def test_saldos_painel_por_mes_trata_codigos_de_imposto_como_deducao():
+    lancamentos = [
+        DRELancamentoDB(
+            upload_id="u1",
+            competencia_ano=2026,
+            competencia_mes=2,
+            data_lancamento="2026-02-10",
+            historico="Receita",
+            valor_bruto=Decimal("1000.00"),
+            credito=Decimal("1000.00"),
+            debito=Decimal("0"),
+            natureza_raw="1.1.1 - Recebimento de Clientes",
+            rubrica="1.1.1 - Recebimento de Clientes",
+            centro_custo="OBRA A",
+            hash_linha="h-receita",
+        ),
+        DRELancamentoDB(
+            upload_id="u1",
+            competencia_ano=2026,
+            competencia_mes=2,
+            data_lancamento="2026-02-10",
+            historico="ISS",
+            valor_bruto=Decimal("111.00"),
+            credito=Decimal("0"),
+            debito=Decimal("111.00"),
+            natureza_raw="17.8 - ISS",
+            rubrica="17.8 - ISS",
+            centro_custo="OBRA A",
+            hash_linha="h-iss",
+        ),
+    ]
+
+    assert DREGeracaoCompletaService._saldos_painel_por_mes(lancamentos) == {2: 1000.0}
+
+
 def test_agregar_apoio_receita_bruta_recompoe_bruto_de_banco_antigo_com_impostos():
     service = _build_service_com_dados([6])
     with TemplateWriter(settings.template_dre_path) as writer:

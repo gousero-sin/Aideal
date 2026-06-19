@@ -375,7 +375,7 @@ def test_escrita_resolve_rotulo_visual_do_template_por_codigo_gerencial(tmp_path
     apoio = wb["Apoio"]
     apoio["B6"] = "MATERIAIS DE CONSUMO EM OBRAS "
     apoio["B7"] = "REFEIÇÕES COLABORADORES"
-    apoio["B8"] = None
+    apoio["B8"] = "PREVISÃO FÉRIAS"
     wb.save(template)
 
     lote = FCLote(
@@ -401,6 +401,16 @@ def test_escrita_resolve_rotulo_visual_do_template_por_codigo_gerencial(tmp_path
                 conta_gerencial="12.5 - REFEIÇÕES FUNCIONARIOS",
                 banco_origem="cef",
             ),
+            FCMovimento(
+                data_movimento=date(2025, 8, 6),
+                tipo=TipoMovimento.DEBITO,
+                descricao="Previsão férias",
+                valor=Decimal("45"),
+                saldo=None,
+                classificacao="12.100 - PREVISÃO FÉRIAS",
+                conta_gerencial="12.100 - PREVISÃO FÉRIAS",
+                banco_origem="cef",
+            ),
         ],
     )
     service = FluxoCaixaProcessamentoService(
@@ -421,10 +431,12 @@ def test_escrita_resolve_rotulo_visual_do_template_por_codigo_gerencial(tmp_path
     ws = wb["Consolidado"]
     assert ws["F2"].value == "MATERIAIS DE CONSUMO EM OBRAS "
     assert ws["F3"].value == "REFEIÇÕES COLABORADORES"
+    assert ws["F4"].value == "PREVISÃO FÉRIAS"
 
     apoio = wb["Apoio"]
     assert apoio["R6"].value == 300.0
     assert apoio["R7"].value == 120.0
+    assert apoio["R8"].value == 45.0
     assert "8.9 - MATERIAIS DE CONSUMO EM OBRAS" not in [
         apoio.cell(row=row, column=2).value for row in range(6, apoio.max_row + 1)
     ]

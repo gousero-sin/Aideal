@@ -1763,11 +1763,11 @@ def test_painel_dre_folha_usa_previsoes_13_e_ferias_do_dre_gerado():
                     50,
                     0,
                     50,
-                    "12.3 - PREVISÃO 13°",
+                    "12.101 - PREVISÃO 13°",
                     "SAIDA",
                     "Obra Folha",
-                    "12.3 - PREVISÃO 13°",
-                    "12.3 - PREVISÃO 13°",
+                    "12.101 - PREVISÃO 13°",
+                    "12.101 - PREVISÃO 13°",
                     3,
                     "folha-prev-h3",
                     "2026-04-01T10:00:00",
@@ -1781,11 +1781,11 @@ def test_painel_dre_folha_usa_previsoes_13_e_ferias_do_dre_gerado():
                     60,
                     0,
                     60,
-                    "12.70 - PREVISÃO FÉRIAS",
+                    "12.100 - PREVISÃO FÉRIAS",
                     "SAIDA",
                     "Obra Folha",
-                    "12.70 - PREVISÃO FÉRIAS",
-                    "12.70 - PREVISÃO FÉRIAS",
+                    "12.100 - PREVISÃO FÉRIAS",
+                    "12.100 - PREVISÃO FÉRIAS",
                     4,
                     "folha-prev-h4",
                     "2026-04-01T10:00:00",
@@ -2348,11 +2348,11 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_por_codigo():
                     5,
                     "2025-05-05",
                     "debito",
-                    "Locação",
-                    50,
+                    "Previsão férias",
+                    45,
                     None,
-                    "7.1 LOCAÇÃO MUNCK / GUINDASTES",
-                    "7.1 LOCAÇÃO MUNCK / GUINDASTES",
+                    "12.100 - PREVISÃO FÉRIAS",
+                    "12.100 - PREVISÃO FÉRIAS",
                     "itau",
                     "fluxo.xlsx",
                     4,
@@ -2366,11 +2366,11 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_por_codigo():
                     5,
                     "2025-05-06",
                     "debito",
-                    "Fornecedor",
-                    80,
+                    "Previsão 13",
+                    55,
                     None,
-                    "4.1 - Tintas e solventes",
-                    "4.1 - Tintas e solventes",
+                    "12.101 - PREVISÃO 13°",
+                    "12.101 - PREVISÃO 13°",
                     "itau",
                     "fluxo.xlsx",
                     5,
@@ -2384,11 +2384,11 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_por_codigo():
                     5,
                     "2025-05-07",
                     "debito",
-                    "Manutenção",
-                    40,
+                    "Locação",
+                    50,
                     None,
-                    "6.3 - MANUTENÇÃO/PEÇAS  VEICULOS",
-                    "6.3 - MANUTENÇÃO/PEÇAS  VEICULOS",
+                    "7.1 LOCAÇÃO MUNCK / GUINDASTES",
+                    "7.1 LOCAÇÃO MUNCK / GUINDASTES",
                     "itau",
                     "fluxo.xlsx",
                     6,
@@ -2402,11 +2402,11 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_por_codigo():
                     5,
                     "2025-05-08",
                     "debito",
-                    "Rateio locação e folha",
-                    100,
+                    "Fornecedor",
+                    80,
                     None,
-                    "7.2 - LOCAÇÃO COMPRESSORES (40,00%);\n\n12.1 - SALARIO (60,00%);",
-                    "7.2 - LOCAÇÃO COMPRESSORES (40,00%);\n\n12.1 - SALARIO (60,00%);",
+                    "4.1 - Tintas e solventes",
+                    "4.1 - Tintas e solventes",
                     "itau",
                     "fluxo.xlsx",
                     7,
@@ -2420,11 +2420,11 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_por_codigo():
                     5,
                     "2025-05-09",
                     "debito",
-                    "Rateio fornecedores",
-                    200,
+                    "Manutenção",
+                    40,
                     None,
-                    "13.1 - EPIS (25,00%);\n\n8.9 - MATERIAIS DE CONSUMO EM OBRAS  (75,00%);",
-                    "13.1 - EPIS (25,00%);\n\n8.9 - MATERIAIS DE CONSUMO EM OBRAS  (75,00%);",
+                    "6.3 - MANUTENÇÃO/PEÇAS  VEICULOS",
+                    "6.3 - MANUTENÇÃO/PEÇAS  VEICULOS",
                     "itau",
                     "fluxo.xlsx",
                     8,
@@ -2438,11 +2438,11 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_por_codigo():
                     5,
                     "2025-05-10",
                     "debito",
-                    "Outro",
+                    "Rateio locação e folha",
                     100,
                     None,
-                    "Outra saída",
-                    "Outra saída",
+                    "7.2 - LOCAÇÃO COMPRESSORES (40,00%);\n\n12.1 - SALARIO (60,00%);",
+                    "7.2 - LOCAÇÃO COMPRESSORES (40,00%);\n\n12.1 - SALARIO (60,00%);",
                     "itau",
                     "fluxo.xlsx",
                     9,
@@ -2455,6 +2455,42 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_por_codigo():
                     2025,
                     5,
                     "2025-05-11",
+                    "debito",
+                    "Rateio fornecedores",
+                    200,
+                    None,
+                    "13.1 - EPIS (25,00%);\n\n8.9 - MATERIAIS DE CONSUMO EM OBRAS  (75,00%);",
+                    "13.1 - EPIS (25,00%);\n\n8.9 - MATERIAIS DE CONSUMO EM OBRAS  (75,00%);",
+                    "itau",
+                    "fluxo.xlsx",
+                    10,
+                    "Sheet",
+                    "destaque-h10",
+                    "2026-04-01T11:00:00",
+                ),
+                (
+                    "fc-destaques",
+                    2025,
+                    5,
+                    "2025-05-12",
+                    "debito",
+                    "Outro",
+                    100,
+                    None,
+                    "Outra saída",
+                    "Outra saída",
+                    "itau",
+                    "fluxo.xlsx",
+                    11,
+                    "Sheet",
+                    "destaque-h11",
+                    "2026-04-01T11:00:00",
+                ),
+                (
+                    "fc-destaques",
+                    2025,
+                    5,
+                    "2025-05-13",
                     "credito",
                     "Crédito ignorado nas saídas",
                     999,
@@ -2463,9 +2499,9 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_por_codigo():
                     "12.1 - SALÁRIO",
                     "itau",
                     "fluxo.xlsx",
-                    10,
+                    12,
                     "Sheet",
-                    "destaque-h10",
+                    "destaque-h12",
                     "2026-04-01T11:00:00",
                 ),
             ],
@@ -2485,24 +2521,26 @@ def test_painel_fluxo_retorna_cinco_contas_em_destaque_por_codigo():
         "gastos_manutencao",
     }
     assert destaques["parcelamento"]["total"] == 70.0
-    assert destaques["folha_pessoal"]["total"] == 210.0
+    assert destaques["folha_pessoal"]["total"] == 310.0
     assert destaques["locacoes"]["total"] == 90.0
     assert destaques["fornecedores"]["total"] == 280.0
     assert destaques["gastos_manutencao"]["total"] == 40.0
     assert destaques["folha_pessoal"]["participacao_saidas_percentual"] == pytest.approx(
-        210 / 790 * 100
+        310 / 890 * 100
     )
     assert "12.1 salário" in destaques["folha_pessoal"]["contas_encontradas"]
+    assert "12.100 previsão férias" in destaques["folha_pessoal"]["contas_encontradas"]
+    assert "12.101 previsão 13°" in destaques["folha_pessoal"]["contas_encontradas"]
     assert "12.14 FGTS funcionários" in destaques["folha_pessoal"]["contas_encontradas"]
     assert "8.9 materiais de consumo em obras" in destaques["fornecedores"]["contas_encontradas"]
 
     equilibrio = body["equilibrio_contas_destaque"]
-    assert equilibrio["total_contas_destaque"] == pytest.approx(690.0)
+    assert equilibrio["total_contas_destaque"] == pytest.approx(790.0)
     assert equilibrio["outras_saidas"] == pytest.approx(100.0)
-    assert equilibrio["participacao_saidas_percentual"] == pytest.approx(690 / 790 * 100)
-    assert equilibrio["cobertura_entradas_percentual"] == pytest.approx(999 / 690 * 100)
-    assert equilibrio["saldo_liquido"] == pytest.approx(209.0)
-    assert equilibrio["saldo_apos_contas_destaque"] == pytest.approx(309.0)
+    assert equilibrio["participacao_saidas_percentual"] == pytest.approx(790 / 890 * 100)
+    assert equilibrio["cobertura_entradas_percentual"] == pytest.approx(999 / 790 * 100)
+    assert equilibrio["saldo_liquido"] == pytest.approx(109.0)
+    assert equilibrio["saldo_apos_contas_destaque"] == pytest.approx(209.0)
     assert equilibrio["status"] == "equilibrado"
 
 

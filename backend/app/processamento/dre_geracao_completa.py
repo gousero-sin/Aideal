@@ -38,6 +38,20 @@ _FATURAMENTO_ROTULO = "Faturamento"
 _RECEITA_LIQUIDA_ROTULO = "(=)Receita Líquida"
 _RESULTADO_LIQUIDO_ROTULO = "(=)RESULTADO LÍQUIDO"
 _RESULTADO_GERENCIAL_ROTULO = "(=)RESULTADO GERENCIAL"
+_PLANO_CONTAS_CODIGO_OVERRIDES = {
+    "12.100": {
+        "rubrica": "PREVISAO FÉRIAS",
+        "conta_filho": "Despesas com Pessoal",
+        "conta_pai": "(-)Gastos Fixos",
+        "cod": 4,
+    },
+    "12.101": {
+        "rubrica": "13° PREVISAO",
+        "conta_filho": "Despesas com Pessoal",
+        "conta_pai": "(-)Gastos Fixos",
+        "cod": 4,
+    },
+}
 _DRE_COLUNAS_VALOR = (2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34)
 _DRE_COLUNAS_PERCENTUAL = tuple(col + 1 for col in _DRE_COLUNAS_VALOR)
 _DRE_COLUNA_ANO = 34
@@ -81,6 +95,7 @@ _RUBRICAS_IMPOSTO_SALDO_PAINEL = frozenset(
         "Simples Nacional",
     )
 )
+_CODIGOS_IMPOSTO_SALDO_PAINEL = ("17.2", "17.3", "17.4", "17.5", "17.7", "17.8")
 _IMPOSTOS_RECEITA_ROTULOS = frozenset(
     valor.casefold()
     for valor in (
@@ -127,6 +142,18 @@ def _extrair_codigo_gerencial(texto: Any) -> str | None:
 
 def _normalizar_rotulo(texto: Any) -> str:
     return re.sub(r"\s+", " ", str(texto or "").strip()).casefold()
+
+
+def _eh_imposto_saldo_painel(rubrica: Any, natureza_raw: Any) -> bool:
+    rubrica_texto = str(rubrica or "").strip()
+    natureza_texto = str(natureza_raw or "").strip()
+    if rubrica_texto in _RUBRICAS_IMPOSTO_SALDO_PAINEL:
+        return True
+    return any(
+        valor == codigo or valor.startswith(f"{codigo} - ")
+        for valor in (rubrica_texto, natureza_texto)
+        for codigo in _CODIGOS_IMPOSTO_SALDO_PAINEL
+    )
 
 
 def _parse_competencia(competencia: str) -> tuple[int, int]:
@@ -277,6 +304,8 @@ class DREGeracaoCompletaService:
                     plano.setdefault(f"@cod:{codigo}", entry)
                     familia = codigo.rsplit(".", 1)[0]
                     plano.setdefault(f"@fam:{familia}", entry)
+        for codigo, entry in _PLANO_CONTAS_CODIGO_OVERRIDES.items():
+            plano.setdefault(f"@cod:{codigo}", dict(entry))
         return plano
 
     @staticmethod
@@ -451,8 +480,11 @@ class DREGeracaoCompletaService:
             mes = lanc.competencia_mes or data.month
             credito = float(lanc.credito or 0)
             debito = float(lanc.debito or 0)
-            rubrica = str(lanc.rubrica or "").strip()
-            imposto = debito if rubrica in _RUBRICAS_IMPOSTO_SALDO_PAINEL else 0.0
+            imposto = (
+                debito
+                if _eh_imposto_saldo_painel(lanc.rubrica, lanc.natureza_raw)
+                else 0.0
+            )
             saldos[mes] += credito - (debito - imposto)
         return dict(saldos)
 
