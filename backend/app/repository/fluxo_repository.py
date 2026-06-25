@@ -305,6 +305,36 @@ class FluxoMovimentoRepository(Repository[FluxoMovimentoDB]):
             if should_close:
                 connection.close()
 
+    def get_saldos_finais_anteriores(
+        self,
+        ano: int,
+        mes: int,
+        conn: sqlite3.Connection | None = None,
+    ) -> dict[str, Decimal]:
+        """Retorna o último saldo informado por banco antes da competência."""
+        connection, should_close = _get_connection(self.db, conn)
+        try:
+            rows = connection.execute(
+                """
+                SELECT banco_origem, saldo
+                FROM fluxo_movimentos
+                WHERE saldo IS NOT NULL
+                  AND (competencia_ano < ? OR (competencia_ano = ? AND competencia_mes < ?))
+                ORDER BY banco_origem, competencia_ano DESC, competencia_mes DESC,
+                         data_movimento DESC, COALESCE(linha_origem, 0) DESC, id DESC
+                """,
+                (ano, ano, mes),
+            ).fetchall()
+            saldos: dict[str, Decimal] = {}
+            for row in rows:
+                banco = str(row["banco_origem"] or "").strip().lower()
+                if banco and banco not in saldos:
+                    saldos[banco] = Decimal(str(row["saldo"]))
+            return saldos
+        finally:
+            if should_close:
+                connection.close()
+
 
 class FluxoCaixaRepository:
     """Repository consolidado para operações de Fluxo de Caixa."""

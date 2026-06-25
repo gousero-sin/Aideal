@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -198,6 +199,17 @@ class ExcelParser:
 
         bancos = self.mapping["entrada"].get("bancos_conhecidos", {})
         nome_upper = nome_arquivo.upper()
+
+        # Nos arquivos operacionais, o banco é a fonte canônica do nome no
+        # padrão movimentos_YYYY-MM_<banco>_. Prioriza esse segmento para não
+        # confundir aliases citados em descrições complementares do arquivo.
+        match = re.match(r"^MOVIMENTOS_\d{4}-\d{2}_(?P<resto>[A-Z0-9_]+)", nome_upper)
+        if match:
+            resto = match.group("resto").lower()
+            for banco_id in sorted(bancos, key=len, reverse=True):
+                if resto.startswith(f"{banco_id}_"):
+                    return banco_id
+            return "desconhecido"
 
         for banco_id, config in bancos.items():
             for pattern in config.get("detectar_por_nome_arquivo", []):

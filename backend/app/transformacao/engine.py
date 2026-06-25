@@ -48,6 +48,13 @@ def _safe_decimal(value) -> Decimal:
         return Decimal("0")
 
 
+def _optional_decimal(value) -> Decimal | None:
+    """Converte saldo opcional sem perder o fechamento bancário igual a zero."""
+    if pd.isna(value) or value is None or str(value).strip() == "":
+        return None
+    return _safe_decimal(value)
+
+
 def _safe_date(value):
     """Converte valor para date de forma segura."""
     if pd.isna(value) or value is None:
@@ -408,16 +415,16 @@ class FluxoCaixaTransformer:
                 classificacao = "Transferência Emitida"
             elif tipo == TipoMovimento.CREDITO:
                 classificacao = "Transferência Recebida"
+            tipo = TipoMovimento.TRANSFERENCIA
 
         return FCMovimento(
             data_movimento=data,
             tipo=tipo,
             descricao=descricao,
             valor=valor,
-            saldo=_safe_decimal(
+            saldo=_optional_decimal(
                 row.get(mapeamento.get("saldo", "")) if mapeamento.get("saldo") else None
-            )
-            or None,
+            ),
             classificacao=classificacao,
             conta_gerencial=conta_gerencial,
             banco_origem=banco,

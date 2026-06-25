@@ -183,3 +183,27 @@ O arquivo `RELATORIO DE MOVIMENTO BI ITAU.xlsx` foi validado com sucesso na Etap
 ## Próxima fase
 
 Após a homologação desta fase, a próxima entrega é a consolidação do Fluxo de Caixa multi-banco, mantendo a mesma filosofia de preservação de template e execução local por padrão.
+
+## Correções de classificação DRE - Painel AIDEAL (2026-06)
+
+As regras abaixo substituem mapeamentos legados do template. O código gerencial
+é a chave canônica; nomes de rubrica servem apenas para apresentação no Excel e
+no painel.
+
+| Códigos | Rubrica exibida | Grupo DRE | Regra |
+| --- | --- | --- | --- |
+| `8.5` | Aquisição de Maquinas e Equipamentos | `(-)Investimentos` | Reclassificar de despesas de máquinas para investimento. |
+| `2.2` | Recebimentos de emprestimos | `(+/-)Despesas e Receitas Financeiras` | Exibir após o resultado operacional; não compõe EBITDA e integra o resultado geral. |
+| `11.7` | Financiamento | `(+/-)Despesas e Receitas Financeiras` | Não compõe gastos fixos nem EBITDA; soma com juros e empréstimos no subtotal de despesas financeiras. |
+| `6.11` | Compra de veiculos / Recebimentos Não Operacionais | Investimentos / Não Operacionais | Débito (valor líquido negativo) é compra e investimento; crédito (valor positivo) é venda e recebimento não operacional. |
+| `16.1`, `16.3`, `16.4`, `11.18` | Despesas Não Operacionais | `(+/-)Despesas e Recebimentos Não Operacionais` | Não compõem gastos fixos nem EBITDA. |
+| `15.5`, `15.7`, `11.17` | Manutenção da Sede | Despesas Administrativas | Reclassificar de Construção da Nova Sede ou Sistema/Servidor. |
+| `3.20` | Mão de Obra Terceirizada | Serviços de Terceiros | Nova rubrica detalhada. |
+| `3.21` | Marketing | Despesas Administrativas | Nova rubrica detalhada. |
+| `12.19` | AUXILIO MORADIA | Despesas com Pessoal | Remover de Comissão. |
+| `12.20` | VALE TRANSPORTE | Despesas com Pessoal | Nova rubrica detalhada. |
+| Sem código/grupo mapeado | Recebimentos ou Despesas Não Operacionais | `(+/-)Despesas e Recebimentos Não Operacionais` | Fallback: crédito entra em recebimentos não operacionais e débito em despesas não operacionais, sem afetar EBITDA. |
+
+As rubricas novas são linhas de detalhe do nível 1 e ficam ocultas por padrão
+na aba `DRE`; aparecem ao expandir o agrupamento do Excel. A saída gerada usa
+modo Excel-safe e não contém slicers.

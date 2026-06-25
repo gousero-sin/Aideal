@@ -880,7 +880,7 @@ class TemplateWriter:
 
     @staticmethod
     def _remover_defined_names_orfaos_workbook_xml(workbook_xml_bytes: bytes) -> bytes:
-        """Remove definedNames órfãos (#N/A ou de slicers) que causam reparo no Excel."""
+        """Remove definedNames órfãos (#N/A, #REF! ou de slicers) que causam reparo no Excel."""
         try:
             workbook_xml = workbook_xml_bytes.decode("utf-8")
         except UnicodeDecodeError:
@@ -895,7 +895,8 @@ class TemplateWriter:
                 valor = dn_match.group(2).strip()
                 nome = nome_attr.group(1) if nome_attr else ""
                 if (
-                    valor in ("#N/A", "#REF!")
+                    "#N/A" in valor
+                    or "#REF!" in valor
                     or nome.startswith("SegmentaçãodeDados")
                     or nome.startswith("SegmentacaodeDados")
                 ):

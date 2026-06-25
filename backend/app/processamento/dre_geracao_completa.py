@@ -39,6 +39,98 @@ _RECEITA_LIQUIDA_ROTULO = "(=)Receita Líquida"
 _RESULTADO_LIQUIDO_ROTULO = "(=)RESULTADO LÍQUIDO"
 _RESULTADO_GERENCIAL_ROTULO = "(=)RESULTADO GERENCIAL"
 _PLANO_CONTAS_CODIGO_OVERRIDES = {
+    # Correções aprovadas para o painel DRE. O código gerencial é a chave
+    # canônica; descrições dos relatórios podem mudar sem alterar a regra.
+    "2.2": {
+        "rubrica": "Recebimentos de emprestimos",
+        "conta_filho": "(+) Receitas Financeiras",
+        "conta_pai": "(+/-)Despesas e Receitas Financeiras",
+        "cod": 6,
+    },
+    "3.20": {
+        "rubrica": "Mão de Obra Terceirizada",
+        "conta_filho": "Serviços de Terceiros",
+        "conta_pai": "(-)Gastos Fixos",
+        "cod": 4,
+    },
+    "3.21": {
+        "rubrica": "Marketing",
+        "conta_filho": "Despesas Administrativas",
+        "conta_pai": "(-)Gastos Fixos",
+        "cod": 4,
+    },
+    "6.11": {
+        "rubrica": "Compra de veiculos",
+        "conta_filho": "Investimentos",
+        "conta_pai": "(-)Investimentos",
+        "cod": 8,
+    },
+    "8.5": {
+        "rubrica": "Aquisição de Maquinas e Equipamentos",
+        "conta_filho": "Investimentos",
+        "conta_pai": "(-)Investimentos",
+        "cod": 8,
+    },
+    "11.7": {
+        "rubrica": "Financiamento",
+        "conta_filho": "(-) Despesas Financeiras",
+        "conta_pai": "(+/-)Despesas e Receitas Financeiras",
+        "cod": 6,
+    },
+    "11.17": {
+        "rubrica": "Manutenção da Sede",
+        "conta_filho": "Despesas Administrativas",
+        "conta_pai": "(-)Gastos Fixos",
+        "cod": 4,
+    },
+    "11.18": {
+        "rubrica": "Despesas Não Operacionais",
+        "conta_filho": "(-) Despesas Não Operacionais",
+        "conta_pai": "(+/-)Despesas e Recebimentos Não Operacionais",
+        "cod": 5,
+    },
+    "12.19": {
+        "rubrica": "AUXILIO MORADIA",
+        "conta_filho": "Despesas com Pessoal",
+        "conta_pai": "(-)Gastos Fixos",
+        "cod": 4,
+    },
+    "12.20": {
+        "rubrica": "VALE TRANSPORTE",
+        "conta_filho": "Despesas com Pessoal",
+        "conta_pai": "(-)Gastos Fixos",
+        "cod": 4,
+    },
+    "15.5": {
+        "rubrica": "Manutenção da Sede",
+        "conta_filho": "Despesas Administrativas",
+        "conta_pai": "(-)Gastos Fixos",
+        "cod": 4,
+    },
+    "15.7": {
+        "rubrica": "Manutenção da Sede",
+        "conta_filho": "Despesas Administrativas",
+        "conta_pai": "(-)Gastos Fixos",
+        "cod": 4,
+    },
+    "16.1": {
+        "rubrica": "Despesas Não Operacionais",
+        "conta_filho": "(-) Despesas Não Operacionais",
+        "conta_pai": "(+/-)Despesas e Recebimentos Não Operacionais",
+        "cod": 5,
+    },
+    "16.3": {
+        "rubrica": "Despesas Não Operacionais",
+        "conta_filho": "(-) Despesas Não Operacionais",
+        "conta_pai": "(+/-)Despesas e Recebimentos Não Operacionais",
+        "cod": 5,
+    },
+    "16.4": {
+        "rubrica": "Despesas Não Operacionais",
+        "conta_filho": "(-) Despesas Não Operacionais",
+        "conta_pai": "(+/-)Despesas e Recebimentos Não Operacionais",
+        "cod": 5,
+    },
     "12.100": {
         "rubrica": "PREVISAO FÉRIAS",
         "conta_filho": "Despesas com Pessoal",
@@ -51,6 +143,19 @@ _PLANO_CONTAS_CODIGO_OVERRIDES = {
         "conta_pai": "(-)Gastos Fixos",
         "cod": 4,
     },
+}
+_VENDA_VEICULO = {
+    "rubrica": "Recebimentos Não Operacionais",
+    "conta_filho": "(+) Recebimentos Não Operacionais",
+    "conta_pai": "(+/-)Despesas e Recebimentos Não Operacionais",
+    "cod": 5,
+}
+_RECEITA_NAO_OPERACIONAL = _VENDA_VEICULO
+_DESPESA_NAO_OPERACIONAL = {
+    "rubrica": "Despesas Não Operacionais",
+    "conta_filho": "(-) Despesas Não Operacionais",
+    "conta_pai": "(+/-)Despesas e Recebimentos Não Operacionais",
+    "cod": 5,
 }
 _PLANO_CONTAS_TEXTO_OVERRIDES = {
     # No template legado, "IR" aparece como dedução sobre vendas. A regra atual
@@ -327,7 +432,9 @@ class DREGeracaoCompletaService:
                     familia = codigo.rsplit(".", 1)[0]
                     plano.setdefault(f"@fam:{familia}", entry)
         for codigo, entry in _PLANO_CONTAS_CODIGO_OVERRIDES.items():
-            plano.setdefault(f"@cod:{codigo}", dict(entry))
+            # Regras vigentes de negócio devem corrigir o template legado e não
+            # podem ser anuladas pelo primeiro texto encontrado na planilha.
+            plano[f"@cod:{codigo}"] = dict(entry)
         if aplicar_overrides_dre_gerado:
             for chave, entry in _PLANO_CONTAS_TEXTO_OVERRIDES.items():
                 plano[chave] = dict(entry)
@@ -338,6 +445,7 @@ class DREGeracaoCompletaService:
         natureza_raw: str | None,
         rubrica_raw: str | None,
         plano: dict[str, dict],
+        valor: float | None = None,
     ) -> tuple[str, str, str, int | None]:
         """Resolve natureza/rubrica para (rubrica, conta_filho, conta_pai, cod).
 
@@ -345,15 +453,29 @@ class DREGeracaoCompletaService:
         1. texto exato e texto após o primeiro " - " (cadastro literal);
         2. código gerencial (ex.: "1.1.1") — tolera sufixos no rótulo;
         3. família do código (ex.: "1.1") — subcontas irmãs herdam a
-           classificação (1.1.2/1.1.3 somam em Receita Bruta como 1.1.1).
+           classificação (1.1.2/1.1.3 somam em Receita Bruta como 1.1.1);
+        4. fallback não operacional para conta sem grupo canônico.
         """
         chaves = [
             (rubrica_raw or "").strip(),
             (natureza_raw or "").strip(),
         ]
 
+        codigo_gerencial = next(
+            (
+                codigo
+                for codigo in (
+                    _extrair_codigo_gerencial(rubrica_raw),
+                    _extrair_codigo_gerencial(natureza_raw),
+                )
+                if codigo
+            ),
+            None,
+        )
+
         def _resultado(p: dict) -> tuple[str, str, str, int | None]:
-            return p["rubrica"], p["conta_filho"], p["conta_pai"], p["cod"]
+            regra = _VENDA_VEICULO if codigo_gerencial == "6.11" and (valor or 0) > 0 else p
+            return regra["rubrica"], regra["conta_filho"], regra["conta_pai"], regra["cod"]
 
         # 1. Texto exato e texto após o primeiro " - ".
         for chave in chaves:
@@ -377,7 +499,11 @@ class DREGeracaoCompletaService:
             if f"@fam:{familia}" in plano:
                 return _resultado(plano[f"@fam:{familia}"])
 
-        return "", "", "", None
+        # Contas sem mapeamento não podem desaparecer do resultado geral.
+        # Crédito torna-se recebimento não operacional; débito, despesa não
+        # operacional. Ambos ficam abaixo do resultado operacional.
+        fallback = _RECEITA_NAO_OPERACIONAL if (valor or 0) > 0 else _DESPESA_NAO_OPERACIONAL
+        return _resultado(fallback)
 
     # ------------------------------------------------------------------ #
     # APOIO                                                                #
@@ -416,6 +542,7 @@ class DREGeracaoCompletaService:
                 lanc.natureza_raw,
                 lanc.rubrica,
                 plano,
+                valor,
             )
 
             eh_receita_bruta = conta_pai == _RECEITA_BRUTA_CONTA_PAI
@@ -544,6 +671,34 @@ class DREGeracaoCompletaService:
             [_MESES_NOMES[m - 1] for m in meses],
         )
         return meses
+
+    @staticmethod
+    def _proteger_formulas_apoio(writer: TemplateWriter) -> int:
+        """Evita erros visíveis nas fórmulas auxiliares herdadas do template."""
+        if not writer._wb or "APOIO" not in writer._wb.sheetnames:
+            return 0
+
+        ws_apoio = writer._wb["APOIO"]
+        protegidas = 0
+        for row in ws_apoio.iter_rows():
+            for cell in row:
+                formula = cell.value
+                if (
+                    not isinstance(formula, str)
+                    or not formula.startswith("=")
+                    or formula.upper().startswith("=IFERROR(")
+                ):
+                    continue
+
+                formula_upper = formula.upper()
+                if formula_upper.startswith("=VLOOKUP(") or "/" in formula:
+                    cell.value = f"=IFERROR({formula[1:]},0)"
+                    protegidas += 1
+
+        if protegidas:
+            writer._modified_sheets.add("APOIO")
+            logger.info("APOIO: %d fórmula(s) auxiliar(es) protegida(s)", protegidas)
+        return protegidas
 
     @staticmethod
     def _numero_planilha(valor: Any) -> float:
@@ -781,6 +936,7 @@ class DREGeracaoCompletaService:
             lanc.natureza_raw,
             lanc.rubrica,
             plano,
+            valor,
         )
         rubrica_final = rubrica or (lanc.rubrica or "").strip() or None
         conta_pai_final = conta_pai or (lanc.conta_pai or "").strip() or None
@@ -866,6 +1022,7 @@ class DREGeracaoCompletaService:
                 lanc.natureza_raw,
                 lanc.rubrica,
                 plano,
+                saldo,
             )
             rubrica = (rubrica_map or lanc.rubrica or "").strip() or "SEM_RUBRICA"
             conta_filho_final = (conta_filho or "").strip() or "SEM_CONTA_FILHO"
@@ -1314,6 +1471,7 @@ class DREGeracaoCompletaService:
             # Sem isso, o cabeçalho de meses em APOIO fica desatualizado (template)
             # e a DRE tende a retornar 0 via IFERROR.
             meses_apoio = self._escrever_apoio(writer, lancamentos, plano)
+            self._proteger_formulas_apoio(writer)
 
             # 4c. Meses efetivos visíveis no painel DRE.
             meses_utilizados_planilha = sorted(set(meses_apoio or meses_utilizados))

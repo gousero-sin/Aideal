@@ -21,6 +21,7 @@ from ..repository.dre_repository import DRERepository
 from ..templates.writer import TemplateWriter
 from ..transformacao.engine import DRETransformer
 from ..validacao.validators import DREValidator
+from .dre_geracao_completa import DREGeracaoCompletaService
 
 logger = logging.getLogger(__name__)
 
@@ -293,56 +294,26 @@ class DREProcessamentoService:
         return linhas
 
     def _ler_plano_contas(self, writer: TemplateWriter) -> dict[str, dict]:
-        """Lê PLANO_CONTAS do template para mapeamento natureza → contas.
-
-        Retorna dict: classificacao_normalizada → {rubrica, conta_filho, conta_pai, cod}
-        """
-        ws = writer._wb["PLANO_CONTAS"]
-        plano = {}
-        for row in ws.iter_rows(
-            min_row=2, max_row=ws.max_row, min_col=1, max_col=5, values_only=True
-        ):
-            classificacao, rubrica, conta_filho, conta_pai, cod = row
-            if classificacao is not None and str(classificacao).strip():
-                key = str(classificacao).strip()
-                plano[key] = {
-                    "rubrica": str(rubrica or "").strip(),
-                    "conta_filho": str(conta_filho or "").strip(),
-                    "conta_pai": str(conta_pai or "").strip(),
-                    "cod": cod,
-                }
-            if rubrica is not None and str(rubrica).strip():
-                key2 = str(rubrica).strip()
-                if key2 not in plano:
-                    plano[key2] = {
-                        "rubrica": str(rubrica or "").strip(),
-                        "conta_filho": str(conta_filho or "").strip(),
-                        "conta_pai": str(conta_pai or "").strip(),
-                        "cod": cod,
-                    }
-        return plano
+        """Lê o mesmo plano canônico usado pela geração DRE persistida."""
+        return DREGeracaoCompletaService._ler_plano_contas(
+            writer,
+            aplicar_overrides_dre_gerado=True,
+        )
 
     def _resolver_conta_pai(
-        self, natureza: str, rubrica_lanc: str, plano: dict[str, dict]
+        self,
+        natureza: str,
+        rubrica_lanc: str,
+        plano: dict[str, dict],
+        valor: float | None = None,
     ) -> tuple[str, str, str, int | None]:
-        """Resolve natureza/rubrica para (rubrica, conta_filho, conta_pai, cod) via PLANO_CONTAS.
-
-        Tenta primeiro pela rubrica do lançamento (C. gerencial), depois pela natureza.
-        """
-        for chave in [rubrica_lanc.strip(), natureza.strip()]:
-            if not chave:
-                continue
-            # Match direto
-            if chave in plano:
-                p = plano[chave]
-                return p["rubrica"], p["conta_filho"], p["conta_pai"], p["cod"]
-            # Match parcial: sem prefixo numérico (ex: "1.2.3 - Texto" → "Texto")
-            if " - " in chave:
-                sufixo = chave.split(" - ", 1)[1].strip()
-                if sufixo in plano:
-                    p = plano[sufixo]
-                    return p["rubrica"], p["conta_filho"], p["conta_pai"], p["cod"]
-        return "", "", "", None
+        """Resolve pelo código gerencial e aplica as regras vigentes do DRE."""
+        return DREGeracaoCompletaService._resolver_conta_pai(
+            natureza,
+            rubrica_lanc,
+            plano,
+            valor,
+        )
 
     def _agregar_para_apoio(self, lote: DRELote, plano: dict[str, dict]) -> list[list]:
         """Agrega lançamentos por Conta Pai/Rubrica x Mês para preencher APOIO.
@@ -357,11 +328,14 @@ class DREProcessamentoService:
         meses_encontrados = set()
 
         for lanc in lote.lancamentos:
+            valor = float(lanc.valor_liquido)
             rubrica, conta_filho, conta_pai, cod = self._resolver_conta_pai(
-                lanc.natureza, lanc.rubrica, plano
+                lanc.natureza,
+                lanc.rubrica,
+                plano,
+                valor,
             )
             mes = lanc.data.month
-            valor = float(lanc.valor_liquido)
             meses_encontrados.add(mes)
 
             # Agrega por rubrica (detalhe)
@@ -541,6 +515,7 @@ class DREProcessamentoService:
 
             # 3. Reescrever APOIO com dados agregados
             self._escrever_apoio(writer, lote, plano)
+            DREGeracaoCompletaService._proteger_formulas_apoio(writer)
 
             # 4. Gerenciar linhas ocultas
             writer.definir_linhas_ocultas(sheet_name, row_inicio, row_fim, ocultar=False)

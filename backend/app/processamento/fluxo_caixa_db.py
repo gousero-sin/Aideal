@@ -7,7 +7,7 @@ from typing import Any
 
 from ..config import settings
 from ..contracts.common import FlowType
-from ..contracts.fluxo_caixa import FCLote, TipoMovimento
+from ..contracts.fluxo_caixa import FCLote
 from ..db.connection import DatabaseConnection
 from ..exportacao.exporter import Exporter
 from ..repository.fluxo_indicadores_manuais import FluxoIndicadoresManuaisRepository
@@ -139,6 +139,10 @@ class FluxoCaixaGeracaoService:
         meses_utilizados = list(verificacao["meses_utilizados"])
         movimentos_db = self.repository.movimentos.get_by_meses(ano, meses_utilizados)
         movimentos = [mov.to_movimento() for mov in movimentos_db]
+        saldos_iniciais_por_banco = self.repository.movimentos.get_saldos_finais_anteriores(
+            ano,
+            min(meses_utilizados),
+        )
         indicadores_manuais = self.indicadores_manuais.get_by_ano(ano)
         saldo_ano_anterior = (
             indicadores_manuais.saldo_ano_anterior if indicadores_manuais else None
@@ -163,10 +167,11 @@ class FluxoCaixaGeracaoService:
             meses_visiveis=meses_utilizados,
             preservar_historico=False,
             saldo_ano_anterior=saldo_ano_anterior,
+            saldos_iniciais_por_banco=saldos_iniciais_por_banco,
         )
 
-        total_creditos = sum(mov.valor for mov in movimentos if mov.tipo == TipoMovimento.CREDITO)
-        total_debitos = sum(mov.valor for mov in movimentos if mov.tipo == TipoMovimento.DEBITO)
+        total_creditos = lote.total_creditos
+        total_debitos = lote.total_debitos
         meses_ocultos = [m for m in range(1, 13) if m not in meses_utilizados]
 
         return {

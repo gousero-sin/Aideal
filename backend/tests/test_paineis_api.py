@@ -2248,6 +2248,88 @@ def test_painel_dre_componentes_usam_mapeamento_da_geracao():
     assert indicadores["pel"]["componentes"]["custos_fixos"] == pytest.approx(100.0)
 
 
+def test_painel_dre_reclassifica_por_codigo_sem_distorcer_ebitda_ou_investimentos():
+    service = PainelDREService(db=_novo_db())
+    rows = [
+        {
+            "historico": "Receita operacional",
+            "natureza_raw": "1.1.1 - Recebimento de Clientes",
+            "rubrica": "1.1.1 - Recebimento de Clientes",
+            "credito": 1000.0,
+            "debito": 0.0,
+            "valor_bruto": 1000.0,
+        },
+        {
+            "historico": "Despesa sócio",
+            "natureza_raw": "16.3 - descrição alterável",
+            "rubrica": "16.3 - descrição alterável",
+            "credito": 0.0,
+            "debito": 100.0,
+            "valor_bruto": 100.0,
+        },
+        {
+            "historico": "Aquisição equipamento",
+            "natureza_raw": "8.5 - descrição alterável",
+            "rubrica": "8.5 - descrição alterável",
+            "credito": 0.0,
+            "debito": 200.0,
+            "valor_bruto": 200.0,
+        },
+        {
+            "historico": "Compra veículo",
+            "natureza_raw": "6.11 - COMPRA VENDA VEICULOS",
+            "rubrica": "6.11 - COMPRA VENDA VEICULOS",
+            "credito": 0.0,
+            "debito": 85.0,
+            "valor_bruto": 85.0,
+        },
+        {
+            "historico": "Venda veículo",
+            "natureza_raw": "6.11 - COMPRA VENDA VEICULOS",
+            "rubrica": "6.11 - COMPRA VENDA VEICULOS",
+            "credito": 300.0,
+            "debito": 0.0,
+            "valor_bruto": 300.0,
+        },
+        {
+            "historico": "Recebimento empréstimo",
+            "natureza_raw": "2.2 - Recebimento de empréstimo",
+            "rubrica": "2.2 - Recebimento de empréstimo",
+            "credito": 50.0,
+            "debito": 0.0,
+            "valor_bruto": 50.0,
+        },
+        {
+            "historico": "Financiamento",
+            "natureza_raw": "11.7 - FINANCIAMENTO",
+            "rubrica": "11.7 - FINANCIAMENTO",
+            "credito": 0.0,
+            "debito": 120.0,
+            "valor_bruto": 120.0,
+        },
+    ]
+
+    classificadas = service._componentes_compativeis_dre_gerado(rows)
+    por_historico = {row["historico"]: row for row in classificadas}
+    componentes = service._componentes_dre(classificadas, saldo_liquido=965.0)
+
+    assert por_historico["Despesa sócio"]["conta_pai"] == (
+        "(+/-)Despesas e Recebimentos Não Operacionais"
+    )
+    assert por_historico["Aquisição equipamento"]["conta_pai"] == "(-)Investimentos"
+    assert por_historico["Compra veículo"]["conta_pai"] == "(-)Investimentos"
+    assert por_historico["Venda veículo"]["conta_pai"] == (
+        "(+/-)Despesas e Recebimentos Não Operacionais"
+    )
+    assert por_historico["Recebimento empréstimo"]["conta_pai"] == (
+        "(+/-)Despesas e Receitas Financeiras"
+    )
+    assert por_historico["Financiamento"]["conta_pai"] == "(+/-)Despesas e Receitas Financeiras"
+    assert componentes["gastos_fixos"] == pytest.approx(0.0)
+    assert componentes["resultado_operacional"] == pytest.approx(1000.0)
+    assert componentes["investimentos"] == pytest.approx(285.0)
+
+
 def test_admin_indicadores_manuais_exige_sessao_confirmacao_e_salva(monkeypatch):
     _configurar_admin(monkeypatch)
     db = _novo_db()
@@ -2361,6 +2443,133 @@ def test_painel_fluxo_vazio_retorna_kpis_zerados():
     assert body["kpis"]["saldo_liquido"] == 0
     assert body["series_mensais"] == []
     assert body["ranking_bancos"] == []
+
+
+def test_painel_fluxo_neutraliza_transferencias_e_expoe_saldos_finais_por_banco():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO fluxo_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             banco, status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "fc-transferencias",
+                "2026-06-23T10:00:00",
+                "movimentos_2025-05_itau_.xlsx",
+                "hash-transferencias",
+                2025,
+                5,
+                "itau",
+                "completed",
+                4,
+                4,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO fluxo_movimentos
+            (upload_id, competencia_ano, competencia_mes, data_movimento, tipo, descricao,
+             valor, saldo, classificacao, conta_gerencial, banco_origem, arquivo_origem,
+             linha_origem, aba_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "fc-transferencias",
+                    2025,
+                    5,
+                    "2025-05-02",
+                    "credito",
+                    "Recebimento",
+                    100,
+                    100,
+                    "Receita",
+                    "1.1 - Receita",
+                    "itau",
+                    "movimentos_2025-05_itau_.xlsx",
+                    1,
+                    "Sheet",
+                    "transferencia-h1",
+                    "2026-06-23T10:00:00",
+                ),
+                (
+                    "fc-transferencias",
+                    2025,
+                    5,
+                    "2025-05-03",
+                    "debito",
+                    "Transferência para Safra",
+                    50,
+                    50,
+                    "Transferência Emitida",
+                    "Transferência entre Bancos",
+                    "itau",
+                    "movimentos_2025-05_itau_.xlsx",
+                    2,
+                    "Sheet",
+                    "transferencia-h2",
+                    "2026-06-23T10:00:00",
+                ),
+                (
+                    "fc-transferencias",
+                    2025,
+                    5,
+                    "2025-05-04",
+                    "debito",
+                    "Fornecedor",
+                    20,
+                    30,
+                    "Fornecedores",
+                    "4.1 - TINTAS E SOLVENTES",
+                    "itau",
+                    "movimentos_2025-05_itau_.xlsx",
+                    3,
+                    "Sheet",
+                    "transferencia-h3",
+                    "2026-06-23T10:00:00",
+                ),
+                (
+                    "fc-transferencias",
+                    2025,
+                    5,
+                    "2025-05-03",
+                    "credito",
+                    "Transferência recebida",
+                    50,
+                    50,
+                    "Transferência Recebida",
+                    "Transferência entre Bancos",
+                    "safra",
+                    "movimentos_2025-05_safra_.xlsx",
+                    1,
+                    "Sheet",
+                    "transferencia-h4",
+                    "2026-06-23T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/fluxo_caixa/painel?ano=2025&meses=5")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["kpis"]["total_creditos"] == 100.0
+    assert body["kpis"]["total_debitos"] == 20.0
+    assert body["kpis"]["saldo_liquido"] == 80.0
+    assert {item["nome"] for item in body["ranking_classificacoes"]} == {
+        "Receita",
+        "Fornecedores",
+    }
+    saldos = {item["nome"]: item for item in body["saldos_por_banco"]}
+    assert saldos["itau"]["saldo_inicial"] == 0.0
+    assert saldos["itau"]["saldo_final"] == 30.0
+    assert saldos["safra"]["saldo_final"] == 50.0
 
 
 def test_painel_fluxo_filtra_por_banco_tipo_classificacao_e_meses():

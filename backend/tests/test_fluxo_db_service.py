@@ -198,6 +198,13 @@ def test_fluxo_geracao_inclui_saldo_ano_anterior_manual_no_documento(tmp_path):
     template = tmp_path / "template_fluxo.xlsx"
     _criar_template_fluxo(template)
 
+    wb_template = load_workbook(template)
+    fluxo_template = wb_template["Fluxo de Caixa "]
+    fluxo_template["B227"] = "(=) SALDO FINAL"
+    fluxo_template["D227"] = "=SUM(D7)"
+    fluxo_template["E8"] = "=D228"
+    wb_template.save(template)
+
     with db.transaction() as conn:
         conn.execute(
             """
@@ -279,7 +286,7 @@ def test_fluxo_geracao_inclui_saldo_ano_anterior_manual_no_documento(tmp_path):
         if row[5] == "Saldo do Ano Anterior"
     ]
     assert len(linhas_saldo) == 1
-    assert linhas_saldo[0][0].date() == date(2025, 8, 1)
+    assert linhas_saldo[0][0].date() == date(2025, 1, 1)
     assert linhas_saldo[0][2] == 1234.56
 
     apoio = wb["Apoio"]
@@ -287,9 +294,14 @@ def test_fluxo_geracao_inclui_saldo_ano_anterior_manual_no_documento(tmp_path):
     assert "Saldo do Ano Anterior" in apoio_labels
 
     fluxo = wb["Fluxo de Caixa "]
-    assert fluxo["C8"].value == "Saldo do Ano Anterior"
-    assert "MATCH($C8" in fluxo["D8"].value
-    assert fluxo["D7"].value == "=SUM(D8:D18)"
+    assert fluxo["C8"].value == "Saldo Inicial Aplicações"
+    assert fluxo["E8"].value == "=D228"
+    assert fluxo["C19"].value == "Saldo do Ano Anterior"
+    assert "MATCH($C19" in fluxo["D19"].value
+    assert fluxo["D7"].value == "=SUM(D9:D19)"
+    assert fluxo["E7"].value == "=D227"
+    assert fluxo["K7"].value == "=J227"
+    assert fluxo["E19"].value == "=0"
 
 
 def test_fluxo_atualiza_nome_gerencial_por_codigo_em_movimentos_passados():

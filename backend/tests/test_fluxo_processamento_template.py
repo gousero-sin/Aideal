@@ -1,5 +1,6 @@
 """Testes de escrita do Fluxo de Caixa no template."""
 
+import zipfile
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -8,6 +9,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from app.config import settings
 from app.contracts.fluxo_caixa import FCLote, FCMovimento, TipoMovimento
 from app.processamento.fluxo_caixa import FluxoCaixaProcessamentoService
 
@@ -194,6 +196,7 @@ def test_escrita_adiciona_linhas_de_saldo_para_movimentos_com_saldo(tmp_path):
 
     assert ws.max_row == 5
     assert ws["B3"].value == "saldo inicial "
+    assert ws["C3"].value == 100
     assert ws["E3"].value == 100
     assert ws["F3"].value == "Saldo Inicial CEF"
     assert ws["B4"].value == "Pagamento-Fornecedores"
@@ -504,3 +507,250 @@ def test_escrita_remove_marcadores_ok_da_apresentacao(tmp_path):
     assert apresentacao["A21"].value is None
     assert apresentacao["A22"].value is None
     assert apresentacao["A23"].value == "Revisar"
+
+
+def test_escrita_mantem_transferencia_rastreavel_sem_agregar_no_fluxo(tmp_path):
+    template = tmp_path / "template_fluxo.xlsx"
+    output = tmp_path / "saida_fluxo.xlsx"
+    _criar_template_fluxo(template)
+    _adicionar_abas_resumo_fluxo(template)
+
+    lote = FCLote(
+        periodo="08/2025",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2025, 8, 4),
+                tipo=TipoMovimento.TRANSFERENCIA,
+                descricao="Transferência para Safra",
+                valor=Decimal("50"),
+                saldo=Decimal("50"),
+                classificacao="Transferência Emitida",
+                conta_gerencial="Transferência entre Bancos",
+                banco_origem="itau",
+            ),
+            FCMovimento(
+                data_movimento=date(2025, 8, 5),
+                tipo=TipoMovimento.DEBITO,
+                descricao="Fornecedor",
+                valor=Decimal("20"),
+                saldo=Decimal("30"),
+                classificacao="Fornecedores",
+                banco_origem="itau",
+            ),
+        ],
+    )
+    service = FluxoCaixaProcessamentoService(
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    service._escrever_template(lote, output, meses_visiveis=[8], preservar_historico=False)
+
+    wb = load_workbook(output, data_only=False)
+    consolidado = wb["Consolidado"]
+    transferencia = next(
+        row
+        for row in consolidado.iter_rows(min_row=2, values_only=True)
+        if row[5] == "Transferência Emitida"
+    )
+    assert transferencia[2] is None
+    assert transferencia[3] == 50.0
+
+    apoio = wb["Apoio"]
+    labels_apoio = [apoio.cell(row=row, column=2).value for row in range(6, apoio.max_row + 1)]
+    assert "Transferência Emitida" not in labels_apoio
+    linha_fornecedores = labels_apoio.index("Fornecedores") + 6
+    assert apoio.cell(row=linha_fornecedores, column=18).value == 20.0
+    linha_saldo_inicial = labels_apoio.index("Saldo Inicial Itau") + 6
+    assert apoio.cell(row=linha_saldo_inicial, column=17).value == 100.0
+
+
+def test_linhas_de_saldo_encadeiam_fechamento_de_um_mes_na_abertura_do_proximo(tmp_path):
+    service = FluxoCaixaProcessamentoService(
+        template_path=tmp_path / "nao_usado.xlsx",
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+    movimentos = [
+        FCMovimento(
+            data_movimento=date(2025, 1, 30),
+            tipo=TipoMovimento.CREDITO,
+            descricao="Entrada janeiro",
+            valor=Decimal("100"),
+            saldo=Decimal("100"),
+            classificacao="Receita",
+            banco_origem="itau",
+        ),
+        FCMovimento(
+            data_movimento=date(2025, 1, 31),
+            tipo=TipoMovimento.DEBITO,
+            descricao="Saída janeiro",
+            valor=Decimal("10"),
+            saldo=Decimal("90"),
+            classificacao="Fornecedores",
+            banco_origem="itau",
+        ),
+        FCMovimento(
+            data_movimento=date(2025, 2, 1),
+            tipo=TipoMovimento.CREDITO,
+            descricao="Entrada fevereiro",
+            valor=Decimal("25"),
+            saldo=Decimal("115"),
+            classificacao="Receita",
+            banco_origem="itau",
+        ),
+    ]
+
+    linhas = service._linhas_movimentos_com_saldos(movimentos)
+    linhas_saldo = [linha for linha in linhas if isinstance(linha, list)]
+
+    assert len(linhas_saldo) == 4
+    assert linhas_saldo[0][4] == 0.0
+    assert linhas_saldo[1][3] == 90.0
+    assert linhas_saldo[2][4] == 90.0
+    assert linhas_saldo[3][3] == 115.0
+
+
+def test_fechamento_bancario_zero_do_extrato_prevalece_sobre_saldo_calculado(tmp_path):
+    service = FluxoCaixaProcessamentoService(
+        template_path=tmp_path / "nao_usado.xlsx",
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+    movimentos = [
+        FCMovimento(
+            data_movimento=date(2025, 1, 1),
+            tipo=TipoMovimento.CREDITO,
+            descricao="Entrada",
+            valor=Decimal("100"),
+            saldo=Decimal("100"),
+            classificacao="Receita",
+            banco_origem="itau",
+        ),
+        FCMovimento(
+            data_movimento=date(2025, 1, 2),
+            tipo=TipoMovimento.DEBITO,
+            descricao="Ajuste bancário",
+            valor=Decimal("10"),
+            saldo=Decimal("0"),
+            classificacao="Fornecedores",
+            banco_origem="itau",
+        ),
+    ]
+
+    assert service._saldo_final_grupo(movimentos, Decimal("90")) == Decimal("0")
+
+
+def test_escrita_mapeia_4_3_para_outros_materiais_dos_fornecedores(tmp_path):
+    template = tmp_path / "template_fluxo.xlsx"
+    output = tmp_path / "saida_fluxo.xlsx"
+    _criar_template_fluxo(template)
+    _adicionar_abas_resumo_fluxo(template)
+
+    wb_template = load_workbook(template)
+    wb_template["Apoio"]["B6"] = "OUTROS MATERIAIS DE APLICAÇÃO"
+    wb_template.save(template)
+
+    lote = FCLote(
+        periodo="08/2025",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2025, 8, 8),
+                tipo=TipoMovimento.DEBITO,
+                descricao="Outros materiais",
+                valor=Decimal("40"),
+                saldo=None,
+                classificacao="4.3 - OUTROS MATERIAIS",
+                conta_gerencial="4.3 - OUTROS MATERIAIS",
+                banco_origem="cef",
+            )
+        ],
+    )
+    service = FluxoCaixaProcessamentoService(
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    service._escrever_template(lote, output, meses_visiveis=[8], preservar_historico=False)
+
+    wb = load_workbook(output, data_only=False)
+    assert wb["Consolidado"]["F2"].value == "OUTROS MATERIAIS DE APLICAÇÃO"
+    assert wb["Apoio"]["R6"].value == 40.0
+
+
+def test_escrita_exibe_conta_nova_com_nome_sem_codigo_no_relatorio(tmp_path):
+    template = tmp_path / "template_fluxo.xlsx"
+    output = tmp_path / "saida_fluxo.xlsx"
+    _criar_template_fluxo(template)
+    _adicionar_abas_resumo_fluxo(template)
+
+    lote = FCLote(
+        periodo="08/2025",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2025, 8, 8),
+                tipo=TipoMovimento.DEBITO,
+                descricao="Nova despesa",
+                valor=Decimal("70"),
+                saldo=None,
+                classificacao="18.99 - NOVA DESPESA",
+                conta_gerencial="18.99 - NOVA DESPESA",
+                banco_origem="cef",
+            )
+        ],
+    )
+    service = FluxoCaixaProcessamentoService(
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    service._escrever_template(lote, output, meses_visiveis=[8], preservar_historico=False)
+
+    wb = load_workbook(output, data_only=False)
+    assert wb["Consolidado"]["F2"].value == "NOVA DESPESA"
+    labels_apoio = [
+        wb["Apoio"].cell(row=row, column=2).value
+        for row in range(6, wb["Apoio"].max_row + 1)
+    ]
+    assert "NOVA DESPESA" in labels_apoio
+
+
+def test_escrita_fluxo_remove_slicers_do_template_real(tmp_path):
+    output = tmp_path / "fluxo_sem_slicers.xlsx"
+    service = FluxoCaixaProcessamentoService(
+        template_path=settings.template_fluxo_path,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+    lote = FCLote(
+        periodo="06/2025",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2025, 6, 10),
+                tipo=TipoMovimento.CREDITO,
+                descricao="Recebimento",
+                valor=Decimal("100"),
+                saldo=Decimal("100"),
+                classificacao="Recebimento de Clientes",
+                banco_origem="itau",
+            )
+        ],
+    )
+
+    service._escrever_template(lote, output, preservar_historico=False)
+
+    with zipfile.ZipFile(output, "r") as workbook:
+        nomes = set(workbook.namelist())
+        workbook_xml = workbook.read("xl/workbook.xml").decode("utf-8")
+    assert not any(nome.startswith("xl/slicers/") for nome in nomes)
+    assert not any(nome.startswith("xl/slicerCaches/") for nome in nomes)
+    assert "#REF!" not in workbook_xml

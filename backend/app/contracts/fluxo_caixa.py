@@ -17,6 +17,11 @@ class TipoMovimento(str, Enum):
     TRANSFERENCIA = "transferencia"
 
 
+def eh_transferencia_classificacao(classificacao: str | None) -> bool:
+    """Identifica transferências novas e legadas pelo rótulo materializado."""
+    return str(classificacao or "").strip().upper().startswith("TRANSFER")
+
+
 class FCMovimento(BaseModel):
     """Movimento individual normalizado do Fluxo de Caixa.
 
@@ -44,6 +49,17 @@ class FCMovimento(BaseModel):
     linha_origem: int | None = Field(None, description="Linha de origem no arquivo bruto")
     aba_origem: str | None = Field(None, description="Aba de origem no arquivo bruto")
 
+    @property
+    def eh_transferencia(self) -> bool:
+        """Transferências são rastreáveis por banco, mas neutras no caixa consolidado."""
+        return self.tipo == TipoMovimento.TRANSFERENCIA or eh_transferencia_classificacao(
+            self.classificacao
+        )
+
+    @property
+    def transferencia_emitida(self) -> bool:
+        return self.eh_transferencia and "EMITIDA" in self.classificacao.upper()
+
 
 class FCLote(BaseModel):
     """Lote consolidado de movimentos do Fluxo de Caixa."""
@@ -56,11 +72,19 @@ class FCLote(BaseModel):
 
     @property
     def total_creditos(self) -> Decimal:
-        return sum(m.valor for m in self.movimentos if m.tipo == TipoMovimento.CREDITO)
+        return sum(
+            abs(m.valor)
+            for m in self.movimentos
+            if not m.eh_transferencia and m.tipo == TipoMovimento.CREDITO
+        )
 
     @property
     def total_debitos(self) -> Decimal:
-        return sum(m.valor for m in self.movimentos if m.tipo == TipoMovimento.DEBITO)
+        return sum(
+            abs(m.valor)
+            for m in self.movimentos
+            if not m.eh_transferencia and m.tipo == TipoMovimento.DEBITO
+        )
 
     @property
     def total_registros(self) -> int:

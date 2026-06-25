@@ -178,6 +178,13 @@ def _copiar_template(tmp_path: Path) -> Path:
     return destino
 
 
+def _celula_dre_por_rotulo(ws, rotulo: str, coluna: str) -> object:
+    for linha in range(1, ws.max_row + 1):
+        if ws.cell(linha, 1).value == rotulo:
+            return ws[f"{coluna}{linha}"].value
+    raise AssertionError(f"Rótulo DRE ausente: {rotulo}")
+
+
 def test_verificar_dados_modo_padrao_aceita_gaps_sem_exigir_mes_alvo():
     service = _build_service_com_dados()
 
@@ -370,39 +377,53 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     assert ws_dre_valores["B12"].value == 0
     assert ws_dre_valores["B19"].value == 1300
     assert ws_dre_valores["B34"].value == 1300
-    assert ws_dre_valores["B148"].value == 1300
-    assert ws_dre_valores["B173"].value == -300
-    assert ws_dre_valores["B174"].value == -100
-    assert ws_dre_valores["B175"].value == -200
-    assert ws_dre_valores["B177"].value == 1030
-    assert ws_dre_valores["B178"].value == -50
-    assert ws_dre_valores["B185"].value == 980
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "B") == 1300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "B") == -300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "B") == -100
+    assert _celula_dre_por_rotulo(ws_dre_valores, "IRPJ", "B") == -200
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "B") == 1030
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Investimentos", "B") == -50
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "B") == 980
     assert ws_dre_valores["AH6"].value == 1320
     assert ws_dre_valores["AH7"].value == 1000
     assert ws_dre_valores["AH8"].value == -20
     assert ws_dre_valores["AH12"].value == 0
     assert ws_dre_valores["AH19"].value == 1300
     assert ws_dre_valores["AH34"].value == 1300
-    assert ws_dre_valores["AH148"].value == 1300
-    assert ws_dre_valores["AH173"].value == -300
-    assert ws_dre_valores["AH174"].value == -100
-    assert ws_dre_valores["AH175"].value == -200
-    assert ws_dre_valores["AH177"].value == 1030
-    assert ws_dre_valores["AH178"].value == -50
-    assert ws_dre_valores["AH185"].value == 980
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "AH") == 1300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "AH") == -300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "AH") == -100
+    assert _celula_dre_por_rotulo(ws_dre_valores, "IRPJ", "AH") == -200
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "AH") == 1030
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Investimentos", "AH") == -50
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "AH") == 980
 
     wb_formulas = load_workbook(output_path, data_only=False)
     ws_dre_formulas = wb_formulas["DRE"]
     assert not isinstance(ws_dre_formulas["B19"].value, str)
     assert ws_dre_formulas["B19"].value == 1300
     assert ws_dre_formulas["B34"].value == 1300
-    assert ws_dre_formulas["B148"].value == 1300
-    assert ws_dre_formulas["B173"].value == -300
-    assert ws_dre_formulas["B177"].value == 1030
-    assert ws_dre_formulas["B185"].value == 980
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO OPERACIONAL", "B") == 1300
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(-)IRPJ/CSLL", "B") == -300
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO LÍQUIDO", "B") == 1030
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO GERENCIAL", "B") == 980
 
 
-def test_converte_linha_bd_fluxo_expandida_reaproveita_rubrica_e_conta_pai_do_banco():
+def test_gerar_arquivo_protege_formulas_auxiliares_da_apoio(tmp_path):
+    """A aba APOIO não pode abrir no Excel com #N/A ou #DIV/0! herdados."""
+    service = _build_service_com_receita_liquida_e_impostos()
+    output_path = tmp_path / "dre_apoio_sem_erros.xlsx"
+
+    service.gerar_arquivo(competencia="01/2026", output_path=output_path)
+
+    wb = load_workbook(output_path, data_only=False)
+    ws_apoio = wb["APOIO"]
+
+    assert ws_apoio["R5"].value.startswith("=IFERROR(VLOOKUP(")
+    assert ws_apoio["AF20"].value.startswith("=IFERROR(")
+
+
+def test_converte_linha_bd_fluxo_expandida_classifica_conta_sem_grupo_como_nao_operacional():
     service = _build_service_com_dados([6])
     lanc = DRELancamentoDB(
         upload_id="upload-x",
@@ -424,10 +445,10 @@ def test_converte_linha_bd_fluxo_expandida_reaproveita_rubrica_e_conta_pai_do_ba
     assert linha[8] == 6
     assert linha[9] == "Jun"
     assert linha[12] == 125.0
-    assert linha[13] == "Rubrica Persistida"
-    assert linha[14] is None
-    assert linha[15] == "Conta Pai Persistida"
-    assert linha[16] is None
+    assert linha[13] == "Recebimentos Não Operacionais"
+    assert linha[14] == "(+) Recebimentos Não Operacionais"
+    assert linha[15] == "(+/-)Despesas e Recebimentos Não Operacionais"
+    assert linha[16] == 5
 
 
 def test_agregar_apoio_receita_bruta_e_faturamento_brutos_vs_liquidos():
@@ -604,3 +625,244 @@ def test_agregar_apoio_receita_bruta_recompoe_bruto_sem_abater_ir_na_receita_liq
     assert por_label["IRPJ"][7] == -300.0
     assert por_label["IRPJ/CSLL"][7] == -300.0
     assert por_label["(-)IRPJ/CSLL"][7] == -300.0
+
+
+def test_agregar_apoio_aplica_correcoes_do_painel_por_codigo_gerencial():
+    """As correções do painel devem prevalecer pelo código, não pelo texto legado."""
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    def lancamento(codigo: str, valor: str, *, credito: bool = False) -> DRELancamentoDB:
+        return DRELancamentoDB(
+            upload_id="u-correcoes",
+            competencia_ano=2026,
+            competencia_mes=6,
+            data_lancamento="2026-06-10",
+            historico=f"Lançamento {codigo}",
+            credito=Decimal(valor) if credito else Decimal("0"),
+            debito=Decimal("0") if credito else Decimal(valor),
+            natureza_raw=f"{codigo} - descrição alterável no relatório",
+            rubrica=f"{codigo} - descrição alterável no relatório",
+            centro_custo="OBRA A",
+            hash_linha=f"hash-{codigo}-{valor}-{credito}",
+        )
+
+    linhas, _ = service._agregar_para_apoio(
+        [
+            lancamento("8.5", "85"),
+            lancamento("16.1", "161"),
+            lancamento("16.3", "163"),
+            lancamento("16.4", "164"),
+            lancamento("15.5", "155"),
+            lancamento("15.7", "157"),
+            lancamento("11.17", "117"),
+            lancamento("11.18", "118"),
+            lancamento("3.20", "320"),
+            lancamento("3.21", "321"),
+            lancamento("12.19", "1219"),
+            lancamento("12.20", "1220"),
+            lancamento("11.7", "117"),
+            lancamento("6.11", "611"),
+            lancamento("6.11", "612", credito=True),
+            lancamento("2.2", "22", credito=True),
+        ],
+        plano,
+    )
+    por_label = {row[1]: row for row in linhas}
+
+    assert por_label["Aquisição de Maquinas e Equipamentos"][7] == -85.0
+    assert por_label["Despesas Não Operacionais"][7] == -606.0
+    assert por_label["Manutenção da Sede"][7] == -429.0
+    assert por_label["Mão de Obra Terceirizada"][7] == -320.0
+    assert por_label["Marketing"][7] == -321.0
+    assert por_label["AUXILIO MORADIA"][7] == -1219.0
+    assert por_label["VALE TRANSPORTE"][7] == -1220.0
+    assert por_label["Financiamento"][7] == -117.0
+    assert por_label["(-) Despesas Financeiras"][7] == -117.0
+    assert por_label["Compra de veiculos"][7] == -611.0
+    assert por_label["Recebimentos Não Operacionais"][7] == 612.0
+    assert por_label["Recebimentos de emprestimos"][7] == 22.0
+
+
+def test_agregar_apoio_classifica_contas_sem_grupo_como_nao_operacionais():
+    """Contas sem mapeamento canônico não podem desaparecer do resultado geral."""
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    def lancamento(codigo: str, valor: str, *, credito: bool) -> DRELancamentoDB:
+        return DRELancamentoDB(
+            upload_id="u-nao-operacional",
+            competencia_ano=2026,
+            competencia_mes=6,
+            data_lancamento="2026-06-10",
+            historico=f"Lançamento {codigo}",
+            credito=Decimal(valor) if credito else Decimal("0"),
+            debito=Decimal("0") if credito else Decimal(valor),
+            natureza_raw=f"{codigo} - conta sem grupo",
+            rubrica=f"{codigo} - conta sem grupo",
+            centro_custo="OBRA A",
+            hash_linha=f"hash-nao-operacional-{codigo}-{valor}-{credito}",
+        )
+
+    linhas, _ = service._agregar_para_apoio(
+        [lancamento("99.1", "88", credito=True), lancamento("99.2", "77", credito=False)],
+        plano,
+    )
+    por_label = {row[1]: row for row in linhas}
+
+    assert por_label["Recebimentos Não Operacionais"][7] == 88.0
+    assert por_label["Despesas Não Operacionais"][7] == -77.0
+    assert por_label["(+/-)Despesas e Recebimentos Não Operacionais"][7] == 11.0
+
+
+def test_linha_bd_fluxo_classifica_venda_de_veiculo_como_recebimento_nao_operacional():
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    venda = DRELancamentoDB(
+        upload_id="u-veiculo",
+        competencia_ano=2026,
+        competencia_mes=6,
+        data_lancamento="2026-06-10",
+        historico="Venda de veículo",
+        credito=Decimal("5000"),
+        debito=Decimal("0"),
+        natureza_raw="6.11 - COMPRA VENDA VEICULOS",
+        rubrica="6.11 - COMPRA VENDA VEICULOS",
+        centro_custo="OBRA A",
+        hash_linha="hash-venda-veiculo",
+    )
+
+    linha = service._converte_linha_bd_fluxo_expandida(venda, plano)
+
+    assert linha[13] == "Recebimentos Não Operacionais"
+    assert linha[14] == "(+) Recebimentos Não Operacionais"
+    assert linha[15] == "(+/-)Despesas e Recebimentos Não Operacionais"
+    assert linha[16] == 5
+
+
+def test_gerar_arquivo_mostra_correcoes_do_painel_em_linhas_recolhidas(tmp_path):
+    service = _build_service_com_dados([6])
+    upload_id = service.repository.uploads.list_all()[0].id
+
+    def lancamento(codigo: str, valor: str, *, credito: bool = False) -> DRELancamentoDB:
+        return DRELancamentoDB(
+            upload_id=upload_id,
+            competencia_ano=2025,
+            competencia_mes=6,
+            data_lancamento="2025-06-20",
+            historico=f"DRE corrigida {codigo}",
+            credito=Decimal(valor) if credito else Decimal("0"),
+            debito=Decimal("0") if credito else Decimal(valor),
+            natureza_raw=f"{codigo} - descrição variável",
+            rubrica=f"{codigo} - descrição variável",
+            centro_custo="OBRA A",
+            hash_linha=f"saida-{codigo}-{valor}-{credito}",
+        )
+
+    service.repository.lancamentos.create_many(
+        [
+            lancamento("8.5", "85"),
+            lancamento("16.1", "161"),
+            lancamento("16.3", "163"),
+            lancamento("16.4", "164"),
+            lancamento("15.5", "155"),
+            lancamento("15.7", "157"),
+            lancamento("11.17", "117"),
+            lancamento("11.18", "118"),
+            lancamento("3.20", "320"),
+            lancamento("3.21", "321"),
+            lancamento("12.19", "1219"),
+            lancamento("12.20", "1220"),
+            lancamento("11.7", "117"),
+            lancamento("6.11", "611"),
+            lancamento("6.11", "612", credito=True),
+            lancamento("2.2", "22", credito=True),
+        ]
+    )
+    output_path = tmp_path / "dre_painel_corrigido.xlsx"
+
+    resultado = service.gerar_arquivo("06/2025", output_path=output_path)
+
+    assert resultado["success"] is True
+    workbook = load_workbook(output_path, data_only=True)
+    ws_dre = workbook["DRE"]
+    assert _celula_dre_por_rotulo(ws_dre, "Aquisição de Maquinas e Equipamentos", "N") == -85.0
+    assert _celula_dre_por_rotulo(ws_dre, "Despesas Não Operacionais", "N") == -606.0
+    assert _celula_dre_por_rotulo(ws_dre, "Manutenção da Sede", "N") == -429.0
+    assert _celula_dre_por_rotulo(ws_dre, "Mão de Obra Terceirizada", "N") == -320.0
+    assert _celula_dre_por_rotulo(ws_dre, "Marketing", "N") == -321.0
+    assert _celula_dre_por_rotulo(ws_dre, "AUXILIO MORADIA", "N") == -1219.0
+    assert _celula_dre_por_rotulo(ws_dre, "VALE TRANSPORTE", "N") == -1220.0
+    assert _celula_dre_por_rotulo(ws_dre, "Financiamento", "N") == -117.0
+    assert _celula_dre_por_rotulo(ws_dre, "(-) Despesas Financeiras", "N") == -117.0
+    assert _celula_dre_por_rotulo(ws_dre, "Compra de veiculos", "N") == -611.0
+    assert _celula_dre_por_rotulo(ws_dre, "Recebimentos Não Operacionais", "N") == 612.0
+    assert _celula_dre_por_rotulo(ws_dre, "Recebimentos de emprestimos", "N") == 22.0
+
+    with zipfile.ZipFile(output_path, "r") as zf:
+        nomes = set(zf.namelist())
+        assert not any(nome.startswith("xl/slicers/") for nome in nomes)
+        assert not any(nome.startswith("xl/slicerCaches/") for nome in nomes)
+
+
+def test_template_dre_exibe_novas_rubricas_somente_no_nivel_expandido():
+    workbook = load_workbook(settings.template_dre_path, data_only=False)
+    ws_dre = workbook["DRE"]
+    ws_plano = workbook["PLANO_CONTAS"]
+
+    linhas_por_label = {
+        str(ws_dre.cell(row, 1).value).strip(): row
+        for row in range(1, ws_dre.max_row + 1)
+        if ws_dre.cell(row, 1).value
+    }
+    for label in (
+        "AUXILIO MORADIA",
+        "VALE TRANSPORTE",
+        "Mão de Obra Terceirizada",
+        "Manutenção da Sede",
+        "Marketing",
+    ):
+        linha = linhas_por_label[label]
+        assert ws_dre.row_dimensions[linha].outlineLevel == 1
+        assert ws_dre.row_dimensions[linha].hidden is True
+        formula_esperada = (
+            f"=IFERROR(VLOOKUP($A{linha},APOIO!$B:$N,"
+            "MATCH(B$5,APOIO!$B$5:$N$5,0),FALSE),0)"
+        )
+        assert ws_dre.cell(linha, 2).value == formula_esperada
+    assert next(iter(ws_dre.tables.values())).ref == f"A5:AI{ws_dre.max_row}"
+
+    plano_por_codigo = {
+        str(row[0]).split(" - ", 1)[0].strip(): row[1:5]
+        for row in ws_plano.iter_rows(min_row=2, max_col=5, values_only=True)
+        if row[0]
+    }
+    assert plano_por_codigo["8.5"] == (
+        "Aquisição de Maquinas e Equipamentos",
+        "Investimentos",
+        "(-)Investimentos",
+        8,
+    )
+    assert plano_por_codigo["11.7"] == (
+        "Financiamento",
+        "(-) Despesas Financeiras",
+        "(+/-)Despesas e Receitas Financeiras",
+        6,
+    )
+    assert plano_por_codigo["15.5"] == (
+        "Manutenção da Sede",
+        "Despesas Administrativas",
+        "(-)Gastos Fixos",
+        4,
+    )
+    assert plano_por_codigo["12.20"] == (
+        "VALE TRANSPORTE",
+        "Despesas com Pessoal",
+        "(-)Gastos Fixos",
+        4,
+    )
+    assert next(iter(ws_plano.tables.values())).ref == f"A1:E{ws_plano.max_row}"

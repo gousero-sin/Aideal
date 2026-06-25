@@ -148,6 +148,13 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
     })),
     [contasDestaque],
   );
+  const saldosPorBanco = useMemo(
+    () => (Array.isArray(data?.saldos_por_banco) ? data.saldos_por_banco : []).map((banco) => ({
+      ...banco,
+      saldo: banco.saldo_final,
+    })),
+    [data?.saldos_por_banco],
+  );
   const activeFilterCount = countSelectedFilters(filters, ['meses', 'banco', 'tipo', 'classificacao']);
   const filterSummary = buildFilterSummary(filters, [
     { key: 'meses', label: 'Mês' },
@@ -158,7 +165,7 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
   const situations = useMemo(() => {
     const saldoCritico = pickLowestBy(data?.series_mensais, 'saldo');
     const maiorSaida = pickTopBy(data?.ranking_classificacoes, 'debito');
-    const bancoMovimentado = pickTopBy(data?.ranking_bancos, 'saldo', { absolute: true });
+    const bancoMovimentado = pickTopBy(saldosPorBanco, 'saldo_final', { absolute: true });
     const classificacaoDominante = pickTopBy(data?.ranking_classificacoes, 'saldo', { absolute: true });
     const melhorMes = pickTopBy(data?.series_mensais, 'saldo');
 
@@ -179,7 +186,7 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
         label: 'Banco mais relevante',
         value: bancoMovimentado?.nome,
         helper: bancoMovimentado
-          ? `${formatSignedCurrency(bancoMovimentado.saldo)} no saldo`
+          ? `${formatSignedCurrency(bancoMovimentado.saldo_final)} no saldo final`
           : 'Sem bancos no período',
       },
       {
@@ -197,7 +204,7 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
         tone: 'cyan',
       },
     ];
-  }, [data]);
+  }, [data, saldosPorBanco]);
 
   return (
     <section className="aideal-panel-page">
@@ -270,11 +277,9 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
       ) : (
         <>
           <section className="aideal-insight-grid">
-            <KpiCard label="Movimentos" value={formatNumber(kpis.total_movimentos)} detail="registros no filtro" icon={<WalletCards size={20} />} />
             <KpiCard label="Entradas" value={formatCurrency(kpis.total_creditos)} detail="créditos bancários" tone="cyan" icon={<TrendingUp size={20} />} />
             <KpiCard label="Saídas" value={formatCurrency(kpis.total_debitos)} detail="débitos bancários" tone="red" icon={<TrendingDown size={20} />} />
             <KpiCard label="Saldo" value={formatCurrency(kpis.saldo_liquido)} detail="posição líquida" tone="yellow" icon={<WalletCards size={20} />} />
-            <KpiCard label="Saldo ano ant." value={formatCurrency(kpis.saldo_ano_anterior)} detail="base manual anual" icon={<WalletCards size={20} />} />
             <KpiCard
               label="Saldo final"
               value={formatSignedCurrency(kpis.saldo_com_ano_anterior)}
@@ -300,14 +305,14 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
             <ChartCard title="Evolução mensal" subtitle={data?.periodo?.label} className="is-wide">
               <MonthlyEvolutionChart data={data?.series_mensais} countKey="movimentos" />
             </ChartCard>
-            <ChartCard title="Composição por banco" subtitle="Distribuição financeira por banco">
-              <CompositionDonut data={data?.ranking_bancos} />
+            <ChartCard title="Composição por banco" subtitle="Saldos finais por banco">
+              <CompositionDonut data={saldosPorBanco} />
             </ChartCard>
           </section>
 
           <section className="aideal-analytics-grid aideal-analytics-grid-three">
-            <ChartCard title="Ranking por banco" subtitle="Saldo por origem bancária">
-              <RankingChart data={data?.ranking_bancos} countKey="movimentos" />
+            <ChartCard title="Ranking por banco" subtitle="Saldo final por origem bancária">
+              <RankingChart data={saldosPorBanco} countKey="movimentos" />
             </ChartCard>
             <ChartCard title="Ranking por classificação" subtitle="Classificações com maior impacto">
               <RankingChart data={data?.ranking_classificacoes} countKey="movimentos" />

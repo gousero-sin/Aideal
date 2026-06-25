@@ -19,7 +19,12 @@ from ..contracts.common import (
     ProcessingStatus,
     ValidationError,
 )
-from ..contracts.fluxo_caixa import FCLote, FCMovimento, TipoMovimento
+from ..contracts.fluxo_caixa import (
+    FCLote,
+    FCMovimento,
+    TipoMovimento,
+    eh_transferencia_classificacao,
+)
 from ..contracts.processamento import DREProcessamentoResponse
 from ..exportacao.exporter import Exporter
 from ..ingestao.parser import ExcelParser
@@ -261,6 +266,7 @@ class FluxoCaixaProcessamentoService:
         meses_visiveis: list[int] | None = None,
         preservar_historico: bool = True,
         saldo_ano_anterior: Decimal | None = None,
+        saldos_iniciais_por_banco: dict[str, Decimal] | None = None,
     ) -> dict[str, float]:
         with TemplateWriter(self.template_path) as writer:
             ws = writer._wb["Consolidado"]
@@ -286,22 +292,19 @@ class FluxoCaixaProcessamentoService:
                 )
 
             if saldo_ano_anterior and saldo_ano_anterior != Decimal("0"):
-                meses_saldo_validos = (
-                    sorted(int(mes) for mes in meses_visiveis if 1 <= int(mes) <= 12)
-                    if meses_visiveis
-                    else []
-                )
-                mes_saldo_ano_anterior = meses_saldo_validos[0] if meses_saldo_validos else 1
                 linhas.append(
                     self._linha_saldo_ano_anterior(
                         periodo[1] if periodo else date.today().year,
-                        mes_saldo_ano_anterior,
+                        1,
                         saldo_ano_anterior,
                         row_number=1 + len(linhas) + 1,
                     )
                 )
 
-            for item in self._linhas_movimentos_com_saldos(lote.movimentos):
+            for item in self._linhas_movimentos_com_saldos(
+                lote.movimentos,
+                saldos_iniciais_por_banco=saldos_iniciais_por_banco,
+            ):
                 row_number = 1 + len(linhas) + 1
                 if isinstance(item, FCMovimento):
                     linhas.append(
@@ -322,11 +325,15 @@ class FluxoCaixaProcessamentoService:
                 writer._modified_sheets.add("Consolidado")
 
             self._recalcular_aba_apoio_fluxo(writer, linhas)
-            self._garantir_saldo_ano_anterior_no_fluxo(writer)
+            if saldo_ano_anterior and saldo_ano_anterior != Decimal("0"):
+                self._garantir_saldo_ano_anterior_no_fluxo(writer)
             if meses_visiveis:
                 self._aplicar_visibilidade_meses(writer, meses_visiveis)
             self._limpar_marcadores_apresentacao(writer)
             self._proteger_formulas_de_divisao(writer)
+            # O relatório usa as linhas do template como fonte visual; slicers
+            # legados não fazem parte da saída e podem causar reparos no Excel.
+            writer.remover_slicers()
             writer.ajustar_tabela_range(
                 sheet_name="Consolidado",
                 table_name="FluxoConsol",
@@ -353,7 +360,12 @@ class FluxoCaixaProcessamentoService:
         credito = Decimal("0")
         debito = Decimal("0")
 
-        if movimento.tipo == TipoMovimento.CREDITO:
+        if movimento.eh_transferencia:
+            if movimento.transferencia_emitida:
+                debito = valor_abs
+            else:
+                credito = valor_abs
+        elif movimento.tipo == TipoMovimento.CREDITO:
             credito = valor_abs
         elif movimento.tipo == TipoMovimento.DEBITO:
             debito = valor_abs
@@ -426,6 +438,13 @@ class FluxoCaixaProcessamentoService:
             chave_sem_codigo = self._normalizar_chave_classificacao(sem_codigo)
             if chave_sem_codigo and chave_sem_codigo in classificacoes_template:
                 return classificacoes_template[chave_sem_codigo]
+
+        # Conta ainda não cadastrada no template: o código continua no dado
+        # canônico, mas a rubrica visual deve exibir apenas seu nome.
+        for candidata in (movimento.conta_gerencial, movimento.classificacao):
+            nome = self._remover_codigo_gerencial(candidata)
+            if nome and nome != str(candidata or "").strip():
+                return nome
         return classificacao
 
     @staticmethod
@@ -504,7 +523,11 @@ class FluxoCaixaProcessamentoService:
         for linha in linhas:
             data = linha[0]
             classificacao = linha[5]
-            if not classificacao or not getattr(data, "month", None):
+            if (
+                not classificacao
+                or eh_transferencia_classificacao(classificacao)
+                or not getattr(data, "month", None)
+            ):
                 continue
             mes = int(data.month)
             if mes < 1 or mes > 12:
@@ -595,34 +618,61 @@ class FluxoCaixaProcessamentoService:
         if not linha_grupo:
             return
 
-        linha_saldo = self._encontrar_linha_rotulo(
+        linha_inicio = self._inicio_bloco_saldo_inicial(ws, linha_grupo)
+        linha_fim_original = self._fim_bloco_saldo_inicial(ws, linha_grupo, linha_inicio)
+        linha_saldo_existente = self._encontrar_linha_rotulo(
             ws,
             _SALDO_ANO_ANTERIOR_LABEL,
             coluna=3,
-        ) or linha_grupo + 1
-        linha_fim = self._fim_bloco_saldo_inicial(ws, linha_grupo, linha_saldo)
+        )
+        linha_saldo = linha_saldo_existente or linha_fim_original + 1
+        if linha_saldo_existente is None and not self._linha_vazia(ws, linha_saldo):
+            linha_saldo = linha_grupo + 1
+        linha_inicio = min(linha_inicio, linha_saldo)
+        linha_fim = max(linha_fim_original, linha_saldo)
+        linha_saldo_final = self._encontrar_linha_rotulo(ws, "(=) SALDO FINAL", coluna=2)
 
         ws.cell(row=linha_saldo, column=3, value=_SALDO_ANO_ANTERIOR_LABEL)
         for col in range(4, 16):
             col_letter = get_column_letter(col)
+            if col == 4:
+                ws.cell(
+                    row=linha_saldo,
+                    column=col,
+                    value=(
+                        "=IFERROR("
+                        f"INDEX(Apoio!$B:$AB,MATCH($C{linha_saldo},Apoio!$B:$B,0),"
+                        f"MATCH('Fluxo de Caixa '!{col_letter}$5,Apoio!$B$4:$AB$4,0))"
+                        ",0)"
+                    ),
+                )
+                ws.cell(
+                    row=linha_grupo,
+                    column=col,
+                    value=f"=SUM({col_letter}{linha_inicio}:{col_letter}{linha_fim})",
+                )
+                continue
+
             ws.cell(
                 row=linha_saldo,
                 column=col,
-                value=(
-                    "=IFERROR("
-                    f"INDEX(Apoio!$B:$AB,MATCH($C{linha_saldo},Apoio!$B:$B,0),"
-                    f"MATCH('Fluxo de Caixa '!{col_letter}$5,Apoio!$B$4:$AB$4,0))"
-                    ",0)"
-                ),
+                value="=0",
             )
-            ws.cell(
-                row=linha_grupo,
-                column=col,
-                value=f"=SUM({col_letter}{linha_saldo}:{col_letter}{linha_fim})",
-            )
+            if linha_saldo_final:
+                coluna_anterior = get_column_letter(col - 1)
+                ws.cell(
+                    row=linha_grupo,
+                    column=col,
+                    value=f"={coluna_anterior}{linha_saldo_final}",
+                )
+            else:
+                ws.cell(
+                    row=linha_grupo,
+                    column=col,
+                    value=f"=SUM({col_letter}{linha_inicio}:{col_letter}{linha_fim})",
+                )
 
         ws.cell(row=linha_saldo, column=17, value=f"=SUM(D{linha_saldo}:O{linha_saldo})")
-        ws.cell(row=linha_grupo, column=17, value=f"=SUM(Q{linha_saldo}:Q{linha_fim})")
         writer._modified_sheets.add("Fluxo de Caixa ")
 
     @staticmethod
@@ -633,6 +683,13 @@ class FluxoCaixaProcessamentoService:
             if FluxoCaixaProcessamentoService._normalizar_chave_classificacao(valor) == chave:
                 return row
         return None
+
+    @staticmethod
+    def _linha_vazia(ws, linha: int) -> bool:
+        return all(
+            ws.cell(row=linha, column=coluna).value in (None, "")
+            for coluna in range(1, 18)
+        )
 
     @staticmethod
     def _fim_bloco_saldo_inicial(ws, linha_grupo: int, linha_saldo: int) -> int:
@@ -649,6 +706,15 @@ class FluxoCaixaProcessamentoService:
                 continue
             break
         return linha_fim
+
+    @staticmethod
+    def _inicio_bloco_saldo_inicial(ws, linha_grupo: int) -> int:
+        formula = ws.cell(row=linha_grupo, column=4).value
+        if isinstance(formula, str):
+            match = re.search(r"SUM\(\$?[A-Z]+\$?(\d+):", formula, flags=re.IGNORECASE)
+            if match:
+                return max(linha_grupo + 1, int(match.group(1)))
+        return linha_grupo + 1
 
     def _aplicar_visibilidade_meses(
         self,
@@ -745,6 +811,8 @@ class FluxoCaixaProcessamentoService:
         for linha in linhas:
             if periodo and not self._valor_data_no_periodo(linha[0], periodo):
                 continue
+            if self._eh_linha_neutra_no_consolidado(linha):
+                continue
             creditos += self._decimal_linha(linha[2])
             debitos += self._decimal_linha(linha[3])
 
@@ -763,6 +831,8 @@ class FluxoCaixaProcessamentoService:
             data = linha[0]
             if not getattr(data, "month", None) or int(data.month) not in meses_set:
                 continue
+            if self._eh_linha_neutra_no_consolidado(linha):
+                continue
             creditos += self._decimal_linha(linha[2])
             debitos += self._decimal_linha(linha[3])
 
@@ -778,6 +848,13 @@ class FluxoCaixaProcessamentoService:
         if valor in (None, ""):
             return Decimal("0")
         return Decimal(str(valor))
+
+    @staticmethod
+    def _eh_linha_neutra_no_consolidado(linha: list) -> bool:
+        classificacao = str(linha[5] or "").strip()
+        return eh_transferencia_classificacao(classificacao) or classificacao.upper().startswith(
+            ("SALDO INICIAL ", "SALDO FINAL ")
+        )
 
     def _mapear_classificacoes_template(self, wb, ws, limite_fim: int) -> dict[str, str]:
         mapa: dict[str, str] = {}
@@ -852,64 +929,84 @@ class FluxoCaixaProcessamentoService:
     def _linhas_movimentos_com_saldos(
         self,
         movimentos: list[FCMovimento],
+        saldos_iniciais_por_banco: dict[str, Decimal] | None = None,
     ) -> list[FCMovimento | list]:
         if not movimentos:
             return []
 
-        por_banco: dict[str, list[FCMovimento]] = {}
+        por_banco_mes: dict[tuple[str, int, int], list[FCMovimento]] = {}
         for movimento in movimentos:
-            por_banco.setdefault(movimento.banco_origem.lower().strip(), []).append(movimento)
+            banco = movimento.banco_origem.lower().strip()
+            chave = (banco, movimento.data_movimento.year, movimento.data_movimento.month)
+            por_banco_mes.setdefault(chave, []).append(movimento)
 
+        saldos_anteriores = {
+            str(banco).lower().strip(): Decimal(str(saldo))
+            for banco, saldo in (saldos_iniciais_por_banco or {}).items()
+        }
         saida: list[FCMovimento | list] = []
-        for banco in sorted(
-            por_banco,
-            key=lambda item: (_BANCO_ORDEM_CONSOLIDADO.get(item, 99), item),
+        for banco, _ano, _mes in sorted(
+            por_banco_mes,
+            key=lambda item: (_BANCO_ORDEM_CONSOLIDADO.get(item[0], 99), item),
         ):
             grupo = sorted(
-                por_banco[banco],
+                por_banco_mes[(banco, _ano, _mes)],
                 key=lambda mov: (
                     mov.data_movimento,
                     mov.linha_origem or 0,
                     mov.descricao,
                 ),
             )
-            incluir_saldos = any(mov.saldo is not None for mov in grupo)
+            incluir_saldos = banco in saldos_anteriores or any(
+                mov.saldo is not None for mov in grupo
+            )
             if incluir_saldos:
-                saldo_final = self._saldo_final_grupo(grupo)
-                saldo_corrente = saldo_final - self._saldo_liquido_grupo(grupo)
+                saldo_corrente = saldos_anteriores.get(banco)
+                if saldo_corrente is None:
+                    saldo_corrente = self._saldo_inicial_grupo(grupo)
                 saida.append(self._linha_saldo_inicial(grupo[0], saldo_corrente))
                 for movimento in grupo:
                     saldo_corrente = self._aplicar_movimento_no_saldo(saldo_corrente, movimento)
                     saida.append(movimento.model_copy(update={"saldo": saldo_corrente}))
+                saldo_final = self._saldo_final_grupo(grupo, saldo_corrente)
                 saida.append(self._linha_saldo_final(grupo[-1], saldo_final))
+                saldos_anteriores[banco] = saldo_final
                 continue
 
             saida.extend(grupo)
         return saida
 
-    def _saldo_final_grupo(self, grupo: list[FCMovimento]) -> Decimal:
-        datas = [mov.data_movimento for mov in grupo if mov.saldo is not None]
-        data_final = max(datas)
-        candidatos = [
-            mov for mov in grupo if mov.saldo is not None and mov.data_movimento == data_final
-        ]
-        movimento_final = min(candidatos, key=lambda mov: mov.linha_origem or 0)
-        return movimento_final.saldo or Decimal("0")
+    @staticmethod
+    def _saldo_inicial_grupo(grupo: list[FCMovimento]) -> Decimal:
+        primeiro_com_saldo = next((mov for mov in grupo if mov.saldo is not None), None)
+        if primeiro_com_saldo is None:
+            return Decimal("0")
+        return (primeiro_com_saldo.saldo or Decimal("0")) - (
+            FluxoCaixaProcessamentoService._impacto_bancario(primeiro_com_saldo)
+        )
 
-    def _saldo_liquido_grupo(self, grupo: list[FCMovimento]) -> Decimal:
-        saldo = Decimal("0")
-        for movimento in grupo:
-            saldo = self._aplicar_movimento_no_saldo(saldo, movimento)
-        return saldo
+    @staticmethod
+    def _saldo_final_grupo(grupo: list[FCMovimento], saldo_calculado: Decimal) -> Decimal:
+        candidatos = [mov for mov in grupo if mov.saldo is not None]
+        if not candidatos:
+            return saldo_calculado
+        movimento_final = candidatos[-1]
+        return movimento_final.saldo if movimento_final.saldo is not None else saldo_calculado
 
     @staticmethod
     def _aplicar_movimento_no_saldo(saldo: Decimal, movimento: FCMovimento) -> Decimal:
+        return saldo + FluxoCaixaProcessamentoService._impacto_bancario(movimento)
+
+    @staticmethod
+    def _impacto_bancario(movimento: FCMovimento) -> Decimal:
         valor_abs = abs(movimento.valor)
+        if movimento.eh_transferencia:
+            return -valor_abs if movimento.transferencia_emitida else valor_abs
         if movimento.tipo == TipoMovimento.CREDITO:
-            return saldo + valor_abs
+            return valor_abs
         if movimento.tipo == TipoMovimento.DEBITO:
-            return saldo - valor_abs
-        return saldo + movimento.valor
+            return -valor_abs
+        return movimento.valor
 
     def _linha_saldo_inicial(self, movimento: FCMovimento, saldo_inicial: Decimal) -> list:
         banco = movimento.banco_origem.lower().strip()
@@ -917,7 +1014,10 @@ class FluxoCaixaProcessamentoService:
         return [
             movimento.data_movimento,
             "saldo inicial ",
-            None,
+            # O template materializa as linhas "Saldo Inicial <Banco>" a partir
+            # da coluna de crédito da Apoio. O saldo também fica na coluna E do
+            # Consolidado para rastreabilidade do extrato.
+            float(saldo_inicial) if saldo_inicial != Decimal("0") else None,
             None,
             float(saldo_inicial),
             f"Saldo Inicial {titulo}",
