@@ -333,9 +333,11 @@ class FluxoCaixaProcessamentoService:
                 self._aplicar_visibilidade_meses(writer, meses_visiveis)
             self._limpar_marcadores_apresentacao(writer)
             self._proteger_formulas_de_divisao(writer)
-            # O relatório usa as linhas do template como fonte visual; slicers
-            # legados não fazem parte da saída e podem causar reparos no Excel.
+            # O relatório usa as linhas materializadas como fonte visual. Slicers e
+            # pivôs legados do template podem reprocessar a Apoio no Excel e trazer
+            # classificações neutras, como transferências, de volta ao fluxo.
             writer.remover_slicers()
+            writer.remover_pivots()
             writer.ajustar_tabela_range(
                 sheet_name="Consolidado",
                 table_name="FluxoConsol",

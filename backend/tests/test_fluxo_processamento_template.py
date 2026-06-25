@@ -782,6 +782,16 @@ def test_escrita_fluxo_remove_slicers_do_template_real(tmp_path):
     with zipfile.ZipFile(output, "r") as workbook:
         nomes = set(workbook.namelist())
         workbook_xml = workbook.read("xl/workbook.xml").decode("utf-8")
+        content_types = workbook.read("[Content_Types].xml").decode("utf-8")
+        apoio_rels = workbook.read("xl/worksheets/_rels/sheet5.xml.rels").decode("utf-8")
+        apoio_xml = workbook.read("xl/worksheets/sheet5.xml").decode("utf-8")
     assert not any(nome.startswith("xl/slicers/") for nome in nomes)
     assert not any(nome.startswith("xl/slicerCaches/") for nome in nomes)
+    assert not any(nome.startswith("xl/pivotTables/") for nome in nomes)
+    assert not any(nome.startswith("xl/pivotCache/") for nome in nomes)
+    assert "pivotCaches" not in workbook_xml
+    assert "pivotTable" not in apoio_rels
+    assert "pivotTableDefinition" not in apoio_xml
+    assert "/xl/pivotTables/" not in content_types
+    assert "/xl/pivotCache/" not in content_types
     assert "#REF!" not in workbook_xml

@@ -107,6 +107,8 @@ class TemplateWriter:
         self._clear_slicer_cache_items = False
         # Se True, remove slicers/slicerCaches do pacote final e limpa referências.
         self._strip_slicers = False
+        # Se True, remove pivotTables/pivotCaches do pacote final e limpa referências.
+        self._strip_pivots = False
         # Se True, aplica modo "excel safe": remove charts, pivots, drawings de abas
         # hidden (Painel/APOIO), printerSettings, themeOverride e customXml, limpando
         # todas as referências (Content_Types, workbook, sheet rels). Preserva apenas
@@ -386,6 +388,10 @@ class TemplateWriter:
         """Remove artefatos de slicer/slicerCache no pacote final."""
         self._strip_slicers = True
 
+    def remover_pivots(self) -> None:
+        """Remove artefatos de pivotTable/pivotCache no pacote final."""
+        self._strip_pivots = True
+
     def ativar_modo_excel_safe(self) -> None:
         """Ativa modo Excel-safe: remove charts, pivots, drawings de abas hidden,
         printerSettings, themeOverride e customXml para garantir abertura sem reparo
@@ -639,6 +645,12 @@ class TemplateWriter:
         return nome_parte.startswith("xl/slicerCaches/") or nome_parte.startswith("xl/slicers/")
 
     @staticmethod
+    def _is_pivot_part(nome_parte: str) -> bool:
+        return nome_parte.startswith("xl/pivotCache/") or nome_parte.startswith(
+            "xl/pivotTables/"
+        )
+
+    @staticmethod
     def _remover_rels_por_tipo_fragmento(rels_bytes: bytes, tipo_fragmento: str) -> bytes:
         """Remove Relationship(s) cujo Type contenha o fragmento informado."""
         try:
@@ -666,6 +678,23 @@ class TemplateWriter:
 
         pattern = (
             r'<Override\b[^>]*PartName=(?:"|\')/xl/(?:slicerCaches/slicerCache|slicers/slicer)'
+            r'[^"\']+\.xml(?:"|\')[^>]*/>\s*'
+        )
+        updated = re.sub(pattern, "", content_types_xml)
+        if updated == content_types_xml:
+            return content_types_bytes
+        return updated.encode("utf-8")
+
+    @staticmethod
+    def _remover_content_type_pivot_parts(content_types_bytes: bytes) -> bytes:
+        """Remove overrides de pivotTables/pivotCaches do [Content_Types].xml."""
+        try:
+            content_types_xml = content_types_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return content_types_bytes
+
+        pattern = (
+            r'<Override\b[^>]*PartName=(?:"|\')/xl/(?:pivotTables/pivotTable|pivotCache/)'
             r'[^"\']+\.xml(?:"|\')[^>]*/>\s*'
         )
         updated = re.sub(pattern, "", content_types_xml)
@@ -877,6 +906,30 @@ class TemplateWriter:
         if xml_novo == xml:
             return sheet_xml_bytes
         return xml_novo.encode("utf-8")
+
+    @staticmethod
+    def _remover_pivot_table_defs_worksheet_xml(sheet_xml_bytes: bytes) -> bytes:
+        """Remove referências de pivotTable da worksheet."""
+        try:
+            sheet_xml = sheet_xml_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            return sheet_xml_bytes
+
+        updated = re.sub(
+            r"<(?:[A-Za-z_][\w.-]*:)?pivotTableDefinitions\b[^>]*>"
+            r".*?</(?:[A-Za-z_][\w.-]*:)?pivotTableDefinitions>\s*",
+            "",
+            sheet_xml,
+            flags=re.DOTALL,
+        )
+        updated = re.sub(
+            r"<(?:[A-Za-z_][\w.-]*:)?pivotTableDefinitions\b[^>]*/>\s*",
+            "",
+            updated,
+        )
+        if updated == sheet_xml:
+            return sheet_xml_bytes
+        return updated.encode("utf-8")
 
     @staticmethod
     def _remover_defined_names_orfaos_workbook_xml(workbook_xml_bytes: bytes) -> bytes:
@@ -1684,6 +1737,7 @@ class TemplateWriter:
             and self._pivot_cache_records_mode is None
             and not self._clear_slicer_cache_items
             and not self._strip_slicers
+            and not self._strip_pivots
             and not self._table_refs_override
             and not self._table_strip_calculated_formulas
             and not self._table_specs
@@ -1758,6 +1812,8 @@ class TemplateWriter:
                     if self._strip_slicers:
                         payload = self._remover_slicer_ext_workbook_xml(payload)
                         payload = self._remover_defined_names_orfaos_workbook_xml(payload)
+                    if self._strip_pivots:
+                        payload = self._remover_pivot_caches_workbook_xml(payload)
                     if self._excel_safe_mode:
                         payload = self._remover_pivot_caches_workbook_xml(payload)
                 elif nome == "xl/_rels/workbook.xml.rels":
@@ -1765,6 +1821,11 @@ class TemplateWriter:
                     payload = self._normalizar_targets_workbook_rels(payload)
                     if self._strip_slicers:
                         payload = self._remover_rels_por_tipo_fragmento(payload, "/slicerCache")
+                    if self._strip_pivots:
+                        payload = self._remover_rels_por_tipo_fragmento(
+                            payload,
+                            "/pivotCacheDefinition",
+                        )
                     if self._excel_safe_mode:
                         payload = self._excel_safe_limpar_workbook_rels(payload)
                     if "xl/sharedStrings.xml" in edit_names or "xl/sharedStrings.xml" in tpl_names:
@@ -1781,12 +1842,16 @@ class TemplateWriter:
                         payload = self._remover_content_type_pivot_cache_records(payload)
                     if self._strip_slicers:
                         payload = self._remover_content_type_slicer_parts(payload)
+                    if self._strip_pivots:
+                        payload = self._remover_content_type_pivot_parts(payload)
                     if self._excel_safe_mode:
                         payload = self._excel_safe_limpar_content_types(payload)
                     if "xl/sharedStrings.xml" in edit_names or "xl/sharedStrings.xml" in tpl_names:
                         payload = self._garantir_content_type_shared_strings(payload)
                 elif nome.startswith("xl/worksheets/_rels/") and nome.endswith(".rels"):
                     payload = self._normalizar_targets_sheet_rels(payload)
+                    if self._strip_pivots:
+                        payload = self._remover_rels_por_tipo_fragmento(payload, "/pivotTable")
                 elif nome.startswith("xl/tables/") and nome.endswith(".xml"):
                     payload = self._aplicar_override_table_ref(payload)
                 elif nome.startswith("xl/pivotCache/pivotCacheDefinition") and nome.endswith(
@@ -1812,6 +1877,12 @@ class TemplateWriter:
                     and nome.endswith(".xml")
                 ):
                     payload = self._remover_slicer_ext_worksheet_xml(payload)
+                if (
+                    self._strip_pivots
+                    and nome.startswith("xl/worksheets/")
+                    and nome.endswith(".xml")
+                ):
+                    payload = self._remover_pivot_table_defs_worksheet_xml(payload)
                 if (
                     self._strip_slicers
                     and nome.startswith("xl/worksheets/_rels/")
@@ -1889,6 +1960,9 @@ class TemplateWriter:
                 if self._strip_slicers and self._is_slicer_part(nome):
                     continue
 
+                if self._strip_pivots and self._is_pivot_part(nome):
+                    continue
+
                 if self._excel_safe_mode and self._is_excel_safe_drop(nome):
                     continue
 
@@ -1927,6 +2001,8 @@ class TemplateWriter:
                 if nome == "xl/calcChain.xml":
                     continue
                 if self._strip_slicers and self._is_slicer_part(nome):
+                    continue
+                if self._strip_pivots and self._is_pivot_part(nome):
                     continue
                 if self._excel_safe_mode and self._is_excel_safe_drop(nome):
                     continue
