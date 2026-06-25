@@ -244,7 +244,7 @@ def test_fluxo_geracao_inclui_saldo_ano_anterior_manual_no_documento(tmp_path):
                 "credito",
                 "Recebimento",
                 1000,
-                None,
+                2234.56,
                 "Recebimento de Clientes",
                 "Recebimento de Clientes",
                 "itau",
@@ -288,10 +288,22 @@ def test_fluxo_geracao_inclui_saldo_ano_anterior_manual_no_documento(tmp_path):
     assert len(linhas_saldo) == 1
     assert linhas_saldo[0][0].date() == date(2025, 1, 1)
     assert linhas_saldo[0][2] == 1234.56
+    assert all(
+        row[5] != "Saldo Inicial Itau"
+        for row in consolidado.iter_rows(min_row=2, values_only=True)
+    )
+    linhas_saldo_final = [
+        row for row in consolidado.iter_rows(min_row=2, values_only=True)
+        if row[5] == "Saldo Final Itau"
+    ]
+    assert len(linhas_saldo_final) == 1
+    assert linhas_saldo_final[0][3] == 2234.56
 
     apoio = wb["Apoio"]
     apoio_labels = [apoio.cell(row=row, column=2).value for row in range(6, apoio.max_row + 1)]
     assert "Saldo do Ano Anterior" in apoio_labels
+    assert "Saldo Inicial Itau" not in apoio_labels
+    assert "Saldo Final Itau" in apoio_labels
 
     fluxo = wb["Fluxo de Caixa "]
     assert fluxo["C8"].value == "Saldo Inicial Aplicações"

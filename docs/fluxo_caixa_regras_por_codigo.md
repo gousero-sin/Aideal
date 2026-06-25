@@ -17,6 +17,11 @@
 - A base manual anual é aplicada apenas quando janeiro está no recorte gerado.
   De fevereiro em diante, a abertura usa o saldo final da competência anterior
   por banco.
+- Quando janeiro usa a base manual anual, o relatório não cria linhas de
+  `Saldo Inicial <Banco>` derivadas do primeiro saldo dos extratos de janeiro;
+  esses saldos seriam uma segunda abertura e duplicariam o total. As linhas de
+  `Saldo Final <Banco>` continuam sendo geradas para rastreabilidade e para
+  encadear os meses seguintes.
 
 ## Fornecedores
 

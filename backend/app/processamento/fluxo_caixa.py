@@ -301,9 +301,11 @@ class FluxoCaixaProcessamentoService:
                     )
                 )
 
+            usar_abertura_anual = bool(saldo_ano_anterior and saldo_ano_anterior != Decimal("0"))
             for item in self._linhas_movimentos_com_saldos(
                 lote.movimentos,
                 saldos_iniciais_por_banco=saldos_iniciais_por_banco,
+                incluir_saldo_inicial_derivado=not usar_abertura_anual,
             ):
                 row_number = 1 + len(linhas) + 1
                 if isinstance(item, FCMovimento):
@@ -930,6 +932,7 @@ class FluxoCaixaProcessamentoService:
         self,
         movimentos: list[FCMovimento],
         saldos_iniciais_por_banco: dict[str, Decimal] | None = None,
+        incluir_saldo_inicial_derivado: bool = True,
     ) -> list[FCMovimento | list]:
         if not movimentos:
             return []
@@ -961,10 +964,12 @@ class FluxoCaixaProcessamentoService:
                 mov.saldo is not None for mov in grupo
             )
             if incluir_saldos:
+                tem_saldo_anterior = banco in saldos_anteriores
                 saldo_corrente = saldos_anteriores.get(banco)
                 if saldo_corrente is None:
                     saldo_corrente = self._saldo_inicial_grupo(grupo)
-                saida.append(self._linha_saldo_inicial(grupo[0], saldo_corrente))
+                if tem_saldo_anterior or incluir_saldo_inicial_derivado:
+                    saida.append(self._linha_saldo_inicial(grupo[0], saldo_corrente))
                 for movimento in grupo:
                     saldo_corrente = self._aplicar_movimento_no_saldo(saldo_corrente, movimento)
                     saida.append(movimento.model_copy(update={"saldo": saldo_corrente}))
