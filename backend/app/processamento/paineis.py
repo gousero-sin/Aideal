@@ -2183,6 +2183,15 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 meses_disponiveis,
                 saldo_ano_anterior,
             )
+            series_mensais = self._series_rows(series, "movimentos")
+            series_mensais = self._aplicar_saldos_finais_series_fluxo(
+                conn,
+                ano_ref,
+                meses_ref,
+                meses_disponiveis,
+                saldo_ano_anterior,
+                series_mensais,
+            )
 
         total_movimentos = int(kpis["total_movimentos"] or 0)
         total_creditos = _float(kpis["total_creditos"])
@@ -2215,7 +2224,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
                     saldo_liquido / total_movimentos if total_movimentos else 0
                 ),
             },
-            "series_mensais": self._series_rows(series, "movimentos"),
+            "series_mensais": series_mensais,
             "ranking_bancos": self._rotular_bancos_payload(
                 self._ranking_rows(ranking_bancos, "movimentos")
             ),
@@ -2257,9 +2266,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
             return saldo_ano_anterior
 
         mes_fechamento = max(meses_base)
-        meses_template = sorted(
-            set(meses_ref or [mes for mes in meses_disponiveis if mes <= mes_fechamento])
-        )
+        meses_template = self._meses_template_saldo(meses_ref, meses_disponiveis, mes_fechamento)
         if not meses_template:
             return saldo_ano_anterior
         try:
@@ -2273,6 +2280,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
         except Exception as exc:
             logger.exception("Falha ao calcular saldo final do painel pelo template: %s", exc)
 
+        placeholders = ",".join("?" * len(meses_template))
         rows = conn.execute(
             f"""
             SELECT
@@ -2280,17 +2288,78 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 SUM({self.SALDO_EXPR}) AS saldo
             FROM fluxo_movimentos
             WHERE competencia_ano = ?
-              AND competencia_mes <= ?
+              AND competencia_mes IN ({placeholders})
             GROUP BY competencia_mes
             ORDER BY competencia_mes
             """,
-            (ano, mes_fechamento),
+            tuple([ano, *meses_template]),
         ).fetchall()
 
-        saldo = saldo_ano_anterior
+        saldo = saldo_ano_anterior if 1 in meses_template else 0.0
+        if 1 not in meses_template:
+            saldo += sum(
+                float(valor)
+                for valor in self.fluxo_repository.movimentos.get_saldos_finais_anteriores(
+                    ano,
+                    min(meses_template),
+                    conn,
+                ).values()
+            )
         for row in rows:
             saldo += _float(row["saldo"])
         return saldo
+
+    @staticmethod
+    def _meses_template_saldo(
+        meses_ref: list[int],
+        meses_disponiveis: list[int],
+        mes_fechamento: int,
+    ) -> list[int]:
+        meses_base = meses_ref or [mes for mes in meses_disponiveis if mes <= mes_fechamento]
+        return sorted({mes for mes in meses_base if mes <= mes_fechamento})
+
+    def _aplicar_saldos_finais_series_fluxo(
+        self,
+        conn: Any,
+        ano: int,
+        meses_ref: list[int],
+        meses_disponiveis: list[int],
+        saldo_ano_anterior: float,
+        series: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not series:
+            return series
+
+        saldos_finais: dict[int, float] = {}
+        for mes in sorted({int(item["mes"]) for item in series}):
+            meses_template = self._meses_template_saldo(meses_ref, meses_disponiveis, mes)
+            if not meses_template:
+                saldos_finais[mes] = saldo_ano_anterior
+                continue
+            try:
+                saldos_finais[mes] = self._saldo_final_template(
+                    conn,
+                    ano,
+                    meses_template,
+                    mes,
+                    saldo_ano_anterior,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Falha ao calcular saldo final mensal do painel pelo template: %s",
+                    exc,
+                )
+                saldos_finais[mes] = _float(
+                    next((item["saldo"] for item in series if int(item["mes"]) == mes), 0)
+                )
+
+        return [
+            {
+                **item,
+                "saldo_final": saldos_finais.get(int(item["mes"]), _float(item["saldo"])),
+            }
+            for item in series
+        ]
 
     def _saldo_final_template(
         self,
@@ -2351,7 +2420,6 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 linha_saldo_final,
                 coluna_mes,
                 agregados,
-                mes_fechamento,
                 cache,
             )
 
@@ -2422,7 +2490,6 @@ class PainelFluxoCaixaService(_PainelBaseService):
         row: int,
         col: int,
         agregados: dict[str, dict[int, dict[str, float]]],
-        mes: int,
         cache: dict[tuple[int, int], float],
     ) -> float:
         chave = (row, col)
@@ -2439,8 +2506,8 @@ class PainelFluxoCaixaService(_PainelBaseService):
             ws,
             valor[1:],
             row,
+            col,
             agregados,
-            mes,
             cache,
         )
         return cache[chave]
@@ -2450,20 +2517,21 @@ class PainelFluxoCaixaService(_PainelBaseService):
         ws: Any,
         expr: str,
         row: int,
+        col: int,
         agregados: dict[str, dict[int, dict[str, float]]],
-        mes: int,
         cache: dict[tuple[int, int], float],
     ) -> float:
         expr = expr.strip().replace("$", "")
         expr_upper = expr.upper()
+        mes = self._mes_coluna_fluxo(col)
         if expr_upper.startswith("IFERROR("):
             try:
                 return self._avaliar_expressao_fluxo(
                     ws,
                     self._primeiro_argumento_funcao(expr),
                     row,
+                    col,
                     agregados,
-                    mes,
                     cache,
                 )
             except Exception:
@@ -2474,13 +2542,13 @@ class PainelFluxoCaixaService(_PainelBaseService):
             return self._valor_apoio_fluxo(ws.cell(row=row, column=3).value, expr, agregados, mes)
         if expr_upper.startswith("SUM("):
             return sum(
-                self._avaliar_termo_fluxo(ws, item, agregados, mes, cache)
+                self._avaliar_termo_fluxo(ws, item, col, agregados, cache)
                 for item in self._argumentos_funcao(expr)
             )
         if expr_upper.startswith("SUBTOTAL("):
             argumentos = self._argumentos_funcao(expr)
             return sum(
-                self._avaliar_termo_fluxo(ws, item, agregados, mes, cache)
+                self._avaliar_termo_fluxo(ws, item, col, agregados, cache)
                 for item in argumentos[1:]
             )
 
@@ -2493,15 +2561,15 @@ class PainelFluxoCaixaService(_PainelBaseService):
             if parte == "-":
                 sinal = -1.0
                 continue
-            total += sinal * self._avaliar_termo_fluxo(ws, parte, agregados, mes, cache)
+            total += sinal * self._avaliar_termo_fluxo(ws, parte, col, agregados, cache)
         return total
 
     def _avaliar_termo_fluxo(
         self,
         ws: Any,
         termo: str,
+        col: int,
         agregados: dict[str, dict[int, dict[str, float]]],
-        mes: int,
         cache: dict[tuple[int, int], float],
     ) -> float:
         termo = termo.strip().replace("$", "")
@@ -2516,7 +2584,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
             col_fim = column_index_from_string(range_match.group(3))
             row_fim = int(range_match.group(4))
             return sum(
-                self._avaliar_celula_fluxo(ws, r, c, agregados, mes, cache)
+                self._avaliar_celula_fluxo(ws, r, c, agregados, cache)
                 for r in range(row_ini, row_fim + 1)
                 for c in range(col_ini, col_fim + 1)
             )
@@ -2527,10 +2595,14 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 int(cell_match.group(2)),
                 column_index_from_string(cell_match.group(1)),
                 agregados,
-                mes,
                 cache,
             )
-        return self._avaliar_expressao_fluxo(ws, termo, 1, agregados, mes, cache)
+        return self._avaliar_expressao_fluxo(ws, termo, 1, col, agregados, cache)
+
+    @staticmethod
+    def _mes_coluna_fluxo(col: int) -> int:
+        mes = col - 3
+        return mes if 1 <= mes <= 12 else 0
 
     @staticmethod
     def _valor_apoio_fluxo(

@@ -113,6 +113,8 @@ export function MonthlyEvolutionChart({ data, countKey }) {
   const saidasKey = temImpostos ? 'saidas_liquidas' : 'debito';
   const entradasName = temImpostos ? 'Receita líquida' : 'Entradas';
   const saidasName = temImpostos ? 'Saídas operacionais' : 'Saídas';
+  const saldoKey = data.some((item) => item?.saldo_final != null) ? 'saldo_final' : 'saldo';
+  const saldoName = saldoKey === 'saldo_final' ? 'Saldo final' : 'Saldo';
 
   return (
     <div className="aideal-chart-frame">
@@ -135,8 +137,8 @@ export function MonthlyEvolutionChart({ data, countKey }) {
           <Line
             yAxisId="money"
             type="monotone"
-            dataKey="saldo"
-            name="Saldo"
+            dataKey={saldoKey}
+            name={saldoName}
             stroke="#ffc629"
             strokeWidth={3}
             dot={{ r: 3, strokeWidth: 0, fill: '#ffc629' }}

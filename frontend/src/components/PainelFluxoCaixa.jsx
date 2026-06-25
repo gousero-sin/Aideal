@@ -156,6 +156,13 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
     })),
     [data?.saldos_por_banco],
   );
+  const seriesComSaldoFinal = useMemo(
+    () => (Array.isArray(data?.series_mensais) ? data.series_mensais : []).map((item) => ({
+      ...item,
+      saldo_exibicao: item.saldo_final ?? item.saldo,
+    })),
+    [data?.series_mensais],
+  );
   const activeFilterCount = countSelectedFilters(filters, ['meses', 'banco', 'tipo', 'classificacao']);
   const filterSummary = buildFilterSummary(filters, [
     { key: 'meses', label: 'Mês' },
@@ -164,17 +171,17 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
     { key: 'classificacao', label: 'Classificação' },
   ]);
   const situations = useMemo(() => {
-    const saldoCritico = pickLowestBy(data?.series_mensais, 'saldo');
+    const saldoCritico = pickLowestBy(seriesComSaldoFinal, 'saldo_exibicao');
     const maiorSaida = pickTopBy(data?.ranking_classificacoes, 'debito');
     const bancoMovimentado = pickTopBy(saldosPorBanco, 'saldo_final', { absolute: true });
     const classificacaoDominante = pickTopBy(data?.ranking_classificacoes, 'saldo', { absolute: true });
-    const melhorMes = pickTopBy(data?.series_mensais, 'saldo');
+    const melhorMes = pickTopBy(seriesComSaldoFinal, 'saldo_exibicao');
 
     return [
       {
         label: 'Saldo crítico',
         value: saldoCritico?.mes_label,
-        helper: saldoCritico ? `${formatSignedCurrency(saldoCritico.saldo)} de saldo` : 'Sem série mensal',
+        helper: saldoCritico ? `${formatSignedCurrency(saldoCritico.saldo_exibicao)} de saldo` : 'Sem série mensal',
         tone: 'red',
       },
       {
@@ -201,11 +208,11 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
       {
         label: 'Melhor mês',
         value: melhorMes?.mes_label,
-        helper: melhorMes ? `${formatSignedCurrency(melhorMes.saldo)} de saldo` : 'Sem série mensal',
+        helper: melhorMes ? `${formatSignedCurrency(melhorMes.saldo_exibicao)} de saldo` : 'Sem série mensal',
         tone: 'cyan',
       },
     ];
-  }, [data, saldosPorBanco]);
+  }, [data, saldosPorBanco, seriesComSaldoFinal]);
 
   return (
     <section className="aideal-panel-page">
