@@ -2445,7 +2445,7 @@ def test_painel_fluxo_vazio_retorna_kpis_zerados():
     assert body["ranking_bancos"] == []
 
 
-def test_painel_fluxo_saldo_final_usa_fechamento_do_mes_com_carry_mensal():
+def test_painel_fluxo_saldo_final_usa_mes_do_template_e_ignora_rubrica_fora_do_fluxo():
     db = _novo_db()
     with db.transaction() as conn:
         conn.execute(
@@ -2473,20 +2473,6 @@ def test_painel_fluxo_saldo_final_usa_fechamento_do_mes_com_carry_mensal():
                     1,
                     "itau",
                     "completed",
-                    2,
-                    2,
-                    0,
-                    None,
-                ),
-                (
-                    "fc-fechamento-fev",
-                    "2026-06-25T10:00:00",
-                    "movimentos_2025-02_itau.xlsx",
-                    "hash-fechamento-fev",
-                    2025,
-                    2,
-                    "itau",
-                    "completed",
                     3,
                     3,
                     0,
@@ -2512,8 +2498,8 @@ def test_painel_fluxo_saldo_final_usa_fechamento_do_mes_com_carry_mensal():
                     "Recebimento janeiro",
                     200,
                     200,
-                    "Receita",
-                    "1.1 - Receita",
+                    "Recebimento de Clientes",
+                    "Recebimento de Clientes",
                     "itau",
                     "movimentos_2025-01_itau.xlsx",
                     1,
@@ -2525,13 +2511,13 @@ def test_painel_fluxo_saldo_final_usa_fechamento_do_mes_com_carry_mensal():
                     "fc-fechamento-jan",
                     2025,
                     1,
-                    "2025-01-08",
-                    "debito",
-                    "Saida janeiro",
-                    50,
-                    150,
-                    "Fornecedores",
-                    "4.1 - TINTAS E SOLVENTES",
+                    "2025-01-06",
+                    "credito",
+                    "Entrada fora do template",
+                    900,
+                    1100,
+                    "Entrada Fora do Fluxo",
+                    "Entrada Fora do Fluxo",
                     "itau",
                     "movimentos_2025-01_itau.xlsx",
                     2,
@@ -2540,57 +2526,21 @@ def test_painel_fluxo_saldo_final_usa_fechamento_do_mes_com_carry_mensal():
                     "2026-06-25T10:00:00",
                 ),
                 (
-                    "fc-fechamento-fev",
+                    "fc-fechamento-jan",
                     2025,
-                    2,
-                    "2025-02-03",
-                    "debito",
-                    "Saida fevereiro",
-                    300,
-                    -150,
-                    "Fornecedores",
-                    "4.1 - TINTAS E SOLVENTES",
-                    "itau",
-                    "movimentos_2025-02_itau.xlsx",
                     1,
-                    "Sheet",
-                    "fechamento-h3",
-                    "2026-06-25T10:00:00",
-                ),
-                (
-                    "fc-fechamento-fev",
-                    2025,
-                    2,
-                    "2025-02-04",
-                    "credito",
-                    "Transferencia recebida",
-                    500000,
-                    499850,
-                    "Transferência Recebida",
-                    "Transferência entre Bancos",
-                    "itau",
-                    "movimentos_2025-02_itau.xlsx",
-                    2,
-                    "Sheet",
-                    "fechamento-h4",
-                    "2026-06-25T10:00:00",
-                ),
-                (
-                    "fc-fechamento-fev",
-                    2025,
-                    2,
-                    "2025-02-05",
+                    "2025-01-08",
                     "debito",
-                    "saldo",
-                    850,
-                    0,
-                    "Saldo Final Itau",
-                    "Saldo Final Itau",
+                    "Saida janeiro",
+                    50,
+                    1050,
+                    "SALARIO",
+                    "12.1 - SALARIO",
                     "itau",
-                    "movimentos_2025-02_itau.xlsx",
+                    "movimentos_2025-01_itau.xlsx",
                     3,
                     "Sheet",
-                    "fechamento-h5",
+                    "fechamento-h3",
                     "2026-06-25T10:00:00",
                 ),
             ],
@@ -2599,13 +2549,11 @@ def test_painel_fluxo_saldo_final_usa_fechamento_do_mes_com_carry_mensal():
     client = _client_com_db(db)
 
     janeiro = client.get("/api/fluxo_caixa/painel?ano=2025&meses=1")
-    fevereiro = client.get("/api/fluxo_caixa/painel?ano=2025&meses=2")
 
     assert janeiro.status_code == 200
-    assert fevereiro.status_code == 200
-    assert janeiro.json()["kpis"]["saldo_com_ano_anterior"] == pytest.approx(1150.0)
-    assert fevereiro.json()["kpis"]["saldo_liquido"] == pytest.approx(-300.0)
-    assert fevereiro.json()["kpis"]["saldo_com_ano_anterior"] == pytest.approx(850.0)
+    body = janeiro.json()
+    assert body["kpis"]["saldo_liquido"] == pytest.approx(1050.0)
+    assert body["kpis"]["saldo_com_ano_anterior"] == pytest.approx(1150.0)
 
 
 def test_painel_fluxo_neutraliza_transferencias_e_expoe_saldos_finais_por_banco():

@@ -6,14 +6,20 @@ import logging
 import re
 import unicodedata
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
+from openpyxl.utils import column_index_from_string
+
 from ..config import settings
+from ..contracts.fluxo_caixa import FCMovimento, eh_transferencia_classificacao
 from ..db.connection import DatabaseConnection
 from ..repository.dre_indicadores_manuais import DREIndicadoresManuaisRepository
 from ..repository.fluxo_indicadores_manuais import FluxoIndicadoresManuaisRepository
+from ..repository.fluxo_repository import FluxoCaixaRepository
 from ..templates.writer import TemplateWriter
 from .dre_geracao_completa import DREGeracaoCompletaService, _extrair_codigo_gerencial
+from .fluxo_caixa import FluxoCaixaProcessamentoService
 
 MESES_LABEL = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
@@ -1738,6 +1744,8 @@ class PainelFluxoCaixaService(_PainelBaseService):
     def __init__(self, db: DatabaseConnection | None = None) -> None:
         super().__init__(db)
         self.indicadores_manuais = FluxoIndicadoresManuaisRepository(self.db)
+        self.fluxo_repository = FluxoCaixaRepository(self.db)
+        self.fluxo_processamento = FluxoCaixaProcessamentoService()
 
     BANCO_ARQUIVO_EXPR = (
         "CASE "
@@ -2249,6 +2257,22 @@ class PainelFluxoCaixaService(_PainelBaseService):
             return saldo_ano_anterior
 
         mes_fechamento = max(meses_base)
+        meses_template = sorted(
+            set(meses_ref or [mes for mes in meses_disponiveis if mes <= mes_fechamento])
+        )
+        if not meses_template:
+            return saldo_ano_anterior
+        try:
+            return self._saldo_final_template(
+                conn,
+                ano,
+                meses_template,
+                mes_fechamento,
+                saldo_ano_anterior,
+            )
+        except Exception as exc:
+            logger.exception("Falha ao calcular saldo final do painel pelo template: %s", exc)
+
         rows = conn.execute(
             f"""
             SELECT
@@ -2267,6 +2291,305 @@ class PainelFluxoCaixaService(_PainelBaseService):
         for row in rows:
             saldo += _float(row["saldo"])
         return saldo
+
+    def _saldo_final_template(
+        self,
+        conn: Any,
+        ano: int,
+        meses_utilizados: list[int],
+        mes_fechamento: int,
+        saldo_ano_anterior: float,
+    ) -> float:
+        movimentos_db = self.fluxo_repository.movimentos.get_by_meses(ano, meses_utilizados, conn)
+        movimentos = [mov.to_movimento() for mov in movimentos_db]
+        saldo_manual = Decimal(str(saldo_ano_anterior)) if 1 in meses_utilizados else Decimal("0")
+        saldos_iniciais = self.fluxo_repository.movimentos.get_saldos_finais_anteriores(
+            ano,
+            min(meses_utilizados),
+            conn,
+        )
+
+        with TemplateWriter(settings.template_fluxo_path) as writer:
+            wb = writer._wb
+            if (
+                wb is None
+                or "Fluxo de Caixa " not in wb.sheetnames
+                or "Consolidado" not in wb.sheetnames
+            ):
+                return saldo_ano_anterior
+
+            fluxo_ws = wb["Fluxo de Caixa "]
+            consolidado_ws = wb["Consolidado"]
+            classificacoes_template = self.fluxo_processamento._mapear_classificacoes_template(
+                wb,
+                consolidado_ws,
+                consolidado_ws.max_row,
+            )
+            linhas = self._linhas_consolidadas_fluxo_template(
+                movimentos,
+                ano,
+                saldo_manual,
+                saldos_iniciais,
+                classificacoes_template,
+            )
+            if saldo_manual and saldo_manual != Decimal("0"):
+                self.fluxo_processamento._garantir_saldo_ano_anterior_no_fluxo(writer)
+
+            agregados = self._agregados_apoio_fluxo(linhas)
+            linha_saldo_final = self.fluxo_processamento._encontrar_linha_rotulo(
+                fluxo_ws,
+                "(=) SALDO FINAL",
+                coluna=2,
+            )
+            if not linha_saldo_final:
+                return saldo_ano_anterior
+
+            coluna_mes = 3 + mes_fechamento
+            cache: dict[tuple[int, int], float] = {}
+            return self._avaliar_celula_fluxo(
+                fluxo_ws,
+                linha_saldo_final,
+                coluna_mes,
+                agregados,
+                mes_fechamento,
+                cache,
+            )
+
+    def _linhas_consolidadas_fluxo_template(
+        self,
+        movimentos: list[FCMovimento],
+        ano: int,
+        saldo_manual: Decimal,
+        saldos_iniciais: dict[str, Decimal],
+        classificacoes_template: dict[str, str],
+    ) -> list[list]:
+        linhas: list[list] = []
+        if saldo_manual and saldo_manual != Decimal("0"):
+            linhas.append(
+                self.fluxo_processamento._linha_saldo_ano_anterior(
+                    ano,
+                    1,
+                    saldo_manual,
+                    row_number=2,
+                )
+            )
+
+        itens = self.fluxo_processamento._linhas_movimentos_com_saldos(
+            movimentos,
+            saldos_iniciais_por_banco=saldos_iniciais,
+            incluir_saldo_inicial_derivado=not bool(saldo_manual and saldo_manual != Decimal("0")),
+        )
+        for item in itens:
+            row_number = 2 + len(linhas)
+            if isinstance(item, FCMovimento):
+                linhas.append(
+                    self.fluxo_processamento._converter_movimento_para_linha(
+                        item,
+                        row_number,
+                        classificacoes_template,
+                    )
+                )
+            else:
+                linhas.append(
+                    self.fluxo_processamento._normalizar_linha_consolidado(item, row_number)
+                )
+        return linhas
+
+    @staticmethod
+    def _agregados_apoio_fluxo(linhas: list[list]) -> dict[str, dict[int, dict[str, float]]]:
+        agregados: dict[str, dict[int, dict[str, float]]] = {}
+        for linha in linhas:
+            data = linha[0]
+            classificacao = str(linha[5] or "").strip()
+            if (
+                not classificacao
+                or eh_transferencia_classificacao(classificacao)
+                or not getattr(data, "month", None)
+            ):
+                continue
+            mes = int(data.month)
+            totais = agregados.setdefault(classificacao, {}).setdefault(
+                mes,
+                {"credito": 0.0, "debito": 0.0},
+            )
+            totais["credito"] += _float(linha[2])
+            totais["debito"] += _float(linha[3])
+        return agregados
+
+    def _avaliar_celula_fluxo(
+        self,
+        ws: Any,
+        row: int,
+        col: int,
+        agregados: dict[str, dict[int, dict[str, float]]],
+        mes: int,
+        cache: dict[tuple[int, int], float],
+    ) -> float:
+        chave = (row, col)
+        if chave in cache:
+            return cache[chave]
+
+        valor = ws.cell(row=row, column=col).value
+        if isinstance(valor, (int, float)):
+            return float(valor)
+        if not isinstance(valor, str) or not valor.startswith("="):
+            return 0.0
+
+        cache[chave] = self._avaliar_expressao_fluxo(
+            ws,
+            valor[1:],
+            row,
+            agregados,
+            mes,
+            cache,
+        )
+        return cache[chave]
+
+    def _avaliar_expressao_fluxo(
+        self,
+        ws: Any,
+        expr: str,
+        row: int,
+        agregados: dict[str, dict[int, dict[str, float]]],
+        mes: int,
+        cache: dict[tuple[int, int], float],
+    ) -> float:
+        expr = expr.strip().replace("$", "")
+        expr_upper = expr.upper()
+        if expr_upper.startswith("IFERROR("):
+            try:
+                return self._avaliar_expressao_fluxo(
+                    ws,
+                    self._primeiro_argumento_funcao(expr),
+                    row,
+                    agregados,
+                    mes,
+                    cache,
+                )
+            except Exception:
+                return 0.0
+        if "INDEX(APOIO!" in expr_upper:
+            return self._valor_apoio_fluxo(ws.cell(row=row, column=3).value, expr, agregados, mes)
+        if expr_upper.startswith("SUMIFS(CONSOLIDADO!"):
+            return self._valor_apoio_fluxo(ws.cell(row=row, column=3).value, expr, agregados, mes)
+        if expr_upper.startswith("SUM("):
+            return sum(
+                self._avaliar_termo_fluxo(ws, item, agregados, mes, cache)
+                for item in self._argumentos_funcao(expr)
+            )
+        if expr_upper.startswith("SUBTOTAL("):
+            argumentos = self._argumentos_funcao(expr)
+            return sum(
+                self._avaliar_termo_fluxo(ws, item, agregados, mes, cache)
+                for item in argumentos[1:]
+            )
+
+        total = 0.0
+        sinal = 1.0
+        for parte in self._split_soma_subtracao(expr):
+            if parte == "+":
+                sinal = 1.0
+                continue
+            if parte == "-":
+                sinal = -1.0
+                continue
+            total += sinal * self._avaliar_termo_fluxo(ws, parte, agregados, mes, cache)
+        return total
+
+    def _avaliar_termo_fluxo(
+        self,
+        ws: Any,
+        termo: str,
+        agregados: dict[str, dict[int, dict[str, float]]],
+        mes: int,
+        cache: dict[tuple[int, int], float],
+    ) -> float:
+        termo = termo.strip().replace("$", "")
+        if not termo:
+            return 0.0
+        if re.fullmatch(r"-?\d+(?:\.\d+)?", termo):
+            return float(termo)
+        range_match = re.fullmatch(r"([A-Z]+)(\d+):([A-Z]+)(\d+)", termo)
+        if range_match:
+            col_ini = column_index_from_string(range_match.group(1))
+            row_ini = int(range_match.group(2))
+            col_fim = column_index_from_string(range_match.group(3))
+            row_fim = int(range_match.group(4))
+            return sum(
+                self._avaliar_celula_fluxo(ws, r, c, agregados, mes, cache)
+                for r in range(row_ini, row_fim + 1)
+                for c in range(col_ini, col_fim + 1)
+            )
+        cell_match = re.fullmatch(r"([A-Z]+)(\d+)", termo)
+        if cell_match:
+            return self._avaliar_celula_fluxo(
+                ws,
+                int(cell_match.group(2)),
+                column_index_from_string(cell_match.group(1)),
+                agregados,
+                mes,
+                cache,
+            )
+        return self._avaliar_expressao_fluxo(ws, termo, 1, agregados, mes, cache)
+
+    @staticmethod
+    def _valor_apoio_fluxo(
+        label: Any,
+        expr: str,
+        agregados: dict[str, dict[int, dict[str, float]]],
+        mes: int,
+    ) -> float:
+        label_texto = str(label or "").strip()
+        if not label_texto:
+            return 0.0
+        chave_valor = "debito" if "+1" in expr or "CONSOLIDADO!D" in expr.upper() else "credito"
+        return agregados.get(label_texto, {}).get(mes, {}).get(chave_valor, 0.0)
+
+    @staticmethod
+    def _primeiro_argumento_funcao(expr: str) -> str:
+        argumentos = PainelFluxoCaixaService._argumentos_funcao(expr)
+        return argumentos[0] if argumentos else ""
+
+    @staticmethod
+    def _argumentos_funcao(expr: str) -> list[str]:
+        inicio = expr.find("(")
+        fim = expr.rfind(")")
+        if inicio < 0 or fim <= inicio:
+            return []
+        return PainelFluxoCaixaService._split_top_level(expr[inicio + 1 : fim], ",")
+
+    @staticmethod
+    def _split_top_level(texto: str, separador: str) -> list[str]:
+        partes: list[str] = []
+        nivel = 0
+        inicio = 0
+        for idx, char in enumerate(texto):
+            if char == "(":
+                nivel += 1
+            elif char == ")":
+                nivel -= 1
+            elif char == separador and nivel == 0:
+                partes.append(texto[inicio:idx].strip())
+                inicio = idx + 1
+        partes.append(texto[inicio:].strip())
+        return partes
+
+    @staticmethod
+    def _split_soma_subtracao(expr: str) -> list[str]:
+        partes: list[str] = []
+        nivel = 0
+        inicio = 0
+        for idx, char in enumerate(expr):
+            if char == "(":
+                nivel += 1
+            elif char == ")":
+                nivel -= 1
+            elif char in "+-" and nivel == 0 and idx > inicio:
+                partes.append(expr[inicio:idx].strip())
+                partes.append(char)
+                inicio = idx + 1
+        partes.append(expr[inicio:].strip())
+        return [parte for parte in partes if parte]
 
     @classmethod
     def _impacto_bancario_movimento(cls, row: Any) -> float:
