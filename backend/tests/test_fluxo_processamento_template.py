@@ -515,6 +515,11 @@ def test_escrita_mantem_transferencia_rastreavel_sem_agregar_no_fluxo(tmp_path):
     _criar_template_fluxo(template)
     _adicionar_abas_resumo_fluxo(template)
 
+    wb_template = load_workbook(template)
+    wb_template["Apoio"]["B8"] = "Transferência Emitida"
+    wb_template["Apoio"]["B9"] = "Transferência Recebida"
+    wb_template.save(template)
+
     lote = FCLote(
         periodo="08/2025",
         movimentos=[
@@ -529,11 +534,21 @@ def test_escrita_mantem_transferencia_rastreavel_sem_agregar_no_fluxo(tmp_path):
                 banco_origem="itau",
             ),
             FCMovimento(
+                data_movimento=date(2025, 8, 4),
+                tipo=TipoMovimento.TRANSFERENCIA,
+                descricao="Transferência recebida do Mercantil",
+                valor=Decimal("75"),
+                saldo=Decimal("125"),
+                classificacao="Transferência Recebida",
+                conta_gerencial="Transferência entre Bancos",
+                banco_origem="itau",
+            ),
+            FCMovimento(
                 data_movimento=date(2025, 8, 5),
                 tipo=TipoMovimento.DEBITO,
                 descricao="Fornecedor",
                 valor=Decimal("20"),
-                saldo=Decimal("30"),
+                saldo=Decimal("105"),
                 classificacao="Fornecedores",
                 banco_origem="itau",
             ),
@@ -555,12 +570,28 @@ def test_escrita_mantem_transferencia_rastreavel_sem_agregar_no_fluxo(tmp_path):
         for row in consolidado.iter_rows(min_row=2, values_only=True)
         if row[5] == "Transferência Emitida"
     )
+    transferencia_recebida = next(
+        row
+        for row in consolidado.iter_rows(min_row=2, values_only=True)
+        if row[5] == "Transferência Recebida"
+    )
     assert transferencia[2] is None
     assert transferencia[3] == 50.0
+    assert transferencia_recebida[2] == 75.0
+    assert transferencia_recebida[3] is None
 
     apoio = wb["Apoio"]
     labels_apoio = [apoio.cell(row=row, column=2).value for row in range(6, apoio.max_row + 1)]
-    assert "Transferência Emitida" not in labels_apoio
+    linha_transferencia_emitida = labels_apoio.index("Transferência Emitida") + 6
+    linha_transferencia_recebida = labels_apoio.index("Transferência Recebida") + 6
+    assert apoio.cell(row=linha_transferencia_emitida, column=17).value is None
+    assert apoio.cell(row=linha_transferencia_emitida, column=18).value is None
+    assert apoio.cell(row=linha_transferencia_emitida, column=27).value is None
+    assert apoio.cell(row=linha_transferencia_emitida, column=28).value is None
+    assert apoio.cell(row=linha_transferencia_recebida, column=17).value is None
+    assert apoio.cell(row=linha_transferencia_recebida, column=18).value is None
+    assert apoio.cell(row=linha_transferencia_recebida, column=27).value is None
+    assert apoio.cell(row=linha_transferencia_recebida, column=28).value is None
     linha_fornecedores = labels_apoio.index("Fornecedores") + 6
     assert apoio.cell(row=linha_fornecedores, column=18).value == 20.0
     linha_saldo_inicial = labels_apoio.index("Saldo Inicial Itau") + 6
