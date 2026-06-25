@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -71,6 +72,8 @@ class FluxoCaixaGeracaoService:
     ) -> tuple[int, int, list[int], list[int], str]:
         ano, mes = self._parse_competencia(competencia)
         disponiveis = self.repository.get_meses_disponiveis(ano)
+        if self._tem_saldo_ano_anterior(ano):
+            disponiveis = sorted({1, *disponiveis})
 
         meses_solicitados = self._normalizar_meses(meses_incluir)
         if ano_todo:
@@ -84,6 +87,14 @@ class FluxoCaixaGeracaoService:
             estrategia = "competencia"
 
         return ano, mes, disponiveis, meses_utilizados, estrategia
+
+    def _tem_saldo_ano_anterior(self, ano: int) -> bool:
+        indicadores = self.indicadores_manuais.get_by_ano(ano)
+        return bool(
+            indicadores
+            and indicadores.saldo_ano_anterior
+            and indicadores.saldo_ano_anterior != Decimal("0")
+        )
 
     def verificar_dados(
         self,
@@ -144,8 +155,11 @@ class FluxoCaixaGeracaoService:
             min(meses_utilizados),
         )
         indicadores_manuais = self.indicadores_manuais.get_by_ano(ano)
-        saldo_ano_anterior = (
+        saldo_ano_anterior_cadastrado = (
             indicadores_manuais.saldo_ano_anterior if indicadores_manuais else None
+        )
+        saldo_ano_anterior = (
+            saldo_ano_anterior_cadastrado if 1 in meses_utilizados else None
         )
         lote = FCLote(
             periodo=competencia,

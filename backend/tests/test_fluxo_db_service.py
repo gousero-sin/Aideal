@@ -219,7 +219,7 @@ def test_fluxo_geracao_inclui_saldo_ano_anterior_manual_no_documento(tmp_path):
                 "fluxo.xlsx",
                 "hash-fc-saldo-anterior",
                 2025,
-                8,
+                1,
                 "itau",
                 "completed",
                 1,
@@ -239,8 +239,8 @@ def test_fluxo_geracao_inclui_saldo_ano_anterior_manual_no_documento(tmp_path):
             (
                 "fc-saldo-anterior",
                 2025,
-                8,
-                "2025-08-04",
+                1,
+                "2025-01-04",
                 "credito",
                 "Recebimento",
                 1000,
@@ -273,8 +273,8 @@ def test_fluxo_geracao_inclui_saldo_ano_anterior_manual_no_documento(tmp_path):
     )
 
     resultado_geracao = geracao.gerar_arquivo(
-        competencia="08/2025",
-        meses_incluir=[8],
+        competencia="01/2025",
+        meses_incluir=[1],
     )
 
     assert resultado_geracao["saldo_ano_anterior"] == 1234.56
@@ -302,6 +302,298 @@ def test_fluxo_geracao_inclui_saldo_ano_anterior_manual_no_documento(tmp_path):
     assert fluxo["E7"].value == "=D227"
     assert fluxo["K7"].value == "=J227"
     assert fluxo["E19"].value == "=0"
+
+
+def test_fluxo_geracao_fevereiro_usa_fechamento_de_janeiro_sem_saldo_ano_anterior(tmp_path):
+    db = _novo_db()
+    template = tmp_path / "template_fluxo.xlsx"
+    _criar_template_fluxo(template)
+
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO fluxo_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             banco, status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "fc-fev-usa-fechamento",
+                "2026-02-01T11:00:00",
+                "fluxo.xlsx",
+                "hash-fc-fev-usa-fechamento",
+                2026,
+                1,
+                "itau",
+                "completed",
+                1,
+                1,
+                0,
+                None,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO fluxo_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             banco, status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "fc-fevereiro",
+                "2026-02-02T11:00:00",
+                "fluxo_fevereiro.xlsx",
+                "hash-fc-fevereiro",
+                2026,
+                2,
+                "itau",
+                "completed",
+                1,
+                1,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO fluxo_movimentos
+            (upload_id, competencia_ano, competencia_mes, data_movimento, tipo, descricao,
+             valor, saldo, classificacao, conta_gerencial, banco_origem, arquivo_origem,
+             linha_origem, aba_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "fc-fev-usa-fechamento",
+                    2026,
+                    1,
+                    "2026-01-31",
+                    "credito",
+                    "Fechamento janeiro",
+                    150,
+                    150,
+                    "Recebimento de Clientes",
+                    "Recebimento de Clientes",
+                    "itau",
+                    "fluxo.xlsx",
+                    1,
+                    "Sheet",
+                    "fechamento-janeiro-h1",
+                    "2026-02-01T11:00:00",
+                ),
+                (
+                    "fc-fevereiro",
+                    2026,
+                    2,
+                    "2026-02-05",
+                    "credito",
+                    "Recebimento fevereiro",
+                    20,
+                    170,
+                    "Recebimento de Clientes",
+                    "Recebimento de Clientes",
+                    "itau",
+                    "fluxo_fevereiro.xlsx",
+                    1,
+                    "Sheet",
+                    "fevereiro-h1",
+                    "2026-02-02T11:00:00",
+                ),
+            ],
+        )
+        conn.execute(
+            """
+            INSERT INTO fluxo_indicadores_manuais
+            (competencia_ano, saldo_ano_anterior, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (2026, 9999, "2026-01-01T12:00:00", "2026-01-01T12:00:00"),
+        )
+
+    geracao = FluxoCaixaGeracaoService(
+        db=db,
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    resultado_geracao = geracao.gerar_arquivo(
+        competencia="02/2026",
+        meses_incluir=[2],
+    )
+
+    assert resultado_geracao["saldo_ano_anterior"] == 0
+
+    wb = load_workbook(resultado_geracao["output_path"], data_only=False)
+    consolidado = wb["Consolidado"]
+    linhas = list(consolidado.iter_rows(min_row=2, values_only=True))
+
+    assert all(row[5] != "Saldo do Ano Anterior" for row in linhas)
+    linha_saldo_inicial = next(row for row in linhas if row[5] == "Saldo Inicial Itau")
+    assert linha_saldo_inicial[0].date() == date(2026, 2, 5)
+    assert linha_saldo_inicial[2] == 150.0
+    assert linha_saldo_inicial[4] == 150.0
+
+
+def test_fluxo_geracao_nao_pula_mes_para_resolver_saldo_inicial(tmp_path):
+    db = _novo_db()
+    template = tmp_path / "template_fluxo.xlsx"
+    _criar_template_fluxo(template)
+
+    with db.transaction() as conn:
+        for upload_id, mes in (
+            ("fc-janeiro-sem-fevereiro", 1),
+            ("fc-marco-sem-fevereiro", 3),
+        ):
+            conn.execute(
+                """
+                INSERT INTO fluxo_uploads
+                (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+                 banco, status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    upload_id,
+                    "2026-03-01T11:00:00",
+                    f"fluxo_{mes}.xlsx",
+                    f"hash-{upload_id}",
+                    2026,
+                    mes,
+                    "itau",
+                    "completed",
+                    1,
+                    1,
+                    0,
+                    None,
+                ),
+            )
+        conn.executemany(
+            """
+            INSERT INTO fluxo_movimentos
+            (upload_id, competencia_ano, competencia_mes, data_movimento, tipo, descricao,
+             valor, saldo, classificacao, conta_gerencial, banco_origem, arquivo_origem,
+             linha_origem, aba_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "fc-janeiro-sem-fevereiro",
+                    2026,
+                    1,
+                    "2026-01-31",
+                    "credito",
+                    "Fechamento janeiro",
+                    100,
+                    100,
+                    "Recebimento de Clientes",
+                    "Recebimento de Clientes",
+                    "itau",
+                    "fluxo_1.xlsx",
+                    1,
+                    "Sheet",
+                    "janeiro-sem-fevereiro-h1",
+                    "2026-03-01T11:00:00",
+                ),
+                (
+                    "fc-marco-sem-fevereiro",
+                    2026,
+                    3,
+                    "2026-03-05",
+                    "credito",
+                    "Recebimento março",
+                    10,
+                    210,
+                    "Recebimento de Clientes",
+                    "Recebimento de Clientes",
+                    "itau",
+                    "fluxo_3.xlsx",
+                    1,
+                    "Sheet",
+                    "marco-sem-fevereiro-h1",
+                    "2026-03-01T11:00:00",
+                ),
+            ],
+        )
+
+    geracao = FluxoCaixaGeracaoService(
+        db=db,
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    resultado_geracao = geracao.gerar_arquivo(
+        competencia="03/2026",
+        meses_incluir=[3],
+    )
+
+    wb = load_workbook(resultado_geracao["output_path"], data_only=False)
+    consolidado = wb["Consolidado"]
+    linhas = list(consolidado.iter_rows(min_row=2, values_only=True))
+    linha_saldo_inicial = next(row for row in linhas if row[5] == "Saldo Inicial Itau")
+
+    assert linha_saldo_inicial[0].date() == date(2026, 3, 5)
+    assert linha_saldo_inicial[2] == 200.0
+    assert linha_saldo_inicial[4] == 200.0
+
+
+def test_fluxo_geracao_janeiro_permite_saldo_ano_anterior_sem_movimentos(tmp_path):
+    db = _novo_db()
+    template = tmp_path / "template_fluxo.xlsx"
+    _criar_template_fluxo(template)
+
+    wb_template = load_workbook(template)
+    fluxo_template = wb_template["Fluxo de Caixa "]
+    fluxo_template["B227"] = "(=) SALDO FINAL"
+    fluxo_template["D227"] = "=SUM(D7)"
+    wb_template.save(template)
+
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO fluxo_indicadores_manuais
+            (competencia_ano, saldo_ano_anterior, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (2026, 9876.54, "2026-01-01T08:00:00", "2026-01-01T08:00:00"),
+        )
+
+    geracao = FluxoCaixaGeracaoService(
+        db=db,
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    verificacao = geracao.verificar_dados("01/2026")
+    assert verificacao["valido"] is True
+    assert verificacao["meses_utilizados"] == [1]
+
+    resultado_geracao = geracao.gerar_arquivo("01/2026")
+
+    assert resultado_geracao["total_movimentos"] == 0
+    assert resultado_geracao["saldo_ano_anterior"] == 9876.54
+    assert resultado_geracao["saldo_liquido_apresentacao"] == 9876.54
+
+    wb = load_workbook(resultado_geracao["output_path"], data_only=False)
+    consolidado = wb["Consolidado"]
+    linhas_saldo = [
+        row for row in consolidado.iter_rows(min_row=2, values_only=True)
+        if row[5] == "Saldo do Ano Anterior"
+    ]
+    assert len(linhas_saldo) == 1
+    assert linhas_saldo[0][0].date() == date(2026, 1, 1)
+    assert linhas_saldo[0][2] == 9876.54
+
+    fluxo = wb["Fluxo de Caixa "]
+    assert fluxo["C19"].value == "Saldo do Ano Anterior"
+    assert "MATCH($C19" in fluxo["D19"].value
+    assert fluxo["D7"].value == "=SUM(D9:D19)"
+    assert fluxo.column_dimensions["D"].hidden is False
+    assert fluxo.column_dimensions["E"].hidden is True
 
 
 def test_fluxo_atualiza_nome_gerencial_por_codigo_em_movimentos_passados():

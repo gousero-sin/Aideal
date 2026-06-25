@@ -311,7 +311,9 @@ class FluxoMovimentoRepository(Repository[FluxoMovimentoDB]):
         mes: int,
         conn: sqlite3.Connection | None = None,
     ) -> dict[str, Decimal]:
-        """Retorna o último saldo informado por banco antes da competência."""
+        """Retorna o último saldo por banco da competência imediatamente anterior."""
+        ano_anterior = ano - 1 if mes == 1 else ano
+        mes_anterior = 12 if mes == 1 else mes - 1
         connection, should_close = _get_connection(self.db, conn)
         try:
             rows = connection.execute(
@@ -319,11 +321,12 @@ class FluxoMovimentoRepository(Repository[FluxoMovimentoDB]):
                 SELECT banco_origem, saldo
                 FROM fluxo_movimentos
                 WHERE saldo IS NOT NULL
-                  AND (competencia_ano < ? OR (competencia_ano = ? AND competencia_mes < ?))
-                ORDER BY banco_origem, competencia_ano DESC, competencia_mes DESC,
-                         data_movimento DESC, COALESCE(linha_origem, 0) DESC, id DESC
+                  AND competencia_ano = ?
+                  AND competencia_mes = ?
+                ORDER BY banco_origem, data_movimento DESC,
+                         COALESCE(linha_origem, 0) DESC, id DESC
                 """,
-                (ano, ano, mes),
+                (ano_anterior, mes_anterior),
             ).fetchall()
             saldos: dict[str, Decimal] = {}
             for row in rows:

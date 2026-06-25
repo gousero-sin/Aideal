@@ -11,6 +11,12 @@
 - A base manual anual (`Saldo do Ano Anterior`) continua sendo lançada no XLSX,
   exposta pela API administrativa e somada ao saldo final. Ela não é um cartão
   individual no painel web.
+- Para janeiro, a base manual anual também torna a competência gerável mesmo
+  antes de haver movimentos importados para o mês. Os demais meses continuam
+  exigindo movimentos salvos no banco.
+- A base manual anual é aplicada apenas quando janeiro está no recorte gerado.
+  De fevereiro em diante, a abertura usa o saldo final da competência anterior
+  por banco.
 
 ## Fornecedores
 
@@ -32,8 +38,9 @@ Fornecedores. Assim, uma troca no texto descritivo da conta não altera o cálcu
   de cada banco, mas valem zero em créditos, débitos, saldo líquido, séries,
   rankings, destaques e Apoio financeiro consolidados.
 - Para cada banco e competência, o saldo inicial é o fechamento da competência
-  anterior. Na primeira competência com saldo disponível, a abertura é derivada
-  do primeiro saldo do extrato menos o impacto do primeiro movimento.
+  imediatamente anterior. O cálculo não salta meses para buscar saldos antigos.
+  Na primeira competência com saldo disponível, a abertura é derivada do
+  primeiro saldo do extrato menos o impacto do primeiro movimento.
 - O fechamento usa o último saldo informado pelo extrato; na ausência dele,
   usa o saldo calculado pelos movimentos. As linhas existentes `Saldo Inicial
   <Banco>` e `Saldo Final <Banco>` no Fluxo de Caixa são abastecidas por essa
