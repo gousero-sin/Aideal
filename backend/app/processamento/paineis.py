@@ -2165,14 +2165,21 @@ class PainelFluxoCaixaService(_PainelBaseService):
             }
 
             indicadores_manuais = self.indicadores_manuais.get_by_ano(ano_ref, conn)
+            saldo_ano_anterior = (
+                float(indicadores_manuais.saldo_ano_anterior) if indicadores_manuais else 0
+            )
+            saldo_final_periodo = self._saldo_final_periodo(
+                conn,
+                ano_ref,
+                meses_ref,
+                meses_disponiveis,
+                saldo_ano_anterior,
+            )
 
         total_movimentos = int(kpis["total_movimentos"] or 0)
         total_creditos = _float(kpis["total_creditos"])
         total_debitos = _float(kpis["total_debitos"])
         saldo_liquido = _float(kpis["saldo_liquido"])
-        saldo_ano_anterior = (
-            float(indicadores_manuais.saldo_ano_anterior) if indicadores_manuais else 0
-        )
         contas_destaque = self._contas_destaque(contas_destaque_rows, total_debitos)
         saldos_por_banco = self._saldos_por_banco(saldos_por_banco_rows)
         return {
@@ -2192,7 +2199,8 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 "total_debitos": total_debitos,
                 "saldo_liquido": saldo_liquido,
                 "saldo_ano_anterior": saldo_ano_anterior,
-                "saldo_com_ano_anterior": saldo_ano_anterior + saldo_liquido,
+                "saldo_final_periodo": saldo_final_periodo,
+                "saldo_com_ano_anterior": saldo_final_periodo,
                 "total_bancos": int(kpis["total_bancos"] or 0),
                 "total_classificacoes": int(kpis["total_classificacoes"] or 0),
                 "ticket_medio": (
@@ -2227,6 +2235,38 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 for row in recentes
             ],
         }
+
+    def _saldo_final_periodo(
+        self,
+        conn: Any,
+        ano: int,
+        meses_ref: list[int],
+        meses_disponiveis: list[int],
+        saldo_ano_anterior: float,
+    ) -> float:
+        meses_base = meses_ref or meses_disponiveis
+        if not meses_base:
+            return saldo_ano_anterior
+
+        mes_fechamento = max(meses_base)
+        rows = conn.execute(
+            f"""
+            SELECT
+                competencia_mes AS mes,
+                SUM({self.SALDO_EXPR}) AS saldo
+            FROM fluxo_movimentos
+            WHERE competencia_ano = ?
+              AND competencia_mes <= ?
+            GROUP BY competencia_mes
+            ORDER BY competencia_mes
+            """,
+            (ano, mes_fechamento),
+        ).fetchall()
+
+        saldo = saldo_ano_anterior
+        for row in rows:
+            saldo += _float(row["saldo"])
+        return saldo
 
     @classmethod
     def _impacto_bancario_movimento(cls, row: Any) -> float:

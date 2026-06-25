@@ -137,6 +137,7 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
   };
 
   const kpis = data?.kpis || {};
+  const saldoFinalPeriodo = kpis.saldo_final_periodo ?? kpis.saldo_com_ano_anterior;
   const filtros = data?.filtros_disponiveis || {};
   const contasDestaque = Array.isArray(data?.contas_destaque) ? data.contas_destaque : [];
   const equilibrioDestaques = data?.equilibrio_contas_destaque || {};
@@ -282,9 +283,9 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
             <KpiCard label="Saldo" value={formatCurrency(kpis.saldo_liquido)} detail="posição líquida" tone="yellow" icon={<WalletCards size={20} />} />
             <KpiCard
               label="Saldo final"
-              value={formatSignedCurrency(kpis.saldo_com_ano_anterior)}
-              detail="saldo anterior + posição"
-              tone={Number(kpis.saldo_com_ano_anterior || 0) >= 0 ? 'cyan' : 'red'}
+              value={formatSignedCurrency(saldoFinalPeriodo)}
+              detail="fechamento do mês"
+              tone={Number(saldoFinalPeriodo || 0) >= 0 ? 'cyan' : 'red'}
               icon={<WalletCards size={20} />}
             />
             <KpiCard label="Bancos" value={formatNumber(kpis.total_bancos)} detail="origens bancárias" icon={<Landmark size={20} />} />
