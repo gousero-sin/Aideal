@@ -272,6 +272,8 @@ class _PainelBaseService:
 class PainelDREService(_PainelBaseService):
     """Agrega KPIs, séries e slicers web para DRE."""
 
+    _PLANO_CONTAS_GERADO_CACHE: tuple[str, float, dict[str, dict]] | None = None
+
     def __init__(self, db: DatabaseConnection | None = None) -> None:
         super().__init__(db)
         self.indicadores_manuais = DREIndicadoresManuaisRepository(self.db)
@@ -890,11 +892,23 @@ class PainelDREService(_PainelBaseService):
             return self._plano_contas_gerado_cache
 
         try:
-            with TemplateWriter(settings.template_dre_path) as writer:
+            caminho = settings.template_dre_path
+            mtime = caminho.stat().st_mtime
+            cache = self.__class__._PLANO_CONTAS_GERADO_CACHE
+            if cache and cache[0] == str(caminho) and cache[1] == mtime:
+                self._plano_contas_gerado_cache = cache[2]
+                return self._plano_contas_gerado_cache
+
+            with TemplateWriter(caminho) as writer:
                 self._plano_contas_gerado_cache = DREGeracaoCompletaService._ler_plano_contas(
                     writer,
                     aplicar_overrides_dre_gerado=True,
                 )
+            self.__class__._PLANO_CONTAS_GERADO_CACHE = (
+                str(caminho),
+                mtime,
+                self._plano_contas_gerado_cache,
+            )
         except Exception as exc:
             logger.warning("Não foi possível ler PLANO_CONTAS do DRE gerado: %s", exc)
             self._plano_contas_gerado_cache = {}
@@ -1748,6 +1762,8 @@ class PainelDREService(_PainelBaseService):
 class PainelFluxoCaixaService(_PainelBaseService):
     """Agrega KPIs, séries e slicers web para Fluxo de Caixa."""
 
+    _FLUXO_TEMPLATE_CONTEXT_CACHE: tuple[str, float, Any, Any, dict[str, str]] | None = None
+
     def __init__(self, db: DatabaseConnection | None = None) -> None:
         super().__init__(db)
         self.indicadores_manuais = FluxoIndicadoresManuaisRepository(self.db)
@@ -2183,12 +2199,14 @@ class PainelFluxoCaixaService(_PainelBaseService):
             saldo_ano_anterior = (
                 float(indicadores_manuais.saldo_ano_anterior) if indicadores_manuais else 0
             )
+            saldo_final_cache: dict[tuple[tuple[int, ...], int], float] = {}
             saldo_final_periodo = self._saldo_final_periodo(
                 conn,
                 ano_ref,
                 meses_ref,
                 meses_disponiveis,
                 saldo_ano_anterior,
+                saldo_final_cache,
             )
             series_mensais = self._series_rows(series, "movimentos")
             series_mensais = self._aplicar_saldos_finais_series_fluxo(
@@ -2198,6 +2216,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 meses_disponiveis,
                 saldo_ano_anterior,
                 series_mensais,
+                saldo_final_cache,
             )
 
         total_movimentos = int(kpis["total_movimentos"] or 0)
@@ -2267,22 +2286,29 @@ class PainelFluxoCaixaService(_PainelBaseService):
         meses_ref: list[int],
         meses_disponiveis: list[int],
         saldo_ano_anterior: float,
+        saldo_final_cache: dict[tuple[tuple[int, ...], int], float] | None = None,
     ) -> float:
         meses_base = meses_ref or meses_disponiveis
         if not meses_base:
             return saldo_ano_anterior
 
         mes_fechamento = max(meses_base)
-        meses_template = self._meses_template_saldo(meses_ref, meses_disponiveis, mes_fechamento)
+        meses_template = self._meses_template_saldo(
+            meses_ref,
+            meses_disponiveis,
+            mes_fechamento,
+            incluir_abertura_anual=bool(saldo_ano_anterior),
+        )
         if not meses_template:
             return saldo_ano_anterior
         try:
-            return self._saldo_final_template(
+            return self._saldo_final_template_cached(
                 conn,
                 ano,
                 meses_template,
                 mes_fechamento,
                 saldo_ano_anterior,
+                saldo_final_cache,
             )
         except Exception as exc:
             logger.exception("Falha ao calcular saldo final do painel pelo template: %s", exc)
@@ -2321,9 +2347,23 @@ class PainelFluxoCaixaService(_PainelBaseService):
         meses_ref: list[int],
         meses_disponiveis: list[int],
         mes_fechamento: int,
+        incluir_abertura_anual: bool = False,
     ) -> list[int]:
-        meses_base = meses_ref or [mes for mes in meses_disponiveis if mes <= mes_fechamento]
-        return sorted({mes for mes in meses_base if mes <= mes_fechamento})
+        del meses_ref
+        disponiveis = {int(mes) for mes in meses_disponiveis}
+        if incluir_abertura_anual:
+            disponiveis.add(1)
+        if mes_fechamento not in disponiveis:
+            return []
+
+        meses: list[int] = []
+        mes = mes_fechamento
+        while mes in disponiveis:
+            meses.append(mes)
+            mes -= 1
+            if mes < 1:
+                break
+        return sorted(meses)
 
     def _aplicar_saldos_finais_series_fluxo(
         self,
@@ -2333,23 +2373,30 @@ class PainelFluxoCaixaService(_PainelBaseService):
         meses_disponiveis: list[int],
         saldo_ano_anterior: float,
         series: list[dict[str, Any]],
+        saldo_final_cache: dict[tuple[tuple[int, ...], int], float] | None = None,
     ) -> list[dict[str, Any]]:
         if not series:
             return series
 
         saldos_finais: dict[int, float] = {}
         for mes in sorted({int(item["mes"]) for item in series}):
-            meses_template = self._meses_template_saldo(meses_ref, meses_disponiveis, mes)
+            meses_template = self._meses_template_saldo(
+                meses_ref,
+                meses_disponiveis,
+                mes,
+                incluir_abertura_anual=bool(saldo_ano_anterior),
+            )
             if not meses_template:
                 saldos_finais[mes] = saldo_ano_anterior
                 continue
             try:
-                saldos_finais[mes] = self._saldo_final_template(
+                saldos_finais[mes] = self._saldo_final_template_cached(
                     conn,
                     ano,
                     meses_template,
                     mes,
                     saldo_ano_anterior,
+                    saldo_final_cache,
                 )
             except Exception as exc:
                 logger.exception(
@@ -2368,6 +2415,64 @@ class PainelFluxoCaixaService(_PainelBaseService):
             for item in series
         ]
 
+    def _saldo_final_template_cached(
+        self,
+        conn: Any,
+        ano: int,
+        meses_utilizados: list[int],
+        mes_fechamento: int,
+        saldo_ano_anterior: float,
+        saldo_final_cache: dict[tuple[tuple[int, ...], int], float] | None,
+    ) -> float:
+        chave = (tuple(meses_utilizados), mes_fechamento)
+        if saldo_final_cache is not None and chave in saldo_final_cache:
+            return saldo_final_cache[chave]
+
+        saldo = self._saldo_final_template(
+            conn,
+            ano,
+            meses_utilizados,
+            mes_fechamento,
+            saldo_ano_anterior,
+        )
+        if saldo_final_cache is not None:
+            saldo_final_cache[chave] = saldo
+        return saldo
+
+    def _fluxo_template_context(self) -> tuple[Any, dict[str, str]] | None:
+        caminho = settings.template_fluxo_path
+        mtime = caminho.stat().st_mtime
+        cache = self.__class__._FLUXO_TEMPLATE_CONTEXT_CACHE
+        if cache and cache[0] == str(caminho) and cache[1] == mtime:
+            return cache[2], cache[4]
+
+        writer = TemplateWriter(caminho)
+        writer.abrir()
+        wb = writer._wb
+        if (
+            wb is None
+            or "Fluxo de Caixa " not in wb.sheetnames
+            or "Consolidado" not in wb.sheetnames
+        ):
+            writer.fechar()
+            return None
+
+        fluxo_ws = wb["Fluxo de Caixa "]
+        consolidado_ws = wb["Consolidado"]
+        classificacoes_template = self.fluxo_processamento._mapear_classificacoes_template(
+            wb,
+            consolidado_ws,
+            consolidado_ws.max_row,
+        )
+        self.__class__._FLUXO_TEMPLATE_CONTEXT_CACHE = (
+            str(caminho),
+            mtime,
+            fluxo_ws,
+            consolidado_ws,
+            classificacoes_template,
+        )
+        return fluxo_ws, classificacoes_template
+
     def _saldo_final_template(
         self,
         conn: Any,
@@ -2385,50 +2490,38 @@ class PainelFluxoCaixaService(_PainelBaseService):
             conn,
         )
 
-        with TemplateWriter(settings.template_fluxo_path) as writer:
-            wb = writer._wb
-            if (
-                wb is None
-                or "Fluxo de Caixa " not in wb.sheetnames
-                or "Consolidado" not in wb.sheetnames
-            ):
-                return saldo_ano_anterior
+        contexto = self._fluxo_template_context()
+        if contexto is None:
+            return saldo_ano_anterior
 
-            fluxo_ws = wb["Fluxo de Caixa "]
-            consolidado_ws = wb["Consolidado"]
-            classificacoes_template = self.fluxo_processamento._mapear_classificacoes_template(
-                wb,
-                consolidado_ws,
-                consolidado_ws.max_row,
-            )
-            linhas = self._linhas_consolidadas_fluxo_template(
-                movimentos,
-                ano,
-                saldo_manual,
-                saldos_iniciais,
-                classificacoes_template,
-            )
-            if saldo_manual and saldo_manual != Decimal("0"):
-                self.fluxo_processamento._garantir_saldo_ano_anterior_no_fluxo(writer)
+        fluxo_ws, classificacoes_template = contexto
+        linhas = self._linhas_consolidadas_fluxo_template(
+            movimentos,
+            ano,
+            saldo_manual,
+            saldos_iniciais,
+            classificacoes_template,
+        )
 
-            agregados = self._agregados_apoio_fluxo(linhas)
-            linha_saldo_final = self.fluxo_processamento._encontrar_linha_rotulo(
-                fluxo_ws,
-                "(=) SALDO FINAL",
-                coluna=2,
-            )
-            if not linha_saldo_final:
-                return saldo_ano_anterior
+        agregados = self._agregados_apoio_fluxo(linhas)
+        linha_saldo_final = self.fluxo_processamento._encontrar_linha_rotulo(
+            fluxo_ws,
+            "(=) SALDO FINAL",
+            coluna=2,
+        )
+        if not linha_saldo_final:
+            return saldo_ano_anterior
 
-            coluna_mes = 3 + mes_fechamento
-            cache: dict[tuple[int, int], float] = {}
-            return self._avaliar_celula_fluxo(
-                fluxo_ws,
-                linha_saldo_final,
-                coluna_mes,
-                agregados,
-                cache,
-            )
+        coluna_mes = 3 + mes_fechamento
+        cache: dict[tuple[int, int], float] = {}
+        saldo_template = self._avaliar_celula_fluxo(
+            fluxo_ws,
+            linha_saldo_final,
+            coluna_mes,
+            agregados,
+            cache,
+        )
+        return saldo_template + float(saldo_manual or Decimal("0"))
 
     def _linhas_consolidadas_fluxo_template(
         self,
@@ -2502,6 +2595,16 @@ class PainelFluxoCaixaService(_PainelBaseService):
         chave = (row, col)
         if chave in cache:
             return cache[chave]
+
+        saldo_inicial_derivado = self._valor_saldo_inicial_derivado_fluxo(
+            ws,
+            row,
+            col,
+            agregados,
+        )
+        if saldo_inicial_derivado is not None:
+            cache[chave] = saldo_inicial_derivado
+            return saldo_inicial_derivado
 
         valor = ws.cell(row=row, column=col).value
         if isinstance(valor, (int, float)):
@@ -2610,6 +2713,26 @@ class PainelFluxoCaixaService(_PainelBaseService):
     def _mes_coluna_fluxo(col: int) -> int:
         mes = col - 3
         return mes if 1 <= mes <= 12 else 0
+
+    def _valor_saldo_inicial_derivado_fluxo(
+        self,
+        ws: Any,
+        row: int,
+        col: int,
+        agregados: dict[str, dict[int, dict[str, float]]],
+    ) -> float | None:
+        mes = self._mes_coluna_fluxo(col)
+        if not mes:
+            return None
+
+        label = str(ws.cell(row=row, column=3).value or "").strip()
+        if not label.upper().startswith("SALDO INICIAL "):
+            return None
+
+        dados_mes = agregados.get(label, {}).get(mes)
+        if dados_mes is None:
+            return None
+        return _float(dados_mes.get("credito"))
 
     @staticmethod
     def _valor_apoio_fluxo(

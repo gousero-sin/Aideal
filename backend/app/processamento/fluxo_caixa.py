@@ -975,7 +975,11 @@ class FluxoCaixaProcessamentoService:
                 for movimento in grupo:
                     saldo_corrente = self._aplicar_movimento_no_saldo(saldo_corrente, movimento)
                     saida.append(movimento.model_copy(update={"saldo": saldo_corrente}))
-                saldo_final = self._saldo_final_grupo(grupo, saldo_corrente)
+                saldo_final = (
+                    saldo_corrente
+                    if tem_saldo_anterior
+                    else self._saldo_final_grupo(grupo, saldo_corrente)
+                )
                 saida.append(self._linha_saldo_final(grupo[-1], saldo_final))
                 saldos_anteriores[banco] = saldo_final
                 continue

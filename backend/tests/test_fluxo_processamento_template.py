@@ -645,6 +645,35 @@ def test_linhas_de_saldo_encadeiam_fechamento_de_um_mes_na_abertura_do_proximo(t
     assert linhas_saldo[3][3] == 115.0
 
 
+def test_linhas_de_saldo_final_usam_saldo_anterior_quando_extrato_nao_vem_acumulado(tmp_path):
+    service = FluxoCaixaProcessamentoService(
+        template_path=tmp_path / "nao_usado.xlsx",
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+    movimentos = [
+        FCMovimento(
+            data_movimento=date(2025, 2, 5),
+            tipo=TipoMovimento.DEBITO,
+            descricao="Saída fevereiro",
+            valor=Decimal("50"),
+            saldo=Decimal("50"),
+            classificacao="Fornecedores",
+            banco_origem="itau",
+        ),
+    ]
+
+    linhas = service._linhas_movimentos_com_saldos(
+        movimentos,
+        saldos_iniciais_por_banco={"itau": Decimal("1200")},
+    )
+    linhas_saldo = [linha for linha in linhas if isinstance(linha, list)]
+
+    assert linhas_saldo[0][4] == 1200.0
+    assert linhas_saldo[1][3] == 1150.0
+
+
 def test_fechamento_bancario_zero_do_extrato_prevalece_sobre_saldo_calculado(tmp_path):
     service = FluxoCaixaProcessamentoService(
         template_path=tmp_path / "nao_usado.xlsx",

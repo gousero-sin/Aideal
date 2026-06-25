@@ -2766,6 +2766,112 @@ def test_painel_fluxo_sem_mes_usa_saldo_final_do_ultimo_mes_e_series_mensais():
     }
 
 
+def test_painel_fluxo_fevereiro_filtrado_usa_saldo_final_de_janeiro():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO fluxo_indicadores_manuais
+            (competencia_ano, saldo_ano_anterior, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (2025, 1000.0, "2026-06-25T10:00:00", "2026-06-25T10:00:00"),
+        )
+        conn.executemany(
+            """
+            INSERT INTO fluxo_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             banco, status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "fc-jan-cadeia",
+                    "2026-06-25T10:00:00",
+                    "movimentos_2025-01_itau.xlsx",
+                    "hash-jan-cadeia",
+                    2025,
+                    1,
+                    "itau",
+                    "completed",
+                    1,
+                    1,
+                    0,
+                    None,
+                ),
+                (
+                    "fc-fev-cadeia",
+                    "2026-06-25T10:00:00",
+                    "movimentos_2025-02_itau.xlsx",
+                    "hash-fev-cadeia",
+                    2025,
+                    2,
+                    "itau",
+                    "completed",
+                    1,
+                    1,
+                    0,
+                    None,
+                ),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO fluxo_movimentos
+            (upload_id, competencia_ano, competencia_mes, data_movimento, tipo, descricao,
+             valor, saldo, classificacao, conta_gerencial, banco_origem, arquivo_origem,
+             linha_origem, aba_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "fc-jan-cadeia",
+                    2025,
+                    1,
+                    "2025-01-31",
+                    "credito",
+                    "Fechamento janeiro",
+                    200,
+                    200,
+                    "Recebimento de Clientes",
+                    "Recebimento de Clientes",
+                    "itau",
+                    "movimentos_2025-01_itau.xlsx",
+                    1,
+                    "Sheet",
+                    "jan-cadeia-h1",
+                    "2026-06-25T10:00:00",
+                ),
+                (
+                    "fc-fev-cadeia",
+                    2025,
+                    2,
+                    "2025-02-05",
+                    "debito",
+                    "Pagamento fevereiro",
+                    50,
+                    50,
+                    "SALARIO",
+                    "12.1 - SALARIO",
+                    "itau",
+                    "movimentos_2025-02_itau.xlsx",
+                    1,
+                    "Sheet",
+                    "fev-cadeia-h1",
+                    "2026-06-25T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/fluxo_caixa/painel?ano=2025&meses=2")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["kpis"]["saldo_final_periodo"] == pytest.approx(1150.0)
+    assert body["series_mensais"][0]["saldo_final"] == pytest.approx(1150.0)
+
+
 def test_painel_fluxo_neutraliza_transferencias_e_expoe_saldos_finais_por_banco():
     db = _novo_db()
     with db.transaction() as conn:
