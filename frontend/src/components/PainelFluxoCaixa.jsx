@@ -280,7 +280,6 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
           <section className="aideal-insight-grid">
             <KpiCard label="Entradas" value={formatCurrency(kpis.total_creditos)} detail="créditos bancários" tone="cyan" icon={<TrendingUp size={20} />} />
             <KpiCard label="Saídas" value={formatCurrency(kpis.total_debitos)} detail="débitos bancários" tone="red" icon={<TrendingDown size={20} />} />
-            <KpiCard label="Saldo" value={formatCurrency(kpis.saldo_liquido)} detail="posição líquida" tone="yellow" icon={<WalletCards size={20} />} />
             <KpiCard
               label="Saldo final"
               value={formatSignedCurrency(saldoFinalPeriodo)}
@@ -305,9 +304,6 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
           <section className="aideal-analytics-grid">
             <ChartCard title="Evolução mensal" subtitle={data?.periodo?.label} className="is-wide">
               <MonthlyEvolutionChart data={data?.series_mensais} countKey="movimentos" />
-            </ChartCard>
-            <ChartCard title="Composição por banco" subtitle="Saldos finais por banco">
-              <CompositionDonut data={saldosPorBanco} />
             </ChartCard>
           </section>
 
