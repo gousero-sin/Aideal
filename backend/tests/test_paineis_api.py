@@ -609,6 +609,106 @@ def test_painel_dre_reproduz_receita_liquida_recomposta_do_dre_gerado():
     assert body["series_mensais"][0]["receita_liquida"] == pytest.approx(850.0)
 
 
+def test_painel_dre_irpj_csll_usa_linha_do_dre_gerado_sem_abater_deducoes():
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-irpj-csll-linha-gerada",
+                "2026-09-01T10:00:00",
+                "dre_irpj_csll_linha_gerada.xls",
+                "hash-dre-irpj-csll-linha-gerada",
+                2026,
+                9,
+                "completed",
+                3,
+                3,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-irpj-csll-linha-gerada",
+                    2026,
+                    9,
+                    "2026-09-10",
+                    "Faturamento",
+                    1000,
+                    1000,
+                    0,
+                    "1.1.1 - Recebimento de Clientes",
+                    "ENTRADA",
+                    "Obra IRPJ",
+                    "Faturamento",
+                    "",
+                    1,
+                    "irpj-linha-h1",
+                    "2026-09-01T10:00:00",
+                ),
+                (
+                    "dre-irpj-csll-linha-gerada",
+                    2026,
+                    9,
+                    "2026-09-11",
+                    "ICMS",
+                    80,
+                    0,
+                    80,
+                    "17.9 - ICMS",
+                    "SAIDA",
+                    "Obra IRPJ",
+                    "17.9 - ICMS",
+                    "",
+                    2,
+                    "irpj-linha-h2",
+                    "2026-09-01T10:00:00",
+                ),
+                (
+                    "dre-irpj-csll-linha-gerada",
+                    2026,
+                    9,
+                    "2026-09-12",
+                    "IRPJ",
+                    100,
+                    0,
+                    100,
+                    "17.4 - IRPJ",
+                    "SAIDA",
+                    "Obra IRPJ",
+                    "17.4 - IRPJ",
+                    "",
+                    3,
+                    "irpj-linha-h3",
+                    "2026-09-01T10:00:00",
+                ),
+            ],
+        )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2026&meses=9&centro_custo=Obra%20IRPJ")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["kpis"]["total_impostos"] == pytest.approx(100.0)
+    assert body["kpis"]["deducoes_vendas"] == pytest.approx(80.0)
+    assert body["kpis"]["irpj_csll"] == pytest.approx(100.0)
+
+
 def test_painel_dre_ebitda_usa_margem_contribuicao_explicita_quando_sem_resultado_operacional():
     db = _novo_db()
     with db.transaction() as conn:

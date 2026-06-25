@@ -325,6 +325,7 @@ class PainelDREService(_PainelBaseService):
     ESCOPO_PROJETO_COMPLETO = "projeto_completo"
     COMPONENTES_DRE_COM_CODIGO_OBRIGATORIO = {
         "deducoes",
+        "irpj_csll",
         "custos_variaveis",
         "gastos_fixos",
         "depreciacao",
@@ -338,6 +339,7 @@ class PainelDREService(_PainelBaseService):
     }
     COMPONENTES_DRE_CONTA_PAI_ESTRITA = {
         "deducoes": _alias_set(["(-)Deduções sobre vendas"]),
+        "irpj_csll": _alias_set(["(-)IRPJ/CSLL"]),
         "custos_variaveis": _alias_set(["(-)Custos Variavéis", "(-)Custos Variáveis"]),
         "gastos_fixos": _alias_set(["(-)Gastos Fixos"]),
         "depreciacao": _alias_set(["(-)Depreciação Imobilizado"]),
@@ -389,6 +391,9 @@ class PainelDREService(_PainelBaseService):
             ]
         ),
         "receita_liquida": _alias_set(["(=)Receita Líquida", "Receita Líquida"]),
+        "irpj_csll": _alias_set(
+            ["(-)IRPJ/CSLL", "IRPJ/CSLL", "IRPJ", "CSLL", "IRPJ Adicional"]
+        ),
         "custos_variaveis": _alias_set(
             [
                 "(-)Custos Variavéis",
@@ -800,7 +805,7 @@ class PainelDREService(_PainelBaseService):
         receita_liquida_dre = _float(componentes_dre["receita_liquida"])
         receita_bruta_dre = _float(componentes_dre["receita_bruta"])
         deducoes_vendas = _float(componentes_dre["deducoes"])
-        irpj_csll = max(total_impostos - deducoes_vendas, 0)
+        irpj_csll = _float(componentes_dre["irpj_csll"])
         series_mensais = self._series_rows(series, "lancamentos")
         series_mensais = self._aplicar_componentes_series(
             series_mensais,
@@ -1276,6 +1281,7 @@ class PainelDREService(_PainelBaseService):
             if tem_resultado_operacional
             else resultado_operacional_calculado
         )
+        irpj_csll, _ = self._somar_componente(rows, "irpj_csll", absoluto=True)
         resultado_liquido_explicito, tem_resultado_liquido = self._somar_componente(
             rows, "resultado_liquido"
         )
@@ -1326,6 +1332,7 @@ class PainelDREService(_PainelBaseService):
             "gastos_fixos": gastos_fixos,
             "depreciacao": depreciacao,
             "resultado_operacional": resultado_operacional,
+            "irpj_csll": irpj_csll,
             "resultado_gerencial": resultado_gerencial,
             "resultado_liquido": resultado_liquido,
             "investimentos": investimentos,
