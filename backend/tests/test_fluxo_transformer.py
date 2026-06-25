@@ -178,3 +178,4 @@ def test_detecta_banco_prioriza_segmento_do_nome_padrao_de_movimentos():
     parser = ExcelParser("fluxo")
 
     assert parser.detectar_banco("movimentos_2026-01_safra_itau.xlsx") == "safra"
+    assert parser.detectar_banco("movimentos_2026-01_cef.xlsx") == "cef"

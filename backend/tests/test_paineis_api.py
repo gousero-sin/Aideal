@@ -2464,8 +2464,8 @@ def test_painel_fluxo_neutraliza_transferencias_e_expoe_saldos_finais_por_banco(
                 5,
                 "itau",
                 "completed",
-                4,
-                4,
+                7,
+                7,
                 0,
                 None,
             ),
@@ -2479,6 +2479,24 @@ def test_painel_fluxo_neutraliza_transferencias_e_expoe_saldos_finais_por_banco(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
+                (
+                    "fc-transferencias",
+                    2025,
+                    5,
+                    "2025-05-01",
+                    "credito",
+                    "Saldo inicial sem banco",
+                    999999,
+                    999999,
+                    "Saldo Inicial DESCONHECIDO",
+                    "Saldo Inicial DESCONHECIDO",
+                    "desconhecido",
+                    "movimentos_2025-05_desconhecido_.xlsx",
+                    0,
+                    "Sheet",
+                    "transferencia-h0",
+                    "2026-06-23T10:00:00",
+                ),
                 (
                     "fc-transferencias",
                     2025,
@@ -2544,11 +2562,47 @@ def test_painel_fluxo_neutraliza_transferencias_e_expoe_saldos_finais_por_banco(
                     50,
                     "Transferência Recebida",
                     "Transferência entre Bancos",
-                    "safra",
-                    "movimentos_2025-05_safra_.xlsx",
+                    "desconhecido",
+                    "movimentos_2025-05_safra.xlsx",
                     1,
                     "Sheet",
                     "transferencia-h4",
+                    "2026-06-23T10:00:00",
+                ),
+                (
+                    "fc-transferencias",
+                    2025,
+                    5,
+                    "2025-05-03",
+                    "debito",
+                    "saldo",
+                    50,
+                    0,
+                    "Saldo Final Safra",
+                    "Saldo Final Safra",
+                    "desconhecido",
+                    "movimentos_2025-05_safra.xlsx",
+                    2,
+                    "Sheet",
+                    "transferencia-h5",
+                    "2026-06-23T10:00:00",
+                ),
+                (
+                    "fc-transferencias",
+                    2025,
+                    5,
+                    "2025-05-04",
+                    "debito",
+                    "saldo",
+                    30,
+                    0,
+                    "Saldo Final Itau",
+                    "Saldo Final Itau",
+                    "itau",
+                    "movimentos_2025-05_itau_.xlsx",
+                    4,
+                    "Sheet",
+                    "transferencia-h6",
                     "2026-06-23T10:00:00",
                 ),
             ],
@@ -2567,9 +2621,10 @@ def test_painel_fluxo_neutraliza_transferencias_e_expoe_saldos_finais_por_banco(
         "Fornecedores",
     }
     saldos = {item["nome"]: item for item in body["saldos_por_banco"]}
-    assert saldos["itau"]["saldo_inicial"] == 0.0
-    assert saldos["itau"]["saldo_final"] == 30.0
-    assert saldos["safra"]["saldo_final"] == 50.0
+    assert set(saldos) == {"ITAU", "SAFRA"}
+    assert saldos["ITAU"]["saldo_inicial"] == 0.0
+    assert saldos["ITAU"]["saldo_final"] == 30.0
+    assert saldos["SAFRA"]["saldo_final"] == 50.0
 
 
 def test_painel_fluxo_filtra_por_banco_tipo_classificacao_e_meses():
@@ -2675,7 +2730,7 @@ def test_painel_fluxo_filtra_por_banco_tipo_classificacao_e_meses():
     assert body["kpis"]["total_movimentos"] == 1
     assert body["kpis"]["total_creditos"] == 700
     assert body["kpis"]["total_debitos"] == 0
-    assert body["ranking_bancos"][0]["nome"] == "itau"
+    assert body["ranking_bancos"][0]["nome"] == "ITAU"
     assert body["ranking_classificacoes"][0]["nome"] == "Receita"
 
 

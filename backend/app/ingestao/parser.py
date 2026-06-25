@@ -207,7 +207,7 @@ class ExcelParser:
         if match:
             resto = match.group("resto").lower()
             for banco_id in sorted(bancos, key=len, reverse=True):
-                if resto.startswith(f"{banco_id}_"):
+                if resto == banco_id or resto.startswith(f"{banco_id}_"):
                     return banco_id
             return "desconhecido"
 

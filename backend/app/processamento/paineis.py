@@ -1739,25 +1739,77 @@ class PainelFluxoCaixaService(_PainelBaseService):
         super().__init__(db)
         self.indicadores_manuais = FluxoIndicadoresManuaisRepository(self.db)
 
-    BANCO_EXPR = "COALESCE(NULLIF(TRIM(banco_origem), ''), 'Sem banco')"
+    BANCO_ARQUIVO_EXPR = (
+        "CASE "
+        "WHEN INSTR(LOWER(COALESCE(arquivo_origem, '')), '_itau_isolamento_') > 0 "
+        "  OR INSTR(LOWER(COALESCE(arquivo_origem, '')), '_itau_isolamento.') > 0 "
+        "THEN 'itau_isolamento' "
+        "WHEN INSTR(LOWER(COALESCE(arquivo_origem, '')), '_mercantil_') > 0 "
+        "  OR INSTR(LOWER(COALESCE(arquivo_origem, '')), '_mercantil.') > 0 "
+        "  OR INSTR(LOWER(COALESCE(arquivo_origem, '')), '_marcantil_') > 0 "
+        "  OR INSTR(LOWER(COALESCE(arquivo_origem, '')), '_marcantil.') > 0 "
+        "THEN 'mercantil' "
+        "WHEN INSTR(LOWER(COALESCE(arquivo_origem, '')), '_safra_') > 0 "
+        "  OR INSTR(LOWER(COALESCE(arquivo_origem, '')), '_safra.') > 0 "
+        "THEN 'safra' "
+        "WHEN INSTR(LOWER(COALESCE(arquivo_origem, '')), '_itau_') > 0 "
+        "  OR INSTR(LOWER(COALESCE(arquivo_origem, '')), '_itau.') > 0 "
+        "THEN 'itau' "
+        "WHEN INSTR(LOWER(COALESCE(arquivo_origem, '')), '_cef_') > 0 "
+        "  OR INSTR(LOWER(COALESCE(arquivo_origem, '')), '_cef.') > 0 "
+        "  OR INSTR(LOWER(COALESCE(arquivo_origem, '')), '_caixa_') > 0 "
+        "  OR INSTR(LOWER(COALESCE(arquivo_origem, '')), '_caixa.') > 0 "
+        "THEN 'cef' "
+        "ELSE NULL END"
+    )
+    BANCO_EXPR = (
+        "CASE WHEN LOWER(COALESCE(NULLIF(TRIM(banco_origem), ''), '')) "
+        "NOT IN ('', 'desconhecido', 'sem banco') THEN TRIM(banco_origem) "
+        f"WHEN {BANCO_ARQUIVO_EXPR} IS NOT NULL THEN {BANCO_ARQUIVO_EXPR} "
+        "ELSE COALESCE(NULLIF(TRIM(banco_origem), ''), 'Sem banco') END"
+    )
     TIPO_EXPR = "COALESCE(NULLIF(TRIM(tipo), ''), 'sem_tipo')"
+    CLASSIFICACAO_NEUTRA_EXPR = (
+        "COALESCE(NULLIF(TRIM(classificacao), ''), NULLIF(TRIM(conta_gerencial), ''), '')"
+    )
     CLASSIFICACAO_EXPR = (
         "COALESCE(NULLIF(TRIM(classificacao), ''), "
         "NULLIF(TRIM(conta_gerencial), ''), 'Sem classificação')"
     )
     TRANSFERENCIA_EXPR = (
-        "(tipo = 'transferencia' OR UPPER(COALESCE(classificacao, '')) LIKE 'TRANSFER%')"
+        f"(tipo = 'transferencia' OR UPPER({CLASSIFICACAO_NEUTRA_EXPR}) LIKE 'TRANSFER%')"
+    )
+    SALDO_BANCARIO_EXPR = (
+        f"(UPPER({CLASSIFICACAO_NEUTRA_EXPR}) LIKE 'SALDO INICIAL %' "
+        f"OR UPPER({CLASSIFICACAO_NEUTRA_EXPR}) LIKE 'SALDO FINAL %')"
+    )
+    NEUTRO_CONSOLIDADO_EXPR = (
+        f"({TRANSFERENCIA_EXPR} OR {SALDO_BANCARIO_EXPR})"
     )
     CREDITO_EXPR = (
-        f"CASE WHEN NOT {TRANSFERENCIA_EXPR} AND tipo = 'credito' THEN valor ELSE 0 END"
+        f"CASE WHEN NOT {NEUTRO_CONSOLIDADO_EXPR} AND tipo = 'credito' THEN valor ELSE 0 END"
     )
     DEBITO_EXPR = (
-        f"CASE WHEN NOT {TRANSFERENCIA_EXPR} AND tipo = 'debito' THEN valor ELSE 0 END"
+        f"CASE WHEN NOT {NEUTRO_CONSOLIDADO_EXPR} AND tipo = 'debito' THEN valor ELSE 0 END"
     )
     SALDO_EXPR = (
-        f"CASE WHEN {TRANSFERENCIA_EXPR} THEN 0 "
+        f"CASE WHEN {NEUTRO_CONSOLIDADO_EXPR} THEN 0 "
         "WHEN tipo = 'credito' THEN valor WHEN tipo = 'debito' THEN -valor ELSE valor END"
     )
+    BANCO_ROTULOS = {
+        "cef": "CEF",
+        "itau": "ITAU",
+        "itau_isolamento": "ITAU Isolamento",
+        "mercantil": "MERCANTIL",
+        "safra": "SAFRA",
+    }
+    BANCO_ALIASES = {
+        "caixa": "cef",
+        "caixa economica": "cef",
+        "itau isolamento": "itau_isolamento",
+        "marcantil": "mercantil",
+    }
+    BANCOS_DESCONHECIDOS = {"", "desconhecido", "sem banco"}
     CONTAS_DESTAQUE = [
         {
             "id": "parcelamento",
@@ -1965,10 +2017,9 @@ class PainelFluxoCaixaService(_PainelBaseService):
         _validar_ano(ano_ref)
         _validar_meses(meses_ref)
 
-        # Transferências movimentam bancos individuais, mas não alteram o caixa
-        # consolidado. A condição também cobre registros legados que ainda foram
-        # gravados como crédito/débito com a classificação de transferência.
-        where = ["competencia_ano = ?", f"NOT {self.TRANSFERENCIA_EXPR}"]
+        # Transferências e linhas de saldo movimentam/rastreiam bancos individuais,
+        # mas não alteram o caixa consolidado exibido no Fluxo gerado.
+        where = ["competencia_ano = ?", f"NOT {self.NEUTRO_CONSOLIDADO_EXPR}"]
         params: list[Any] = [ano_ref]
         _append_in(where, params, "competencia_mes", meses_ref)
         _append_in(where, params, self.BANCO_EXPR, banco_ref)
@@ -1976,7 +2027,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
         _append_in(where, params, self.CLASSIFICACAO_EXPR, classificacao_ref)
         where_sql = " AND ".join(where)
 
-        period_where = ["competencia_ano = ?", f"NOT {self.TRANSFERENCIA_EXPR}"]
+        period_where = ["competencia_ano = ?", f"NOT {self.NEUTRO_CONSOLIDADO_EXPR}"]
         period_params: list[Any] = [ano_ref]
         _append_in(period_where, period_params, "competencia_mes", meses_ref)
         period_where_sql = " AND ".join(period_where)
@@ -2076,8 +2127,9 @@ class PainelFluxoCaixaService(_PainelBaseService):
                     data_movimento AS data,
                     saldo,
                     tipo,
-                    classificacao,
+                    {self.CLASSIFICACAO_EXPR} AS classificacao,
                     valor,
+                    arquivo_origem,
                     linha_origem
                 FROM fluxo_movimentos
                 WHERE {saldos_where_sql}
@@ -2086,6 +2138,12 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 """,
                 tuple(saldos_params),
             ).fetchall()
+
+            filtros_banco = self._filter_options(
+                conn, self.BANCO_EXPR, period_where_sql, period_params
+            )
+            for opcao in filtros_banco:
+                opcao["label"] = self._rotulo_banco(opcao["value"])
 
             filtros = {
                 "anos": [
@@ -2099,9 +2157,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
                     ).fetchall()
                 ],
                 "meses": meses_disponiveis,
-                "banco": self._filter_options(
-                    conn, self.BANCO_EXPR, period_where_sql, period_params
-                ),
+                "banco": filtros_banco,
                 "tipo": self._filter_options(conn, self.TIPO_EXPR, period_where_sql, period_params),
                 "classificacao": self._filter_options(
                     conn, self.CLASSIFICACAO_EXPR, period_where_sql, period_params
@@ -2144,7 +2200,9 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 ),
             },
             "series_mensais": self._series_rows(series, "movimentos"),
-            "ranking_bancos": self._ranking_rows(ranking_bancos, "movimentos"),
+            "ranking_bancos": self._rotular_bancos_payload(
+                self._ranking_rows(ranking_bancos, "movimentos")
+            ),
             "saldos_por_banco": saldos_por_banco,
             "ranking_classificacoes": self._ranking_rows(ranking_classificacoes, "movimentos"),
             "contas_destaque": contas_destaque,
@@ -2170,30 +2228,135 @@ class PainelFluxoCaixaService(_PainelBaseService):
             ],
         }
 
-    @staticmethod
-    def _impacto_bancario_movimento(row: Any) -> float:
+    @classmethod
+    def _impacto_bancario_movimento(cls, row: Any) -> float:
         valor = abs(_float(row["valor"]))
         tipo = str(row["tipo"] or "").strip().lower()
-        classificacao = str(row["classificacao"] or "").strip().upper()
+        classificacao = cls._classificacao_upper(row)
+        if cls._eh_saldo_bancario(row):
+            return 0
         if tipo == "transferencia" or classificacao.startswith("TRANSFER"):
             return -valor if "EMITIDA" in classificacao else valor
         return -valor if tipo == "debito" else valor
 
     @classmethod
+    def _normalizar_banco_chave(cls, banco: Any) -> str:
+        texto = str(banco or "").strip()
+        if not texto:
+            return ""
+        sem_acento = unicodedata.normalize("NFKD", texto)
+        sem_acento = "".join(ch for ch in sem_acento if not unicodedata.combining(ch))
+        chave = re.sub(r"[_-]+", " ", sem_acento)
+        chave = re.sub(r"\s+", " ", chave).strip().lower()
+        return cls.BANCO_ALIASES.get(chave, chave)
+
+    @classmethod
+    def _rotulo_banco(cls, banco: Any) -> str:
+        texto = str(banco or "").strip()
+        chave = cls._normalizar_banco_chave(texto)
+        if not chave:
+            return "Sem banco"
+        return cls.BANCO_ROTULOS.get(chave, texto.upper())
+
+    @classmethod
+    def _banco_desconhecido(cls, banco: Any) -> bool:
+        return cls._normalizar_banco_chave(banco) in cls.BANCOS_DESCONHECIDOS
+
+    @staticmethod
+    def _classificacao_texto(row: Any) -> str:
+        return str(row["classificacao"] or "").strip()
+
+    @classmethod
+    def _classificacao_upper(cls, row: Any) -> str:
+        return cls._classificacao_texto(row).upper()
+
+    @classmethod
+    def _eh_saldo_inicial_bancario(cls, row: Any) -> bool:
+        return cls._classificacao_upper(row).startswith("SALDO INICIAL ")
+
+    @classmethod
+    def _eh_saldo_final_bancario(cls, row: Any) -> bool:
+        return cls._classificacao_upper(row).startswith("SALDO FINAL ")
+
+    @classmethod
+    def _eh_saldo_bancario(cls, row: Any) -> bool:
+        return cls._eh_saldo_inicial_bancario(row) or cls._eh_saldo_final_bancario(row)
+
+    @classmethod
+    def _banco_linha_saldo(cls, row: Any) -> str:
+        classificacao = cls._classificacao_texto(row)
+        upper = classificacao.upper()
+        for prefixo in ("SALDO INICIAL ", "SALDO FINAL "):
+            if upper.startswith(prefixo):
+                banco_classificacao = classificacao[len(prefixo) :].strip()
+                if not cls._banco_desconhecido(banco_classificacao):
+                    return banco_classificacao
+                return str(row["banco"] or "").strip()
+        return str(row["banco"] or "").strip()
+
+    @staticmethod
+    def _valor_linha_saldo_bancario(row: Any) -> float:
+        valor = abs(_float(row["valor"]))
+        return valor if valor else abs(_float(row["saldo"]))
+
+    @classmethod
+    def _saldo_inicial_banco(cls, movimentos: list[Any], saldos_iniciais: list[Any]) -> float:
+        if saldos_iniciais:
+            return cls._valor_linha_saldo_bancario(saldos_iniciais[0])
+        if not movimentos:
+            return 0.0
+        primeiro = movimentos[0]
+        primeiro_saldo = primeiro["saldo"]
+        if primeiro_saldo is None:
+            return 0.0
+        return _float(primeiro_saldo) - cls._impacto_bancario_movimento(primeiro)
+
+    @classmethod
+    def _rotular_bancos_payload(cls, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [{**row, "nome": cls._rotulo_banco(row["nome"])} for row in rows]
+
+    @classmethod
     def _saldos_por_banco(cls, rows: list[Any]) -> list[dict[str, Any]]:
-        agrupados: dict[str, list[Any]] = {}
+        agrupados: dict[str, dict[str, Any]] = {}
         for row in rows:
-            agrupados.setdefault(str(row["banco"]), []).append(row)
+            saldo_inicial = cls._eh_saldo_inicial_bancario(row)
+            saldo_final = cls._eh_saldo_final_bancario(row)
+            banco_base = (
+                cls._banco_linha_saldo(row) if saldo_inicial or saldo_final else row["banco"]
+            )
+
+            if saldo_inicial and cls._banco_desconhecido(banco_base):
+                continue
+
+            banco_chave = cls._normalizar_banco_chave(banco_base)
+            if not banco_chave:
+                banco_chave = str(banco_base or "").strip()
+
+            grupo = agrupados.setdefault(
+                banco_chave,
+                {
+                    "nome": cls._rotulo_banco(banco_base),
+                    "movimentos": [],
+                    "saldos_iniciais": [],
+                    "saldos_finais": [],
+                },
+            )
+            if saldo_inicial:
+                grupo["saldos_iniciais"].append(row)
+            elif saldo_final:
+                grupo["saldos_finais"].append(row)
+            else:
+                grupo["movimentos"].append(row)
 
         saldos = []
-        for banco, movimentos in agrupados.items():
-            primeiro = movimentos[0]
-            primeiro_saldo = primeiro["saldo"]
-            saldo_inicial = (
-                _float(primeiro_saldo) - cls._impacto_bancario_movimento(primeiro)
-                if primeiro_saldo is not None
-                else 0.0
-            )
+        for grupo in agrupados.values():
+            movimentos = grupo["movimentos"]
+            saldos_iniciais = grupo["saldos_iniciais"]
+            saldos_finais = grupo["saldos_finais"]
+            if not movimentos and not saldos_finais:
+                continue
+
+            saldo_inicial = cls._saldo_inicial_banco(movimentos, saldos_iniciais)
             saldo_calculado = saldo_inicial
             saldo_final = saldo_inicial
             for movimento in movimentos:
@@ -2203,12 +2366,14 @@ class PainelFluxoCaixaService(_PainelBaseService):
                     saldo_calculado = saldo_final
                 else:
                     saldo_final = saldo_calculado
+            if saldos_finais:
+                saldo_final = cls._valor_linha_saldo_bancario(saldos_finais[-1])
             saldos.append(
                 {
-                    "nome": banco,
+                    "nome": grupo["nome"],
                     "saldo_inicial": saldo_inicial,
                     "saldo_final": saldo_final,
-                    "movimentos": len(movimentos),
+                    "movimentos": len(movimentos) + len(saldos_finais),
                 }
             )
         return sorted(saldos, key=lambda saldo: (-abs(saldo["saldo_final"]), saldo["nome"]))
