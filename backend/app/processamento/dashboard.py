@@ -26,6 +26,19 @@ class DashboardResumoService:
     )
     DRE_SAIDAS_LIQUIDAS_EXPR = f"(debito - ({DRE_IMPOSTO_DEBITO_EXPR}))"
     DRE_SALDO_EXPR = f"(credito - {DRE_SAIDAS_LIQUIDAS_EXPR})"
+    FLUXO_TRANSFERENCIA_EXPR = (
+        "(tipo = 'transferencia' OR UPPER(COALESCE(classificacao, '')) LIKE 'TRANSFER%')"
+    )
+    FLUXO_CREDITO_EXPR = (
+        f"CASE WHEN NOT {FLUXO_TRANSFERENCIA_EXPR} AND tipo = 'credito' THEN valor ELSE 0 END"
+    )
+    FLUXO_DEBITO_EXPR = (
+        f"CASE WHEN NOT {FLUXO_TRANSFERENCIA_EXPR} AND tipo = 'debito' THEN valor ELSE 0 END"
+    )
+    FLUXO_SALDO_EXPR = (
+        f"CASE WHEN {FLUXO_TRANSFERENCIA_EXPR} THEN 0 "
+        "WHEN tipo = 'credito' THEN valor WHEN tipo = 'debito' THEN -valor ELSE valor END"
+    )
 
     def __init__(
         self,
@@ -176,16 +189,13 @@ class DashboardResumoService:
                 (ano, mes),
             ).fetchone()
             fluxo_totais = conn.execute(
-                """
+                f"""
                 SELECT
-                    COUNT(*) AS total_movimentos,
-                    SUM(CASE WHEN tipo = 'credito' THEN valor ELSE 0 END) AS total_creditos,
-                    SUM(CASE WHEN tipo = 'debito' THEN valor ELSE 0 END) AS total_debitos,
-                    SUM(CASE
-                        WHEN tipo = 'credito' THEN valor
-                        WHEN tipo = 'debito' THEN -valor
-                        ELSE valor
-                    END) AS saldo_liquido,
+                    SUM(CASE WHEN NOT {self.FLUXO_TRANSFERENCIA_EXPR} THEN 1 ELSE 0 END)
+                        AS total_movimentos,
+                    SUM({self.FLUXO_CREDITO_EXPR}) AS total_creditos,
+                    SUM({self.FLUXO_DEBITO_EXPR}) AS total_debitos,
+                    SUM({self.FLUXO_SALDO_EXPR}) AS saldo_liquido,
                     COUNT(DISTINCT banco_origem) AS total_bancos
                 FROM fluxo_movimentos
                 WHERE competencia_ano = ? AND competencia_mes <= ?
