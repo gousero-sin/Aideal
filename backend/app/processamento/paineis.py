@@ -18,7 +18,13 @@ from ..repository.dre_indicadores_manuais import DREIndicadoresManuaisRepository
 from ..repository.fluxo_indicadores_manuais import FluxoIndicadoresManuaisRepository
 from ..repository.fluxo_repository import FluxoCaixaRepository
 from ..templates.writer import TemplateWriter
-from .dre_geracao_completa import DREGeracaoCompletaService, _extrair_codigo_gerencial
+from .dre_geracao_completa import (
+    _CODIGOS_EXCLUSIVOS_PESSOAL,
+    DREGeracaoCompletaService,
+    _extrair_codigo_gerencial,
+    _participa_deducao_receita_por_codigo,
+    _participa_recomposicao_receita_bruta_por_codigo,
+)
 from .fluxo_caixa import FluxoCaixaProcessamentoService
 
 MESES_LABEL = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
@@ -339,6 +345,7 @@ class PainelDREService(_PainelBaseService):
         "fornecedores",
         "passivos_operacionais",
     }
+    COMPONENTES_DRE_CODIGO_ESTRITO = {"investimentos"}
     COMPONENTES_DRE_CONTA_PAI_ESTRITA = {
         "deducoes": _alias_set(["(-)Deduções sobre vendas"]),
         "irpj_csll": _alias_set(["(-)IRPJ/CSLL"]),
@@ -1422,6 +1429,14 @@ class PainelDREService(_PainelBaseService):
 
     @staticmethod
     def _row_recompoe_receita_bruta(row: Any) -> bool:
+        participa_por_codigo = _participa_recomposicao_receita_bruta_por_codigo(
+            PainelDREService._row_get(row, "codigo_conta"),
+            PainelDREService._row_get(row, "natureza_raw"),
+            PainelDREService._row_get(row, "rubrica"),
+        )
+        if participa_por_codigo is not None:
+            return participa_por_codigo
+
         valores = [
             PainelDREService._row_get(row, "conta_pai"),
             PainelDREService._row_get(row, "conta_filho"),
@@ -1439,6 +1454,15 @@ class PainelDREService(_PainelBaseService):
     def _row_dre_matches(row: Any, aliases: set[str], componente: str) -> bool:
         codigo_conta = PainelDREService._codigo_conta_row(row)
         resolvido_plano = bool(PainelDREService._row_get(row, "_plano_contas_resolvido"))
+
+        if componente == "deducoes":
+            participa_deducoes = _participa_deducao_receita_por_codigo(codigo_conta)
+            if participa_deducoes is False:
+                return False
+        if componente == "gastos_fixos" and codigo_conta in _CODIGOS_EXCLUSIVOS_PESSOAL:
+            return False
+        if componente in PainelDREService.COMPONENTES_DRE_CODIGO_ESTRITO and not codigo_conta:
+            return False
 
         codigos_explicitos = PainelDREService.COMPONENTES_DRE_CODIGOS_EXPLICITOS.get(
             componente, frozenset()
@@ -1807,8 +1831,19 @@ class PainelFluxoCaixaService(_PainelBaseService):
         "COALESCE(NULLIF(TRIM(classificacao), ''), "
         "NULLIF(TRIM(conta_gerencial), ''), 'Sem classificação')"
     )
+    CONTA_CANONICA_EXPR = (
+        "COALESCE(NULLIF(TRIM(conta_gerencial), ''), "
+        "NULLIF(TRIM(classificacao), ''), '')"
+    )
+    CODIGO_TRANSFERENCIA_EXPR = (
+        f"(SUBSTR({CONTA_CANONICA_EXPR}, 1, 3) = '2.1' AND "
+        f"(LENGTH({CONTA_CANONICA_EXPR}) = 3 OR "
+        f"SUBSTR({CONTA_CANONICA_EXPR}, 4, 1) "
+        "IN (' ', CHAR(9), CHAR(10), CHAR(13), '-', '–', '—')))"
+    )
     TRANSFERENCIA_EXPR = (
-        f"(tipo = 'transferencia' OR UPPER({CLASSIFICACAO_NEUTRA_EXPR}) LIKE 'TRANSFER%')"
+        f"(tipo = 'transferencia' OR {CODIGO_TRANSFERENCIA_EXPR} "
+        f"OR UPPER({CLASSIFICACAO_NEUTRA_EXPR}) LIKE 'TRANSFER%')"
     )
     SALDO_BANCARIO_EXPR = (
         f"(UPPER({CLASSIFICACAO_NEUTRA_EXPR}) LIKE 'SALDO INICIAL %' "
@@ -2457,6 +2492,9 @@ class PainelFluxoCaixaService(_PainelBaseService):
             writer.fechar()
             return None
 
+        self.fluxo_processamento._garantir_vale_transporte_no_fluxo(writer)
+        self.fluxo_processamento._ajustar_formulas_liquidas_fluxo(writer)
+
         fluxo_ws = wb["Fluxo de Caixa "]
         consolidado_ws = wb["Consolidado"]
         classificacoes_template = self.fluxo_processamento._mapear_classificacoes_template(
@@ -2632,6 +2670,27 @@ class PainelFluxoCaixaService(_PainelBaseService):
         cache: dict[tuple[int, int], float],
     ) -> float:
         expr = expr.strip().replace("$", "")
+        partes = self._split_soma_subtracao(expr)
+        if len(partes) > 1:
+            total = 0.0
+            sinal = 1.0
+            for parte in partes:
+                if parte == "+":
+                    sinal = 1.0
+                    continue
+                if parte == "-":
+                    sinal = -1.0
+                    continue
+                total += sinal * self._avaliar_termo_fluxo(
+                    ws,
+                    parte,
+                    row,
+                    col,
+                    agregados,
+                    cache,
+                )
+            return total
+
         expr_upper = expr.upper()
         mes = self._mes_coluna_fluxo(col)
         if expr_upper.startswith("IFERROR("):
@@ -2652,13 +2711,13 @@ class PainelFluxoCaixaService(_PainelBaseService):
             return self._valor_apoio_fluxo(ws.cell(row=row, column=3).value, expr, agregados, mes)
         if expr_upper.startswith("SUM("):
             return sum(
-                self._avaliar_termo_fluxo(ws, item, col, agregados, cache)
+                self._avaliar_termo_fluxo(ws, item, row, col, agregados, cache)
                 for item in self._argumentos_funcao(expr)
             )
         if expr_upper.startswith("SUBTOTAL("):
             argumentos = self._argumentos_funcao(expr)
             return sum(
-                self._avaliar_termo_fluxo(ws, item, col, agregados, cache)
+                self._avaliar_termo_fluxo(ws, item, row, col, agregados, cache)
                 for item in argumentos[1:]
             )
 
@@ -2671,13 +2730,21 @@ class PainelFluxoCaixaService(_PainelBaseService):
             if parte == "-":
                 sinal = -1.0
                 continue
-            total += sinal * self._avaliar_termo_fluxo(ws, parte, col, agregados, cache)
+            total += sinal * self._avaliar_termo_fluxo(
+                ws,
+                parte,
+                row,
+                col,
+                agregados,
+                cache,
+            )
         return total
 
     def _avaliar_termo_fluxo(
         self,
         ws: Any,
         termo: str,
+        row: int,
         col: int,
         agregados: dict[str, dict[int, dict[str, float]]],
         cache: dict[tuple[int, int], float],
@@ -2707,7 +2774,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 agregados,
                 cache,
             )
-        return self._avaliar_expressao_fluxo(ws, termo, 1, col, agregados, cache)
+        return self._avaliar_expressao_fluxo(ws, termo, row, col, agregados, cache)
 
     @staticmethod
     def _mes_coluna_fluxo(col: int) -> int:

@@ -34,11 +34,41 @@
 O painel usa os mesmos códigos (`4.1`, `4.2`, `4.3`) para compor o destaque de
 Fornecedores. Assim, uma troca no texto descritivo da conta não altera o cálculo.
 
+## Destinos especiais por código e natureza
+
+Algumas contas precisam de um destino visual diferente do nome recebido na
+origem. O mapa `saida.rotulos_template_por_codigo` aceita:
+
+- uma string, quando créditos e débitos pertencem à mesma rubrica;
+- um objeto com `credito` e `debito`, quando a natureza define a rubrica.
+
+Regras homologadas:
+
+| Código | Crédito | Débito |
+| --- | --- | --- |
+| `1.1.3` | Recebimento de Clientes | Recebimento de Clientes |
+| `2.2` | Entrada por Empréstimos Bancários | Entrada por Empréstimos Bancários |
+| `1.2.9` | Resgate de Aplicações | Aplicações |
+| `3.12` | SERVIÇO LAUDO TECNICO | SERVIÇO LAUDO TECNICO |
+| `12.3` | 13° SALARIO | 13° SALARIO |
+| `12.20` | VALE TRANSPORTE | VALE TRANSPORTE |
+| `14.4` | ASSISTENCIA MEDICA ADM | ASSISTENCIA MEDICA ADM |
+| `18.4` | Aplicações | Aplicações |
+
+Rubricas de entrada são calculadas como `créditos - débitos`; rubricas de saída,
+como `débitos - créditos`. Dessa forma, estornos reduzem a rubrica original sem
+serem omitidos do saldo final.
+
+Antes de salvar o XLSX, a geração confere se cada movimento com código gerencial
+participa exatamente uma vez do Fluxo. Código sem destino, ou com destino
+duplicado para a mesma natureza, bloqueia a geração com os dados necessários
+para corrigir o mapa.
+
 ## Transferências e saldos bancários
 
-- Um movimento cujo tipo é `transferencia`, ou cuja classificação começa por
-  `Transferência`, é rastreado como `Transferência Emitida` ou
-  `Transferência Recebida`.
+- O código canônico `2.1` identifica transferências mesmo se o nome da conta
+  mudar. Tipos e rótulos legados continuam aceitos e são materializados como
+  `Transferência Emitida` ou `Transferência Recebida`.
 - Transferências ficam no `Consolidado` para auditoria e participam dos saldos
   de cada banco, mas valem zero em créditos, débitos, saldo líquido, séries,
   rankings, destaques e Apoio financeiro consolidados.
@@ -66,6 +96,26 @@ movimentos_YYYY-MM_<banco>_...
 Exemplo: `movimentos_2026-01_safra_extrato.xlsx` é classificado como `safra`.
 O fallback histórico por nome de arquivo permanece ativo; registros já gravados
 não são reclassificados automaticamente.
+
+Arquivos que aparentam seguir o padrão de exportação, mas contêm competência
+malformada ou divergente da competência selecionada, bloqueiam a ingestão. Cada
+binário recebido é preservado por SHA256 antes do processamento.
+
+O reenvio padrão substitui somente os bancos presentes no novo lote. Bancos já
+salvos e não reenviados permanecem na competência. A substituição integral do
+mês exige o escopo explícito `competencia`.
+
+Após a ingestão e antes da geração, transferências são conciliadas por valor,
+bancos distintos e proximidade de data. Contrapartidas ausentes geram aviso,
+mas nunca alteram o saldo financeiro consolidado.
+
+No modo `Ano todo`, Fluxo e DRE exigem sequência completa de janeiro até a
+competência ativa. Lacunas bloqueiam a geração para evitar relatório parcial
+com aparência de acumulado completo.
+
+Rateios fracionários vindos do sistema de origem são preservados. Somente os
+totais publicados pela API são arredondados para centavos; os movimentos não
+são arredondados individualmente, pois isso poderia alterar o total do rateio.
 
 ## Painel
 

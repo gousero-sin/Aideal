@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
@@ -205,9 +206,25 @@ class ExcelParser:
         # confundir aliases citados em descrições complementares do arquivo.
         match = re.match(r"^MOVIMENTOS_\d{4}-\d{2}_(?P<resto>[A-Z0-9_]+)", nome_upper)
         if match:
-            resto = match.group("resto").lower()
-            for banco_id in sorted(bancos, key=len, reverse=True):
-                if resto == banco_id or resto.startswith(f"{banco_id}_"):
+            resto = self._normalizar_identificador_banco(match.group("resto"))
+            candidatos: set[tuple[str, str]] = set()
+            for banco_id, config in bancos.items():
+                aliases = [
+                    banco_id,
+                    *config.get("aliases", []),
+                    *config.get("detectar_por_nome_arquivo", []),
+                ]
+                for alias in aliases:
+                    alias_normalizado = self._normalizar_identificador_banco(alias)
+                    if alias_normalizado:
+                        candidatos.add((alias_normalizado, banco_id))
+
+            for alias, banco_id in sorted(
+                candidatos,
+                key=lambda item: len(item[0]),
+                reverse=True,
+            ):
+                if resto == alias or resto.startswith(f"{alias}_"):
                     return banco_id
             return "desconhecido"
 
@@ -217,3 +234,9 @@ class ExcelParser:
                     return banco_id
 
         return "desconhecido"
+
+    @staticmethod
+    def _normalizar_identificador_banco(value: str) -> str:
+        texto = unicodedata.normalize("NFKD", str(value or ""))
+        texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
+        return re.sub(r"[^a-z0-9]+", "_", texto.lower()).strip("_")

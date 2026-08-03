@@ -39,6 +39,13 @@ def _novo_db() -> DatabaseConnection:
     return db
 
 
+def test_fluxo_geracao_arredonda_apenas_totais_publicados_para_centavos():
+    converter = FluxoCaixaGeracaoService._valor_monetario
+
+    assert converter(Decimal("369596.0283206731")) == 369596.03
+    assert converter(Decimal("10.005")) == 10.01
+
+
 def _criar_arquivo_fluxo(path: Path, mes: int = 8) -> None:
     wb = Workbook()
     ws = wb.active
@@ -191,6 +198,106 @@ def test_fluxo_salva_mes_no_banco_e_gera_somente_mes_selecionado(tmp_path):
     assert wb["Apresentação GMP"].column_dimensions["J"].hidden is False
     assert wb["Apresentação GMP"].column_dimensions["I"].hidden is True
     assert wb["Apresentação GMP"].column_dimensions["P"].hidden is True
+
+
+def test_fluxo_geracao_sinaliza_banco_desconhecido_sem_bloquear_saldo(tmp_path):
+    db = _novo_db()
+    arquivo = tmp_path / "movimentos_gerados_sem_banco.xlsx"
+    template = tmp_path / "template_fluxo.xlsx"
+    _criar_arquivo_fluxo(arquivo, mes=8)
+    _criar_template_fluxo(template)
+
+    resultado_ingestao = FluxoCaixaIngestaoService(db).ingestar_lote(
+        arquivos=[(arquivo, arquivo.name)],
+        competencia="08/2025",
+        replace=True,
+    )
+    assert resultado_ingestao["success"] is True
+
+    resultado = FluxoCaixaGeracaoService(
+        db=db,
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    ).gerar_arquivo("08/2025", meses_incluir=[8])
+
+    assert resultado["bancos_sem_conciliacao"] == ["desconhecido"]
+    assert len(resultado["avisos_conciliacao"]) == 1
+    assert resultado["saldo_liquido_apresentacao"] == 800.0
+
+
+def test_fluxo_geracao_normaliza_banco_e_direcao_de_transferencia_legada(tmp_path):
+    db = _novo_db()
+    template = tmp_path / "template_fluxo.xlsx"
+    _criar_template_fluxo(template)
+    repo = FluxoCaixaRepository(db)
+
+    upload_caixa = FluxoUpload(
+        id=str(uuid4()),
+        arquivo_nome="movimentos_2025-08_caixa_.xlsx",
+        arquivo_sha256="hash-transferencia-legada-caixa",
+        competencia_ano=2025,
+        competencia_mes=8,
+        banco="desconhecido",
+        status="completed",
+        total_linhas=1,
+        linhas_validas=1,
+    )
+    upload_itau = FluxoUpload(
+        id=str(uuid4()),
+        arquivo_nome="movimentos_2025-08_itau_.xlsx",
+        arquivo_sha256="hash-transferencia-legada-itau",
+        competencia_ano=2025,
+        competencia_mes=8,
+        banco="itau",
+        status="completed",
+        total_linhas=1,
+        linhas_validas=1,
+    )
+    movimentos = []
+    for upload, banco, hash_linha in (
+        (upload_caixa, "desconhecido", "transferencia-legada-caixa"),
+        (upload_itau, "itau", "transferencia-legada-itau"),
+    ):
+        movimentos.append(
+            FluxoMovimentoDB(
+                upload_id=upload.id,
+                competencia_ano=2025,
+                competencia_mes=8,
+                data_movimento="2025-08-04",
+                tipo="transferencia",
+                descricao="TRANSFERÊNCIA ENTRE BANCOS CAIXA X ITAU",
+                valor=Decimal("500000"),
+                saldo=Decimal("500000"),
+                classificacao="Transferência Recebida",
+                conta_gerencial="2.1 - Transferência entre Bancos",
+                banco_origem=banco,
+                arquivo_origem=upload.arquivo_nome,
+                linha_origem=2,
+                hash_linha=hash_linha,
+            )
+        )
+    repo.upsert_competencia(
+        [
+            (upload_caixa, [movimentos[0]]),
+            (upload_itau, [movimentos[1]]),
+        ]
+    )
+
+    resultado = FluxoCaixaGeracaoService(
+        db=db,
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    ).gerar_arquivo("08/2025", meses_incluir=[8])
+
+    assert resultado["bancos_identificados"] == ["cef", "itau"]
+    assert resultado["bancos_sem_conciliacao"] == []
+    assert resultado["conciliacao_transferencias"]["pares"] == 1
+    assert resultado["conciliacao_transferencias"]["nao_pareadas"] == 0
+    assert resultado["warnings"] == []
 
 
 def test_fluxo_geracao_inclui_saldo_ano_anterior_manual_no_documento(tmp_path):
@@ -446,6 +553,86 @@ def test_fluxo_geracao_fevereiro_usa_fechamento_de_janeiro_sem_saldo_ano_anterio
     assert linha_saldo_inicial[0].date() == date(2026, 2, 5)
     assert linha_saldo_inicial[2] == 150.0
     assert linha_saldo_inicial[4] == 150.0
+
+
+def test_fluxo_saldo_inicial_normaliza_banco_legado_pelo_arquivo_de_origem(tmp_path):
+    db = _novo_db()
+    template = tmp_path / "template_fluxo.xlsx"
+    _criar_template_fluxo(template)
+    repo = FluxoCaixaRepository(db)
+
+    upload_janeiro = FluxoUpload(
+        id=str(uuid4()),
+        arquivo_nome="movimentos_2026-01_caixa_.xlsx",
+        arquivo_sha256="hash-saldo-legado-caixa",
+        competencia_ano=2026,
+        competencia_mes=1,
+        banco="desconhecido",
+        status="completed",
+        total_linhas=1,
+        linhas_validas=1,
+    )
+    movimento_janeiro = FluxoMovimentoDB(
+        upload_id=upload_janeiro.id,
+        competencia_ano=2026,
+        competencia_mes=1,
+        data_movimento="2026-01-31",
+        tipo="credito",
+        descricao="Fechamento Caixa",
+        valor=Decimal("150"),
+        saldo=Decimal("150"),
+        classificacao="1.1.1 - Recebimento de Clientes",
+        conta_gerencial="1.1.1 - Recebimento de Clientes",
+        banco_origem="desconhecido",
+        arquivo_origem=upload_janeiro.arquivo_nome,
+        linha_origem=2,
+        hash_linha="saldo-legado-caixa",
+    )
+    repo.upsert_competencia([(upload_janeiro, [movimento_janeiro])])
+
+    upload_fevereiro = FluxoUpload(
+        id=str(uuid4()),
+        arquivo_nome="movimentos_2026-02_caixa_.xlsx",
+        arquivo_sha256="hash-fevereiro-caixa",
+        competencia_ano=2026,
+        competencia_mes=2,
+        banco="cef",
+        status="completed",
+        total_linhas=1,
+        linhas_validas=1,
+    )
+    movimento_fevereiro = FluxoMovimentoDB(
+        upload_id=upload_fevereiro.id,
+        competencia_ano=2026,
+        competencia_mes=2,
+        data_movimento="2026-02-05",
+        tipo="credito",
+        descricao="Recebimento fevereiro",
+        valor=Decimal("20"),
+        saldo=Decimal("170"),
+        classificacao="1.1.1 - Recebimento de Clientes",
+        conta_gerencial="1.1.1 - Recebimento de Clientes",
+        banco_origem="cef",
+        arquivo_origem=upload_fevereiro.arquivo_nome,
+        linha_origem=2,
+        hash_linha="fevereiro-caixa",
+    )
+    repo.upsert_competencia([(upload_fevereiro, [movimento_fevereiro])])
+
+    resultado = FluxoCaixaGeracaoService(
+        db=db,
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    ).gerar_arquivo("02/2026", meses_incluir=[2])
+
+    wb = load_workbook(resultado["output_path"], data_only=False)
+    linhas = list(wb["Consolidado"].iter_rows(min_row=2, values_only=True))
+    saldo_inicial = next(row for row in linhas if row[5] == "Saldo Inicial CEF")
+
+    assert saldo_inicial[2] == 150.0
+    assert all(row[5] != "Saldo Inicial Desconhecido" for row in linhas)
 
 
 def test_fluxo_geracao_nao_pula_mes_para_resolver_saldo_inicial(tmp_path):

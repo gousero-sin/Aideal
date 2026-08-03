@@ -1,5 +1,6 @@
 """Contrato de dados normalizado para o fluxo de Caixa."""
 
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
@@ -17,9 +18,13 @@ class TipoMovimento(str, Enum):
     TRANSFERENCIA = "transferencia"
 
 
+_CODIGO_TRANSFERENCIA_RE = re.compile(r"^\s*2\.1(?=\s|[-–—]|$)")
+
+
 def eh_transferencia_classificacao(classificacao: str | None) -> bool:
-    """Identifica transferências novas e legadas pelo rótulo materializado."""
-    return str(classificacao or "").strip().upper().startswith("TRANSFER")
+    """Identifica transferências pelo código canônico ou pelo rótulo legado."""
+    texto = str(classificacao or "").strip()
+    return bool(_CODIGO_TRANSFERENCIA_RE.match(texto)) or texto.upper().startswith("TRANSFER")
 
 
 class FCMovimento(BaseModel):
@@ -52,13 +57,22 @@ class FCMovimento(BaseModel):
     @property
     def eh_transferencia(self) -> bool:
         """Transferências são rastreáveis por banco, mas neutras no caixa consolidado."""
-        return self.tipo == TipoMovimento.TRANSFERENCIA or eh_transferencia_classificacao(
-            self.classificacao
+        return (
+            self.tipo == TipoMovimento.TRANSFERENCIA
+            or eh_transferencia_classificacao(self.conta_gerencial)
+            or eh_transferencia_classificacao(self.classificacao)
         )
 
     @property
     def transferencia_emitida(self) -> bool:
-        return self.eh_transferencia and "EMITIDA" in self.classificacao.upper()
+        if not self.eh_transferencia:
+            return False
+        classificacao = self.classificacao.upper()
+        if "EMITIDA" in classificacao:
+            return True
+        if "RECEBIDA" in classificacao:
+            return False
+        return self.tipo == TipoMovimento.DEBITO
 
 
 class FCLote(BaseModel):

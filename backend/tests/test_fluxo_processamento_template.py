@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -742,6 +743,282 @@ def test_escrita_mapeia_4_3_para_outros_materiais_dos_fornecedores(tmp_path):
     wb = load_workbook(output, data_only=False)
     assert wb["Consolidado"]["F2"].value == "OUTROS MATERIAIS DE APLICAÇÃO"
     assert wb["Apoio"]["R6"].value == 40.0
+
+
+def test_classificacao_por_codigo_pode_variar_por_natureza_e_ignora_nome_recebido(tmp_path):
+    service = FluxoCaixaProcessamentoService(
+        template_path=tmp_path / "nao_usado.xlsx",
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+    classificacoes_template = {
+        "@cod:1.1.3": "Recebimento de Clientes",
+        "@cod:2.2": "Entrada por Empréstimos Bancários",
+        "@cod:1.2.9": {
+            "credito": "Resgate de Aplicações",
+            "debito": "Aplicações",
+        },
+    }
+
+    recebimento = FCMovimento(
+        data_movimento=date(2026, 3, 9),
+        tipo=TipoMovimento.CREDITO,
+        descricao="Recebimento",
+        valor=Decimal("100"),
+        classificacao="1.1.3 - Nome completamente alterado",
+        conta_gerencial="1.1.3 - Nome completamente alterado",
+        banco_origem="cef",
+    )
+    emprestimo = recebimento.model_copy(
+        update={
+            "conta_gerencial": "2.2 - Empréstimo Sócios",
+            "classificacao": "2.2 - Empréstimo Sócios",
+        }
+    )
+    aplicacao = recebimento.model_copy(
+        update={
+            "tipo": TipoMovimento.DEBITO,
+            "conta_gerencial": "1.2.9 - Aplicação financeira",
+            "classificacao": "1.2.9 - Aplicação financeira",
+        }
+    )
+    resgate = aplicacao.model_copy(update={"tipo": TipoMovimento.CREDITO})
+    transferencia = recebimento.model_copy(
+        update={
+            "tipo": TipoMovimento.DEBITO,
+            "conta_gerencial": "2.1 - Nome completamente alterado",
+            "classificacao": "2.1 - Nome completamente alterado",
+        }
+    )
+
+    assert (
+        service._classificacao_canonica(recebimento, classificacoes_template)
+        == "Recebimento de Clientes"
+    )
+    assert (
+        service._classificacao_canonica(emprestimo, classificacoes_template)
+        == "Entrada por Empréstimos Bancários"
+    )
+    assert service._classificacao_canonica(aplicacao, classificacoes_template) == "Aplicações"
+    assert (
+        service._classificacao_canonica(resgate, classificacoes_template)
+        == "Resgate de Aplicações"
+    )
+    assert (
+        service._classificacao_canonica(transferencia, classificacoes_template)
+        == "Transferência Emitida"
+    )
+
+
+@pytest.mark.parametrize(
+    ("codigo", "destino"),
+    [
+        ("1.1.3", "Recebimento de Clientes"),
+        ("2.2", "Entrada por Empréstimos Bancários"),
+        (
+            "1.2.9",
+            {"credito": "Resgate de Aplicações", "debito": "Aplicações"},
+        ),
+        ("3.12", "SERVIÇO LAUDO TECNICO"),
+        ("14.4", "ASSISTENCIA MEDICA ADM "),
+        ("18.4", "Aplicações"),
+        ("12.3", "13° SALARIO"),
+        ("12.20", "VALE TRANSPORTE"),
+    ],
+)
+def test_mapa_real_do_fluxo_define_destinos_por_codigo(codigo, destino, tmp_path):
+    service = FluxoCaixaProcessamentoService(
+        template_path=tmp_path / "nao_usado.xlsx",
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    assert service._rotulos_template_por_codigo()[codigo] == destino
+
+
+def test_escrita_separa_12_20_vale_transporte_de_12_7_transporte_colaboradores(tmp_path):
+    output = tmp_path / "fluxo_vale_transporte.xlsx"
+    service = FluxoCaixaProcessamentoService(
+        template_path=settings.template_fluxo_path,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+    lote = FCLote(
+        periodo="06/2026",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2026, 6, 11),
+                tipo=TipoMovimento.DEBITO,
+                descricao="VALE TRANSPORTE FUNCIONARIOS",
+                valor=Decimal("3700.60"),
+                classificacao="12.20 - VALE TRANSPORTE",
+                conta_gerencial="12.20 - VALE TRANSPORTE",
+                banco_origem="itau",
+            ),
+            FCMovimento(
+                data_movimento=date(2026, 6, 12),
+                tipo=TipoMovimento.DEBITO,
+                descricao="TRANSPORTE COLABORADORES",
+                valor=Decimal("500"),
+                classificacao="12.7 - TRANSPORTE DE COLABORADORES",
+                conta_gerencial="12.7 - TRANSPORTE DE COLABORADORES",
+                banco_origem="itau",
+            ),
+        ],
+    )
+
+    service._escrever_template(
+        lote,
+        output,
+        meses_visiveis=[6],
+        preservar_historico=False,
+    )
+
+    wb = load_workbook(output, data_only=False)
+    consolidado = wb["Consolidado"]
+    classificacoes = [
+        row[5]
+        for row in consolidado.iter_rows(min_row=2, values_only=True)
+        if row[5] not in (None, "")
+    ]
+    assert "VALE TRANSPORTE" in classificacoes
+    assert "TRANSPORTE DE COLABORADORES " in classificacoes
+
+    fluxo = wb["Fluxo de Caixa "]
+    linhas_por_rotulo = {
+        str(fluxo.cell(row=row, column=3).value).strip(): row
+        for row in range(1, fluxo.max_row + 1)
+        if fluxo.cell(row=row, column=3).value
+    }
+    assert linhas_por_rotulo["TRANSPORTE DE COLABORADORES"] == 37
+    assert linhas_por_rotulo["VALE TRANSPORTE"] == 54
+    assert fluxo["I54"].value.count("INDEX(Apoio!") == 2
+    assert fluxo["I29"].value == "=SUM(I30:I54)"
+
+    apoio = wb["Apoio"]
+    linhas_apoio = {
+        str(apoio.cell(row=row, column=2).value).strip(): row
+        for row in range(6, apoio.max_row + 1)
+        if apoio.cell(row=row, column=2).value
+    }
+    assert apoio.cell(row=linhas_apoio["VALE TRANSPORTE"], column=14).value == 3700.60
+    assert (
+        apoio.cell(
+            row=linhas_apoio["TRANSPORTE DE COLABORADORES"],
+            column=14,
+        ).value
+        == 500.0
+    )
+
+
+def test_formulas_detalhadas_compensam_estornos_sem_duplicar_rotulo_bidirecional(tmp_path):
+    template = tmp_path / "template_fluxo.xlsx"
+    output = tmp_path / "saida_fluxo.xlsx"
+    _criar_template_fluxo(template)
+    _adicionar_abas_resumo_fluxo(template)
+    wb_template = load_workbook(template)
+    wb_template["Fluxo de Caixa "]["B227"] = "(=) SALDO FINAL"
+    wb_template["Fluxo de Caixa "]["D227"] = "=SUM(D20)"
+    wb_template.save(template)
+
+    wb_template = load_workbook(template)
+    fluxo = wb_template["Fluxo de Caixa "]
+    fluxo["C20"] = "Recebimento de Clientes"
+    fluxo["D20"] = (
+        "=IFERROR(INDEX(Apoio!$B:$AB,MATCH($C20,Apoio!$B$1:$B$176,0),"
+        "MATCH('Fluxo de Caixa '!D$5,Apoio!$B$4:$AB$4,0)),0)"
+    )
+    fluxo["C21"] = "Fornecedores"
+    fluxo["D21"] = (
+        "=IFERROR(INDEX(Apoio!$B:$AB,MATCH($C21,Apoio!$B$1:$B$176,0),"
+        "MATCH('Fluxo de Caixa '!D$5,Apoio!$B$4:$AB$4,0)+1),0)"
+    )
+    fluxo["C22"] = "Ajustes"
+    fluxo["D22"] = (
+        "=IFERROR(INDEX(Apoio!$B:$AB,MATCH($C22,Apoio!$B$1:$B$176,0),"
+        "MATCH('Fluxo de Caixa '!D$5,Apoio!$B$4:$AB$4,0)),0)"
+    )
+    fluxo["C23"] = "Ajustes"
+    fluxo["D23"] = (
+        "=IFERROR(INDEX(Apoio!$B:$AB,MATCH($C23,Apoio!$B$1:$B$176,0),"
+        "MATCH('Fluxo de Caixa '!D$5,Apoio!$B$4:$AB$4,0)+1),0)"
+    )
+    wb_template.save(template)
+
+    lote = FCLote(
+        periodo="08/2025",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2025, 8, 4),
+                tipo=TipoMovimento.CREDITO,
+                descricao="Recebimento",
+                valor=Decimal("100"),
+                classificacao="Recebimento de Clientes",
+                banco_origem="itau",
+            )
+        ],
+    )
+    service = FluxoCaixaProcessamentoService(
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    service._escrever_template(lote, output, meses_visiveis=[8], preservar_historico=False)
+
+    wb = load_workbook(output, data_only=False)
+    fluxo = wb["Fluxo de Caixa "]
+    assert "+1),0)" in fluxo["D20"].value
+    assert fluxo["D20"].value.count("INDEX(Apoio!") == 2
+    assert "+1),0)" in fluxo["D21"].value
+    assert fluxo["D21"].value.count("INDEX(Apoio!") == 2
+    assert fluxo["D22"].value.count("INDEX(Apoio!") == 1
+    assert fluxo["D23"].value.count("INDEX(Apoio!") == 1
+
+
+def test_escrita_bloqueia_movimento_sem_destino_financeiro_no_template(tmp_path):
+    template = tmp_path / "template_fluxo.xlsx"
+    output = tmp_path / "saida_fluxo.xlsx"
+    _criar_template_fluxo(template)
+    _adicionar_abas_resumo_fluxo(template)
+    wb_template = load_workbook(template)
+    wb_template["Fluxo de Caixa "]["B227"] = "(=) SALDO FINAL"
+    wb_template["Fluxo de Caixa "]["D227"] = "=SUM(D20)"
+    wb_template.save(template)
+
+    lote = FCLote(
+        periodo="08/2025",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2025, 8, 4),
+                tipo=TipoMovimento.DEBITO,
+                descricao="Conta nova",
+                valor=Decimal("321.45"),
+                classificacao="99.1 - CONTA NOVA",
+                conta_gerencial="99.1 - CONTA NOVA",
+                banco_origem="cef",
+            )
+        ],
+    )
+    service = FluxoCaixaProcessamentoService(
+        template_path=template,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        service._escrever_template(lote, output, meses_visiveis=[8], preservar_historico=False)
+
+    mensagem = str(exc_info.value)
+    assert "99.1" in mensagem
+    assert "CONTA NOVA" in mensagem
+    assert "debito" in mensagem
+    assert "321.45" in mensagem
 
 
 def test_escrita_exibe_conta_nova_com_nome_sem_codigo_no_relatorio(tmp_path):

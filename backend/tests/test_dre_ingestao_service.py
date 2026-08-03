@@ -127,3 +127,23 @@ def test_ingestao_preserva_valor_bruto_e_credito_liquido(tmp_path):
     assert lancamentos[0].valor_bruto == 1000
     assert lancamentos[0].credito == 870
     assert lancamentos[0].debito == 0
+
+
+def test_ingestao_dre_arquiva_fonte_original(tmp_path):
+    tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    tmp.close()
+    db = DatabaseConnection(tmp.name)
+    MigrationManager(db).migrate()
+    service = DREIngestaoService(db, archive_dir=tmp_path / "archive")
+    arquivo = tmp_path / "DRE MES 06 - 2025.xlsx"
+    _criar_relatorio_mes(arquivo, mes=6, ano=2025)
+
+    resultado = service.ingestar(
+        arquivo_path=arquivo,
+        arquivo_nome=arquivo.name,
+        competencia="06/2025",
+        replace=True,
+    )
+
+    assert resultado["success"] is True
+    assert Path(resultado["arquivo_arquivado"]).exists()

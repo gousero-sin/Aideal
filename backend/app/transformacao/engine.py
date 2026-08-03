@@ -3,13 +3,21 @@
 import logging
 import re
 import unicodedata
+from collections import defaultdict
+from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 import pandas as pd
 
 from ..contracts.common import ErrorSeverity, ValidationError
 from ..contracts.dre import DRELancamento, DRELote
-from ..contracts.fluxo_caixa import FCLote, FCMovimento, TipoMovimento
+from ..contracts.fluxo_caixa import (
+    FCLote,
+    FCMovimento,
+    TipoMovimento,
+    eh_transferencia_classificacao,
+)
 from ..ingestao.parser import ExcelParser
 from ..validacao.codigos_gerenciais import extrair_codigo_gerencial, montar_rotulo_gerencial
 
@@ -340,6 +348,8 @@ class DRETransformer:
 class FluxoCaixaTransformer:
     """Transforma dados brutos de Fluxo de Caixa em lote normalizado."""
 
+    _BANCOS_DESCONHECIDOS = {"", "desconhecido", "sem banco"}
+
     def __init__(self):
         self.parser = ExcelParser("fluxo")
         self.erros: list[ValidationError] = []
@@ -390,6 +400,169 @@ class FluxoCaixaTransformer:
         )
         return lote
 
+    def normalizar_movimento_persistido(self, movimento: FCMovimento) -> FCMovimento:
+        """Recupera metadados confiáveis de registros gravados por versões antigas.
+
+        A normalização é feita somente em memória. Valores, saldos, datas e códigos
+        gerenciais persistidos não são alterados.
+        """
+        atualizacoes: dict[str, object] = {}
+        banco = movimento.banco_origem.strip().lower()
+
+        if banco in self._BANCOS_DESCONHECIDOS and movimento.arquivo_origem:
+            arquivo_nome = re.split(r"[/\\]", movimento.arquivo_origem)[-1]
+            banco_detectado = self.parser.detectar_banco(arquivo_nome)
+            if banco_detectado and banco_detectado not in self._BANCOS_DESCONHECIDOS:
+                banco = str(banco_detectado)
+                atualizacoes["banco_origem"] = banco
+
+        if movimento.eh_transferencia:
+            direcao = self._inferir_transferencia_por_descricao(
+                movimento.descricao,
+                banco,
+            )
+            if direcao is not None:
+                atualizacoes.update(self._campos_direcao_transferencia(direcao))
+
+        return movimento.model_copy(update=atualizacoes)
+
+    def normalizar_movimentos_persistidos(
+        self,
+        movimentos: Sequence[FCMovimento],
+    ) -> list[FCMovimento]:
+        """Normaliza bancos e recupera direções legadas com evidências do lote."""
+        normalizados = [
+            self.normalizar_movimento_persistido(movimento)
+            for movimento in movimentos
+        ]
+        direcoes_confiaveis = {
+            indice
+            for indice, movimento in enumerate(normalizados)
+            if movimento.eh_transferencia
+            and (
+                "EMITIDA" in movimento.classificacao.upper()
+                or self._inferir_transferencia_por_descricao(
+                    movimento.descricao,
+                    movimento.banco_origem,
+                )
+                is not None
+            )
+        }
+
+        direcoes_por_saldo = self._direcoes_transferencia_por_saldo(normalizados)
+        com_direcoes_recuperadas = [
+            movimento.model_copy(
+                update=self._campos_direcao_transferencia(direcoes_por_saldo[indice])
+            )
+            if indice in direcoes_por_saldo
+            else movimento
+            for indice, movimento in enumerate(normalizados)
+        ]
+        return self._propagar_direcoes_por_contrapartida(
+            com_direcoes_recuperadas,
+            direcoes_confiaveis | set(direcoes_por_saldo),
+        )
+
+    @staticmethod
+    def _campos_direcao_transferencia(
+        direcao: TipoMovimento,
+    ) -> dict[str, object]:
+        return {
+            "tipo": TipoMovimento.TRANSFERENCIA,
+            "classificacao": (
+                "Transferência Emitida"
+                if direcao == TipoMovimento.DEBITO
+                else "Transferência Recebida"
+            ),
+        }
+
+    def _direcoes_transferencia_por_saldo(
+        self,
+        movimentos: Sequence[FCMovimento],
+    ) -> dict[int, TipoMovimento]:
+        por_arquivo: dict[str, list[tuple[int, FCMovimento]]] = defaultdict(list)
+        for indice, movimento in enumerate(movimentos):
+            if movimento.arquivo_origem and movimento.linha_origem is not None:
+                por_arquivo[movimento.arquivo_origem].append((indice, movimento))
+
+        direcoes: dict[int, TipoMovimento] = {}
+        tolerancia = Decimal("0.02")
+        for itens in por_arquivo.values():
+            ordenados = sorted(itens, key=lambda item: item[1].linha_origem or 0)
+            descendente = self._arquivo_em_ordem_descendente(ordenados)
+            for posicao, (indice, movimento) in enumerate(ordenados):
+                posicao_anterior = posicao + 1 if descendente else posicao - 1
+                direcao_descricao = self._inferir_transferencia_por_descricao(
+                    movimento.descricao,
+                    movimento.banco_origem,
+                )
+                if (
+                    not movimento.eh_transferencia
+                    or "EMITIDA" in movimento.classificacao.upper()
+                    or direcao_descricao is not None
+                    or not (0 <= posicao_anterior < len(ordenados))
+                ):
+                    continue
+                saldo_anterior = ordenados[posicao_anterior][1].saldo
+                if movimento.saldo is None or saldo_anterior is None:
+                    continue
+                variacao = movimento.saldo - saldo_anterior
+                valor = abs(movimento.valor)
+                if abs(variacao - valor) <= tolerancia:
+                    direcoes[indice] = TipoMovimento.CREDITO
+                elif abs(variacao + valor) <= tolerancia:
+                    direcoes[indice] = TipoMovimento.DEBITO
+        return direcoes
+
+    @staticmethod
+    def _arquivo_em_ordem_descendente(
+        itens: Sequence[tuple[int, FCMovimento]],
+    ) -> bool:
+        for (_, atual), (_, seguinte) in zip(itens, itens[1:]):
+            if atual.data_movimento != seguinte.data_movimento:
+                return atual.data_movimento > seguinte.data_movimento
+        return True
+
+    def _propagar_direcoes_por_contrapartida(
+        self,
+        movimentos: Sequence[FCMovimento],
+        direcoes_confiaveis: set[int],
+    ) -> list[FCMovimento]:
+        grupos: dict[tuple[date, Decimal], list[int]] = defaultdict(list)
+        for indice, movimento in enumerate(movimentos):
+            if movimento.eh_transferencia:
+                grupos[(movimento.data_movimento, abs(movimento.valor))].append(indice)
+
+        direcoes_propagadas: dict[int, TipoMovimento] = {}
+        for indices in grupos.values():
+            if len(indices) != 2:
+                continue
+            primeiro, segundo = indices
+            if movimentos[primeiro].banco_origem == movimentos[segundo].banco_origem:
+                continue
+            confiaveis = [indice for indice in indices if indice in direcoes_confiaveis]
+            if len(confiaveis) != 1:
+                continue
+            origem = confiaveis[0]
+            contraparte = segundo if origem == primeiro else primeiro
+            direcao = (
+                TipoMovimento.CREDITO
+                if movimentos[origem].transferencia_emitida
+                else TipoMovimento.DEBITO
+            )
+            direcoes_propagadas[contraparte] = direcao
+
+        return [
+            movimento.model_copy(
+                update=self._campos_direcao_transferencia(
+                    direcoes_propagadas[indice]
+                )
+            )
+            if indice in direcoes_propagadas
+            else movimento
+            for indice, movimento in enumerate(movimentos)
+        ]
+
     def _converter_linha(
         self, row: pd.Series, mapeamento: dict, idx: int, aba: str, banco: str, arquivo: str
     ) -> FCMovimento | None:
@@ -410,7 +583,7 @@ class FluxoCaixaTransformer:
         tipo = self._inferir_tipo(row, mapeamento, valor, descricao, banco)
         classificacao = self._conta_gerencial_canonica(row, mapeamento)
         conta_gerencial = classificacao
-        if self._eh_transferencia(row, mapeamento, descricao):
+        if self._eh_transferencia(row, mapeamento, descricao, classificacao):
             if tipo == TipoMovimento.DEBITO:
                 classificacao = "Transferência Emitida"
             elif tipo == TipoMovimento.CREDITO:
@@ -472,13 +645,11 @@ class FluxoCaixaTransformer:
                     return direcao
 
                 # Relatórios bancários operacionais usam:
-                # - "Transferência - BANCO X" => saída (débito)
-                # - "Transferência -"          => entrada (crédito)
-                if "-" in tipo_str:
-                    sufixo = tipo_str.split("-", 1)[1].strip()
-                    if sufixo:
-                        return TipoMovimento.DEBITO
-                return TipoMovimento.CREDITO
+                # - "Transferência" / "Transferência - BANCO X" => saída
+                # - "Crédito" na conta 2.1                         => entrada
+                if any(token in tipo_str for token in ("RECEBIDA", "ENTRADA", "CREDITO")):
+                    return TipoMovimento.CREDITO
+                return TipoMovimento.DEBITO
 
             normalizar = self.parser.mapping["consolidacao"]["normalizar_tipo_movimento"]
             for tipo_enum, aliases in normalizar.items():
@@ -512,10 +683,19 @@ class FluxoCaixaTransformer:
         return TipoMovimento.CREDITO
 
     @staticmethod
-    def _eh_transferencia(row: pd.Series, mapeamento: dict, descricao: str) -> bool:
+    def _eh_transferencia(
+        row: pd.Series,
+        mapeamento: dict,
+        descricao: str,
+        classificacao: str = "",
+    ) -> bool:
         col_tipo = mapeamento.get("tipo")
         tipo = _safe_str(row.get(col_tipo)) if col_tipo else ""
-        return "TRANSFER" in _normalizar_ascii(tipo) or "TRANSFER" in _normalizar_ascii(descricao)
+        return (
+            eh_transferencia_classificacao(classificacao)
+            or "TRANSFER" in _normalizar_ascii(tipo)
+            or "TRANSFER" in _normalizar_ascii(descricao)
+        )
 
     @staticmethod
     def _inferir_transferencia_por_descricao(

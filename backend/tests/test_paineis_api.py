@@ -1,6 +1,7 @@
 """Testes das APIs analíticas dos painéis DRE e Fluxo de Caixa."""
 
 import tempfile
+from decimal import ROUND_HALF_UP, Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -609,7 +610,7 @@ def test_painel_dre_reproduz_receita_liquida_recomposta_do_dre_gerado():
     assert body["series_mensais"][0]["receita_liquida"] == pytest.approx(850.0)
 
 
-def test_painel_dre_irpj_csll_usa_linha_do_dre_gerado_sem_abater_deducoes():
+def test_painel_dre_exclui_icms_17_9_das_deducoes_sem_descartar_movimento():
     db = _novo_db()
     with db.transaction() as conn:
         conn.execute(
@@ -704,8 +705,11 @@ def test_painel_dre_irpj_csll_usa_linha_do_dre_gerado_sem_abater_deducoes():
 
     assert resp.status_code == 200
     body = resp.json()
+    assert body["kpis"]["total_debito"] == pytest.approx(180.0)
+    assert body["kpis"]["receita_bruta"] == pytest.approx(1080.0)
+    assert body["kpis"]["receita_liquida"] == pytest.approx(1080.0)
     assert body["kpis"]["total_impostos"] == pytest.approx(100.0)
-    assert body["kpis"]["deducoes_vendas"] == pytest.approx(80.0)
+    assert body["kpis"]["deducoes_vendas"] == pytest.approx(0.0)
     assert body["kpis"]["irpj_csll"] == pytest.approx(100.0)
 
 
@@ -2764,6 +2768,251 @@ def test_painel_fluxo_sem_mes_usa_saldo_final_do_ultimo_mes_e_series_mensais():
         1: pytest.approx(1200.0),
         2: pytest.approx(1150.0),
     }
+
+
+def test_painel_fluxo_2026_reproduz_variacoes_e_saldos_da_conferencia_por_codigo():
+    db = _novo_db()
+    variacoes_fonte = {
+        1: Decimal("24166.0400610373"),
+        2: Decimal("204350.94994379868"),
+        3: Decimal("1282219.470378912"),
+        4: Decimal("-596615.5000821465"),
+        5: Decimal("-1408064.6762581358"),
+        6: Decimal("466604.9642772073"),
+    }
+    movimentos: list[tuple] = []
+    linhas_por_mes = {mes: 0 for mes in variacoes_fonte}
+
+    def adicionar_movimento(
+        mes: int,
+        tipo: str,
+        valor: Decimal,
+        conta: str,
+        descricao: str,
+    ) -> None:
+        linhas_por_mes[mes] += 1
+        linha = linhas_por_mes[mes]
+        upload_id = f"fc-conferencia-2026-{mes:02d}"
+        movimentos.append(
+            (
+                upload_id,
+                2026,
+                mes,
+                f"2026-{mes:02d}-{linha:02d}",
+                tipo,
+                descricao,
+                float(valor),
+                None,
+                conta,
+                conta,
+                "itau",
+                f"movimentos_2026-{mes:02d}_itau_.xlsx",
+                linha,
+                "Sheet",
+                f"conferencia-2026-{mes:02d}-{linha:02d}",
+                "2026-07-17T09:52:25",
+            )
+        )
+
+    adicionar_movimento(
+        1,
+        "credito",
+        variacoes_fonte[1] + Decimal("50"),
+        "1.1.1 - Recebimento de Clientes",
+        "Recebimentos de janeiro",
+    )
+    adicionar_movimento(
+        1,
+        "debito",
+        Decimal("100"),
+        "12.1 - SALARIO",
+        "Folha de janeiro",
+    )
+    adicionar_movimento(
+        1,
+        "credito",
+        Decimal("50"),
+        "12.1 - SALARIO",
+        "Estorno parcial da folha",
+    )
+    adicionar_movimento(
+        1,
+        "credito",
+        Decimal("556000"),
+        "2.1 - Transferência entre Bancos",
+        "Transferência legada recebida",
+    )
+    for conta_transferencia in (
+        "2.1 Transferência entre Bancos",
+        "2.1–Transferência entre Bancos",
+        "2.1 — Transferência entre Bancos",
+    ):
+        adicionar_movimento(
+            1,
+            "credito",
+            Decimal("100"),
+            conta_transferencia,
+            "Transferência com separador alternativo",
+        )
+    adicionar_movimento(
+        2,
+        "credito",
+        variacoes_fonte[2],
+        "1.1.1 - Recebimento de Clientes",
+        "Recebimentos de fevereiro",
+    )
+    adicionar_movimento(
+        3,
+        "credito",
+        variacoes_fonte[3],
+        "1.1.1 - Recebimento de Clientes",
+        "Recebimentos de março",
+    )
+    adicionar_movimento(
+        4,
+        "debito",
+        abs(variacoes_fonte[4]),
+        "12.1 - SALARIO",
+        "Pagamentos de abril",
+    )
+    adicionar_movimento(
+        5,
+        "debito",
+        abs(variacoes_fonte[5]),
+        "12.1 - SALARIO",
+        "Pagamentos de maio",
+    )
+    adicionar_movimento(
+        6,
+        "credito",
+        variacoes_fonte[6] + Decimal("3700.60"),
+        "1.1.1 - Recebimento de Clientes",
+        "Recebimentos de junho",
+    )
+    adicionar_movimento(
+        6,
+        "debito",
+        Decimal("3700.60"),
+        "12.20 - VALE TRANSPORTE",
+        "Vale-transporte de junho",
+    )
+
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO fluxo_indicadores_manuais
+            (competencia_ano, saldo_ano_anterior, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (2026, 396934.79, "2026-07-17T09:52:25", "2026-07-17T09:52:25"),
+        )
+        conn.executemany(
+            """
+            INSERT INTO fluxo_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             banco, status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    f"fc-conferencia-2026-{mes:02d}",
+                    "2026-07-17T09:52:25",
+                    f"movimentos_2026-{mes:02d}_itau_.xlsx",
+                    f"hash-conferencia-2026-{mes:02d}",
+                    2026,
+                    mes,
+                    "itau",
+                    "completed",
+                    linhas_por_mes[mes],
+                    linhas_por_mes[mes],
+                    0,
+                    None,
+                )
+                for mes in variacoes_fonte
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO fluxo_movimentos
+            (upload_id, competencia_ano, competencia_mes, data_movimento, tipo, descricao,
+             valor, saldo, classificacao, conta_gerencial, banco_origem, arquivo_origem,
+             linha_origem, aba_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            movimentos,
+        )
+
+    response = _client_com_db(db).get("/api/fluxo_caixa/painel?ano=2026")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    def centavos(valor: float) -> Decimal:
+        return Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    observado = {
+        "variacoes": {
+            item["mes"]: centavos(item["saldo"]) for item in body["series_mensais"]
+        },
+        "saldos_finais": {
+            item["mes"]: centavos(item["saldo_final"])
+            for item in body["series_mensais"]
+        },
+        "saldo_ano_anterior": centavos(body["kpis"]["saldo_ano_anterior"]),
+        "saldo_liquido": centavos(body["kpis"]["saldo_liquido"]),
+        "saldo_final_periodo": centavos(body["kpis"]["saldo_final_periodo"]),
+        "saldo_com_ano_anterior": centavos(body["kpis"]["saldo_com_ano_anterior"]),
+    }
+    esperado = {
+        "variacoes": {
+            1: Decimal("24166.04"),
+            2: Decimal("204350.95"),
+            3: Decimal("1282219.47"),
+            4: Decimal("-596615.50"),
+            5: Decimal("-1408064.68"),
+            6: Decimal("466604.96"),
+        },
+        "saldos_finais": {
+            1: Decimal("421100.83"),
+            2: Decimal("625451.78"),
+            3: Decimal("1907671.25"),
+            4: Decimal("1311055.75"),
+            5: Decimal("-97008.93"),
+            6: Decimal("369596.04"),
+        },
+        "saldo_ano_anterior": Decimal("396934.79"),
+        "saldo_liquido": Decimal("-27338.75"),
+        "saldo_final_periodo": Decimal("369596.04"),
+        "saldo_com_ano_anterior": Decimal("369596.04"),
+    }
+    assert observado == esperado
+
+
+@pytest.mark.parametrize(
+    ("conta", "esperado"),
+    [
+        ("2.1", True),
+        ("2.1 - Transferência", True),
+        ("2.1 Transferência", True),
+        ("2.1\tTransferência", True),
+        ("2.1–Transferência", True),
+        ("2.1—Transferência", True),
+        ("2.10 - Conta operacional", False),
+        ("2.100 - Outra conta", False),
+    ],
+)
+def test_codigo_transferencia_sql_respeita_fronteira_da_conta(conta, esperado):
+    db = _novo_db()
+    with db.get_connection() as conn:
+        row = conn.execute(
+            f"""
+            SELECT {PainelFluxoCaixaService.CODIGO_TRANSFERENCIA_EXPR} AS transferencia
+            FROM (SELECT ? AS conta_gerencial, NULL AS classificacao)
+            """,
+            (conta,),
+        ).fetchone()
+
+    assert bool(row["transferencia"]) is esperado
 
 
 def test_painel_fluxo_fevereiro_filtrado_usa_saldo_final_de_janeiro():

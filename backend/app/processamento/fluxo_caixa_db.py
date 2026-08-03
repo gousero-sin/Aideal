@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
+from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
 from ..config import settings
 from ..contracts.common import FlowType
-from ..contracts.fluxo_caixa import FCLote
+from ..contracts.fluxo_caixa import FCLote, FCMovimento
+from ..contracts.persistence import FluxoMovimentoDB
 from ..db.connection import DatabaseConnection
 from ..exportacao.exporter import Exporter
 from ..repository.fluxo_indicadores_manuais import FluxoIndicadoresManuaisRepository
 from ..repository.fluxo_repository import FluxoCaixaRepository
+from ..validacao.transferencias import conciliar_transferencias
 from .fluxo_caixa import FluxoCaixaProcessamentoService
 
 
@@ -64,6 +67,57 @@ class FluxoCaixaGeracaoService:
             return normalizados
         return normalizados
 
+    @staticmethod
+    def _valor_monetario(valor: Decimal | float | int | None) -> float:
+        """Publica valores financeiros em centavos sem alterar os lançamentos-fonte."""
+        decimal = Decimal(str(valor or 0))
+        return float(decimal.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+    def _normalizar_movimentos_persistidos(
+        self,
+        movimentos_db: list[FluxoMovimentoDB],
+    ) -> list[FCMovimento]:
+        return self.processamento.transformer.normalizar_movimentos_persistidos(
+            [movimento.to_movimento() for movimento in movimentos_db]
+        )
+
+    def _obter_saldos_iniciais_por_banco(
+        self,
+        ano: int,
+        mes: int,
+    ) -> dict[str, Decimal]:
+        """Obtém o fechamento anterior após normalizar bancos legados."""
+        ano_anterior = ano - 1 if mes == 1 else ano
+        mes_anterior = 12 if mes == 1 else mes - 1
+        movimentos_db = self.repository.movimentos.get_by_meses(
+            ano_anterior,
+            [mes_anterior],
+        )
+        ultimos_por_banco: dict[
+            str,
+            tuple[tuple[date, int, int], Decimal],
+        ] = {}
+
+        for movimento_db, movimento in zip(
+            movimentos_db,
+            self._normalizar_movimentos_persistidos(movimentos_db),
+        ):
+            if movimento.saldo is None:
+                continue
+            banco = movimento.banco_origem.strip().lower()
+            if not banco:
+                continue
+            ordem = (
+                movimento.data_movimento,
+                movimento_db.linha_origem or 0,
+                movimento_db.id or 0,
+            )
+            anterior = ultimos_por_banco.get(banco)
+            if anterior is None or ordem > anterior[0]:
+                ultimos_por_banco[banco] = (ordem, movimento.saldo)
+
+        return {banco: saldo for banco, (_, saldo) in ultimos_por_banco.items()}
+
     def _resolver_meses(
         self,
         competencia: str,
@@ -77,7 +131,7 @@ class FluxoCaixaGeracaoService:
 
         meses_solicitados = self._normalizar_meses(meses_incluir)
         if ano_todo:
-            meses_utilizados = list(disponiveis)
+            meses_utilizados = [m for m in range(1, mes + 1) if m in disponiveis]
             estrategia = "ano_todo"
         elif meses_solicitados:
             meses_utilizados = [m for m in meses_solicitados if m in disponiveis]
@@ -108,7 +162,7 @@ class FluxoCaixaGeracaoService:
             ano_todo=ano_todo,
         )
         solicitados = self._normalizar_meses(meses_incluir) or (
-            [mes] if not ano_todo else disponiveis
+            [mes] if not ano_todo else list(range(1, mes + 1))
         )
         faltantes = [m for m in solicitados if m not in disponiveis]
 
@@ -149,8 +203,8 @@ class FluxoCaixaGeracaoService:
         ano = int(verificacao["ano"])
         meses_utilizados = list(verificacao["meses_utilizados"])
         movimentos_db = self.repository.movimentos.get_by_meses(ano, meses_utilizados)
-        movimentos = [mov.to_movimento() for mov in movimentos_db]
-        saldos_iniciais_por_banco = self.repository.movimentos.get_saldos_finais_anteriores(
+        movimentos = self._normalizar_movimentos_persistidos(movimentos_db)
+        saldos_iniciais_por_banco = self._obter_saldos_iniciais_por_banco(
             ano,
             min(meses_utilizados),
         )
@@ -187,6 +241,44 @@ class FluxoCaixaGeracaoService:
         total_creditos = lote.total_creditos
         total_debitos = lote.total_debitos
         meses_ocultos = [m for m in range(1, 13) if m not in meses_utilizados]
+        bancos_identificados = sorted({mov.banco_origem for mov in movimentos})
+        bancos_sem_conciliacao = [
+            banco
+            for banco in bancos_identificados
+            if banco.strip().lower() in {"desconhecido", "sem banco", ""}
+        ]
+        avisos_conciliacao = (
+            [
+                "Existem movimentos com banco de origem desconhecido. "
+                "O saldo financeiro geral foi calculado, mas a conciliação por banco "
+                "precisa ser revisada."
+            ]
+            if bancos_sem_conciliacao
+            else []
+        )
+        conciliacao_transferencias = conciliar_transferencias(movimentos)
+        warnings = []
+        if bancos_sem_conciliacao:
+            warnings.append(
+                {
+                    "campo": "banco",
+                    "mensagem": avisos_conciliacao[0],
+                    "severidade": "warning",
+                    "sugestao": "Reingeste os arquivos com nomes bancários reconhecíveis.",
+                }
+            )
+        if conciliacao_transferencias["nao_pareadas"]:
+            warnings.append(
+                {
+                    "campo": "transferencias",
+                    "mensagem": (
+                        f"{conciliacao_transferencias['nao_pareadas']} transferência(s) "
+                        "estão sem contrapartida conciliada, mas continuam neutras no saldo geral."
+                    ),
+                    "severidade": "warning",
+                    "sugestao": "Confira os extratos dos bancos envolvidos e a conta 2.1.",
+                }
+            )
 
         return {
             "arquivo_saida": output_path.name,
@@ -194,16 +286,18 @@ class FluxoCaixaGeracaoService:
             "download_url": f"/api/fluxo_caixa/download/{output_path.name}",
             "total_movimentos": len(movimentos),
             "total_lancamentos": len(movimentos),
-            "total_creditos": float(total_creditos),
-            "total_debitos": float(total_debitos),
-            "saldo_liquido": float(total_creditos - total_debitos),
-            "saldo_ano_anterior": float(saldo_ano_anterior or 0),
-            "saldo_com_ano_anterior": float(
+            "total_creditos": self._valor_monetario(total_creditos),
+            "total_debitos": self._valor_monetario(total_debitos),
+            "saldo_liquido": self._valor_monetario(total_creditos - total_debitos),
+            "saldo_ano_anterior": self._valor_monetario(saldo_ano_anterior),
+            "saldo_com_ano_anterior": self._valor_monetario(
                 (saldo_ano_anterior or 0) + total_creditos - total_debitos
             ),
-            "total_creditos_apresentacao": totais_saida["creditos"],
-            "total_debitos_apresentacao": totais_saida["debitos"],
-            "saldo_liquido_apresentacao": totais_saida["saldo_liquido"],
+            "total_creditos_apresentacao": self._valor_monetario(totais_saida["creditos"]),
+            "total_debitos_apresentacao": self._valor_monetario(totais_saida["debitos"]),
+            "saldo_liquido_apresentacao": self._valor_monetario(
+                totais_saida["saldo_liquido"]
+            ),
             "fonte_dados": "db",
             "estrategia_meses": verificacao["estrategia_meses"],
             "ano_todo": bool(ano_todo),
@@ -212,5 +306,9 @@ class FluxoCaixaGeracaoService:
             "meses_utilizados": meses_utilizados,
             "meses_solicitados": verificacao["meses_solicitados"],
             "meses_ocultos": meses_ocultos,
-            "bancos_identificados": sorted({mov.banco_origem for mov in movimentos}),
+            "bancos_identificados": bancos_identificados,
+            "bancos_sem_conciliacao": bancos_sem_conciliacao,
+            "avisos_conciliacao": avisos_conciliacao,
+            "conciliacao_transferencias": conciliacao_transferencias,
+            "warnings": warnings,
         }

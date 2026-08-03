@@ -3,7 +3,7 @@
 import shutil
 import tempfile
 import zipfile
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from uuid import uuid4
 
@@ -185,6 +185,17 @@ def _celula_dre_por_rotulo(ws, rotulo: str, coluna: str) -> object:
     raise AssertionError(f"Rótulo DRE ausente: {rotulo}")
 
 
+def _celula_apoio_por_rotulo(ws, rotulo: str, coluna: str) -> object:
+    for linha in range(1, ws.max_row + 1):
+        if ws.cell(linha, 2).value == rotulo:
+            return ws[f"{coluna}{linha}"].value
+    raise AssertionError(f"Rótulo APOIO ausente: {rotulo}")
+
+
+def _arredondar_inteiro(valor: float) -> int:
+    return int(Decimal(str(valor)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
 def test_verificar_dados_modo_padrao_aceita_gaps_sem_exigir_mes_alvo():
     service = _build_service_com_dados()
 
@@ -208,13 +219,15 @@ def test_verificar_dados_meses_incluir_dispensa_mes_alvo():
     assert resultado["meses_utilizados"] == [1, 2]
 
 
-def test_verificar_dados_ano_todo_usa_todos_mes_disponiveis():
+def test_verificar_dados_ano_todo_bloqueia_lacunas_ate_competencia():
     service = _build_service_com_dados()
 
     resultado = service.verificar_dados("05/2025", ano_todo=True)
-    assert resultado["valido"] is True
-    assert resultado["estrategia_meses"] == "ano_todo"
-    assert resultado["meses_utilizados"] == [1, 2, 6]
+    assert resultado["valido"] is False
+    assert "Meses sem upload completed" in resultado["error"]
+    assert "3" in resultado["error"]
+    assert "4" in resultado["error"]
+    assert "5" in resultado["error"]
 
 
 def test_verificar_dados_rejeita_meses_indisponiveis():
@@ -371,13 +384,14 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     assert ws_apoio_valores["C6"].value == 1320
     assert ws_apoio_valores["C7"].value == 1320
     assert ws_apoio_valores["C8"].value == 1000
+    assert _celula_apoio_por_rotulo(ws_apoio_valores, "ICMS", "C") == -20
     assert ws_dre_valores["B6"].value == 1320
     assert ws_dre_valores["B7"].value == 1000
-    assert ws_dre_valores["B8"].value == -20
+    assert ws_dre_valores["B8"].value == 0
     assert ws_dre_valores["B12"].value == 0
-    assert ws_dre_valores["B19"].value == 1300
-    assert ws_dre_valores["B34"].value == 1300
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "B") == 1300
+    assert ws_dre_valores["B19"].value == 1320
+    assert ws_dre_valores["B34"].value == 1320
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "B") == 1320
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "B") == -300
     assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "B") == -100
     assert _celula_dre_por_rotulo(ws_dre_valores, "IRPJ", "B") == -200
@@ -386,11 +400,11 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "B") == 980
     assert ws_dre_valores["AH6"].value == 1320
     assert ws_dre_valores["AH7"].value == 1000
-    assert ws_dre_valores["AH8"].value == -20
+    assert ws_dre_valores["AH8"].value == 0
     assert ws_dre_valores["AH12"].value == 0
-    assert ws_dre_valores["AH19"].value == 1300
-    assert ws_dre_valores["AH34"].value == 1300
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "AH") == 1300
+    assert ws_dre_valores["AH19"].value == 1320
+    assert ws_dre_valores["AH34"].value == 1320
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "AH") == 1320
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "AH") == -300
     assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "AH") == -100
     assert _celula_dre_por_rotulo(ws_dre_valores, "IRPJ", "AH") == -200
@@ -401,9 +415,9 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     wb_formulas = load_workbook(output_path, data_only=False)
     ws_dre_formulas = wb_formulas["DRE"]
     assert not isinstance(ws_dre_formulas["B19"].value, str)
-    assert ws_dre_formulas["B19"].value == 1300
-    assert ws_dre_formulas["B34"].value == 1300
-    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO OPERACIONAL", "B") == 1300
+    assert ws_dre_formulas["B19"].value == 1320
+    assert ws_dre_formulas["B34"].value == 1320
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO OPERACIONAL", "B") == 1320
     assert _celula_dre_por_rotulo(ws_dre_formulas, "(-)IRPJ/CSLL", "B") == -300
     assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO LÍQUIDO", "B") == 1030
     assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO GERENCIAL", "B") == 980
@@ -542,6 +556,348 @@ def test_agregar_apoio_mapeia_previsoes_atuais_de_ferias_e_13_por_codigo():
     assert por_label["Despesas com Pessoal"][6] == -100.0
     assert por_label["(-)Gastos Fixos"][6] == -100.0
     assert "SALARIO" not in por_label
+
+
+def test_resolver_conta_pai_prioriza_codigo_12_9_e_12_11_sobre_texto_legado():
+    plano = {
+        "PASSAGENS COLABORADORES": {
+            "rubrica": "PASSAGENS COLABORADORES",
+            "conta_filho": "Despesas com pessoal",
+            "conta_pai": "(-)Gastos Fixos",
+            "cod": 4,
+        },
+        "ASSISTENCIA MEDICA ADM": {
+            "rubrica": "ASSISTENCIA MEDICA ADM",
+            "conta_filho": "Despesas com pessoal",
+            "conta_pai": "(-)Gastos Fixos",
+            "cod": 4,
+        },
+        "@cod:12.9": {
+            "rubrica": "PASSAGENS COLABORADORES",
+            "conta_filho": "Despesas com Pessoal",
+            "conta_pai": "(-)Gastos Fixos",
+            "cod": 4,
+        },
+        "@cod:12.11": {
+            "rubrica": "ASSISTENCIA MEDICA ADM",
+            "conta_filho": "Despesas com Pessoal",
+            "conta_pai": "(-)Gastos Fixos",
+            "cod": 4,
+        },
+    }
+
+    observado = [
+        DREGeracaoCompletaService._resolver_conta_pai(
+            "12.9 - descrição alterada",
+            "PASSAGENS COLABORADORES",
+            plano,
+            -90,
+        ),
+        DREGeracaoCompletaService._resolver_conta_pai(
+            "12.11 - descrição alterada",
+            "ASSISTENCIA MEDICA ADM",
+            plano,
+            -11,
+        ),
+    ]
+
+    assert observado == [
+        ("PASSAGENS COLABORADORES", "Despesas com Pessoal", "(-)Gastos Fixos", 4),
+        ("ASSISTENCIA MEDICA ADM", "Despesas com Pessoal", "(-)Gastos Fixos", 4),
+    ]
+
+
+def test_agregar_apoio_12_9_e_12_11_participam_somente_de_despesas_com_pessoal():
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    lancamentos = [
+        DRELancamentoDB(
+            upload_id="u-pessoal",
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="Passagens de colaboradores",
+            credito=Decimal("0"),
+            debito=Decimal("90.00"),
+            natureza_raw="12.9 - descrição alterada",
+            rubrica="PASSAGENS COLABORADORES",
+            centro_custo="OBRA A",
+            hash_linha="h-pessoal-12-9",
+        ),
+        DRELancamentoDB(
+            upload_id="u-pessoal",
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="Assistência médica administrativa",
+            credito=Decimal("0"),
+            debito=Decimal("11.00"),
+            natureza_raw="12.11 - descrição alterada",
+            rubrica="ASSISTENCIA MEDICA ADM",
+            centro_custo="OBRA A",
+            hash_linha="h-pessoal-12-11",
+        ),
+    ]
+
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    por_label = {row[1]: row for row in linhas}
+
+    def janeiro(label: str) -> float | None:
+        row = por_label.get(label)
+        return row[2] if row else None
+
+    assert {
+        "despesas_com_pessoal": janeiro("Despesas com Pessoal"),
+        "rotulo_legado": janeiro("Despesas com pessoal"),
+        "gastos_fixos": janeiro("(-)Gastos Fixos"),
+    } == {
+        "despesas_com_pessoal": -101.0,
+        "rotulo_legado": None,
+        "gastos_fixos": None,
+    }
+
+
+def test_materializar_gastos_fixos_soma_subtotais_filhos_arredondados(tmp_path):
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    lancamentos = [
+        DRELancamentoDB(
+            upload_id="u-fixos",
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="Salário",
+            credito=Decimal("0"),
+            debito=Decimal("10.60"),
+            natureza_raw="12.1 - SALARIO",
+            rubrica="SALARIO",
+            centro_custo="OBRA A",
+            hash_linha="h-fixos-pessoal",
+        ),
+        DRELancamentoDB(
+            upload_id="u-fixos",
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="Mão de obra terceirizada",
+            credito=Decimal("0"),
+            debito=Decimal("20.60"),
+            natureza_raw="3.20 - descrição alterada",
+            rubrica="3.20 - descrição alterada",
+            centro_custo="OBRA A",
+            hash_linha="h-fixos-terceiros",
+        ),
+    ]
+
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    por_label = {row[1]: row for row in linhas}
+    assert round(por_label["(-)Gastos Fixos"][2], 2) == -31.20
+    assert por_label["Despesas com Pessoal"][2] == -10.60
+    assert por_label["Serviços de Terceiros"][2] == -20.60
+
+    template_path = _copiar_template(tmp_path)
+    with TemplateWriter(template_path) as writer:
+        service._escrever_apoio(writer, lancamentos, plano)
+        service._materializar_dre(writer)
+        ws_dre = writer._wb["DRE"]
+
+        assert ws_dre["B36"].value == -10.60
+        assert ws_dre["B64"].value == -20.60
+        assert ws_dre["B35"].value == _arredondar_inteiro(
+            ws_dre["B36"].value
+        ) + _arredondar_inteiro(ws_dre["B64"].value)
+        assert ws_dre["B35"].value == -32
+
+
+def test_agregar_apoio_deducoes_usa_whitelist_17_8_e_preserva_folha_17_9():
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    lancamentos = [
+        DRELancamentoDB(
+            upload_id="u-deducoes",
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="Recebimento de cliente",
+            valor_bruto=Decimal("1100.00"),
+            credito=Decimal("1000.00"),
+            debito=Decimal("0"),
+            natureza_raw="1.1.1 - Recebimento de Clientes",
+            centro_custo="OBRA A",
+            hash_linha="h-deducoes-receita",
+        ),
+        DRELancamentoDB(
+            upload_id="u-deducoes",
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="ISS",
+            credito=Decimal("0"),
+            debito=Decimal("100.00"),
+            natureza_raw="17.8 - ISS",
+            rubrica="ISS",
+            centro_custo="OBRA A",
+            hash_linha="h-deducoes-iss",
+        ),
+        DRELancamentoDB(
+            upload_id="u-deducoes",
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="ICMS",
+            credito=Decimal("0"),
+            debito=Decimal("20.00"),
+            natureza_raw="17.9 - ICMS",
+            rubrica="ICMS",
+            centro_custo="OBRA A",
+            hash_linha="h-deducoes-icms",
+        ),
+    ]
+
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    por_label = {row[1]: row for row in linhas}
+
+    assert {
+        "receita_bruta": por_label["(=)Receita Bruta"][2],
+        "deducoes": por_label["(-)Deduções sobre vendas"][2],
+        "impostos_sobre_vendas": por_label["Impostos sobre Vendas"][2],
+        "icms_folha": por_label["ICMS"][2],
+    } == {
+        "receita_bruta": 1120.0,
+        "deducoes": -100.0,
+        "impostos_sobre_vendas": -100.0,
+        "icms_folha": -20.0,
+    }
+
+
+def test_materializar_financeiro_soma_subtotais_filhos_arredondados(tmp_path):
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    def lancamento(codigo: str, valor: str, rubrica: str, *, credito: bool = False):
+        return DRELancamentoDB(
+            upload_id="u-financeiro",
+            competencia_ano=2026,
+            competencia_mes=4,
+            data_lancamento="2026-04-10",
+            historico=f"Lançamento financeiro {codigo}",
+            credito=Decimal(valor) if credito else Decimal("0"),
+            debito=Decimal("0") if credito else Decimal(valor),
+            natureza_raw=f"{codigo} - descrição alterada",
+            rubrica=rubrica,
+            centro_custo="OBRA A",
+            hash_linha=f"h-financeiro-{codigo}",
+        )
+
+    lancamentos = [
+        lancamento("11.7", "8132.43", "Financiamento"),
+        lancamento("11.9", "36173.72", "Empréstimos Bancários"),
+        lancamento("18.1", "636.46", "Juros Bancários"),
+        lancamento("1.2.3", "1.19", "Juros Recebidos", credito=True),
+    ]
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    por_label = {row[1]: row for row in linhas}
+
+    assert {
+        "despesas_financeiras": round(por_label["(-) Despesas Financeiras"][5], 2),
+        "receitas_financeiras": por_label["(+) Receitas Financeiras"][5],
+        "parent_financeiro_exato": round(
+            por_label["(+/-)Despesas e Receitas Financeiras"][5], 2
+        ),
+        "juros_recebidos_folha": por_label["Juros Recebidos"][5],
+    } == {
+        "despesas_financeiras": -44942.61,
+        "receitas_financeiras": 1.19,
+        "parent_financeiro_exato": -44941.42,
+        "juros_recebidos_folha": 1.19,
+    }
+
+    template_path = _copiar_template(tmp_path)
+    with TemplateWriter(template_path) as writer:
+        service._escrever_apoio(writer, lancamentos, plano)
+        service._materializar_dre(writer)
+        ws_dre = writer._wb["DRE"]
+
+        assert ws_dre["J155"].value == 1.19
+        assert round(ws_dre["J159"].value, 2) == -44942.61
+        assert ws_dre["J154"].value == _arredondar_inteiro(
+            ws_dre["J155"].value
+        ) + _arredondar_inteiro(ws_dre["J159"].value)
+        assert ws_dre["J154"].value == -44942
+
+
+def test_materializar_receita_liquida_parte_da_receita_bruta_exibida_em_reais(tmp_path):
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    lancamentos = [
+        DRELancamentoDB(
+            upload_id="u-receita-arredondada",
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="Receita com centavos no bruto",
+            valor_bruto=Decimal("1000.04"),
+            credito=Decimal("900.00"),
+            debito=Decimal("0"),
+            natureza_raw="1.1.1 - Recebimento de Clientes",
+            centro_custo="OBRA A",
+            hash_linha="h-receita-arredondada",
+        ),
+        DRELancamentoDB(
+            upload_id="u-receita-arredondada",
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="ISS retido",
+            credito=Decimal("0"),
+            debito=Decimal("100.00"),
+            natureza_raw="17.8 - ISS",
+            rubrica="ISS",
+            centro_custo="OBRA A",
+            hash_linha="h-receita-arredondada-iss",
+        ),
+    ]
+
+    template_path = _copiar_template(tmp_path)
+    with TemplateWriter(template_path) as writer:
+        service._escrever_apoio(writer, lancamentos, plano)
+        service._materializar_dre(writer)
+        ws_dre = writer._wb["DRE"]
+
+        assert ws_dre["B6"].value == 1000
+        assert ws_dre["B8"].value == -100
+        assert ws_dre["B19"].value == 900
+
+
+def test_subtotais_trimestrais_somam_os_meses_ja_arredondados():
+    apoio = {
+        "Despesas com Pessoal": {1: -10.4, 2: -10.4, 3: -10.4},
+        "(-)Gastos Fixos": {1: -10.4, 2: -10.4, 3: -10.4},
+        "(+) Receitas Financeiras": {1: 10.4, 2: 10.4, 3: 10.4},
+        "(-) Despesas Financeiras": {1: 0.0, 2: 0.0, 3: 0.0},
+    }
+
+    assert DREGeracaoCompletaService._subtotal_filhos_arredondados(
+        "(-)Gastos Fixos",
+        8,
+        apoio,
+        {},
+    ) == -30
+    assert DREGeracaoCompletaService._subtotal_filhos_arredondados(
+        "(+/-)Despesas e Receitas Financeiras",
+        8,
+        apoio,
+        {},
+    ) == 30
 
 
 def test_saldos_painel_por_mes_trata_codigos_de_imposto_como_deducao():

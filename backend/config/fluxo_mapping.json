@@ -119,7 +119,13 @@
     "rotulos_template_por_codigo": {
       "1.1.1": "Recebimento de Clientes",
       "1.1.2": "Outras Entradas Operacionais",
-      "2.2": "Empréstimo Sócios x Empresa",
+      "1.1.3": "Recebimento de Clientes",
+      "1.2.9": {
+        "credito": "Resgate de Aplicações",
+        "debito": "Aplicações"
+      },
+      "2.2": "Entrada por Empréstimos Bancários",
+      "3.12": "SERVIÇO LAUDO TECNICO",
       "3.19": "SERVIÇO BRINDES E ACESSORIOS",
       "3.20": "SERVIÇOS DE CONSULTORIA ",
       "3.21": "SERVIÇO GOOGLE ADS",
@@ -140,16 +146,20 @@
       "12.7": "TRANSPORTE DE COLABORADORES ",
       "12.9": "PASSAGENS COLABORADORES",
       "12.19": "ALUGUEL ALOJAMENTO ",
+      "12.20": "VALE TRANSPORTE",
+      "12.3": "13° SALARIO",
       "12.100": "PREVISÃO FÉRIAS",
       "12.101": "PREVISÃO 13°",
       "14.1": "EXAMES MÉDICOS",
+      "14.4": "ASSISTENCIA MEDICA ADM ",
       "15.4": "Construção da Nova Sede",
       "15.7": "Construção da Nova Sede",
       "15.8": "Construção da Nova Sede",
       "16.2": "Distribuição de Lucros",
       "16.4": "Outros Pagamentos Não Operacionais",
       "17.1": "Parcelamento de Impostos Exercicio Anterior ",
-      "17.9": "ISS "
+      "17.9": "ISS ",
+      "18.4": "Aplicações"
     }
   },
 

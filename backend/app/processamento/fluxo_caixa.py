@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import defaultdict
+from copy import copy
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -269,6 +271,7 @@ class FluxoCaixaProcessamentoService:
         saldos_iniciais_por_banco: dict[str, Decimal] | None = None,
     ) -> dict[str, float]:
         with TemplateWriter(self.template_path) as writer:
+            self._garantir_vale_transporte_no_fluxo(writer)
             ws = writer._wb["Consolidado"]
             limite_fim = ws.max_row
 
@@ -327,6 +330,12 @@ class FluxoCaixaProcessamentoService:
                 writer._modified_sheets.add("Consolidado")
 
             self._recalcular_aba_apoio_fluxo(writer, linhas)
+            self._ajustar_formulas_liquidas_fluxo(writer)
+            self._validar_cobertura_movimentos_fluxo(
+                lote.movimentos,
+                writer._wb,
+                classificacoes_template,
+            )
             if saldo_ano_anterior and saldo_ano_anterior != Decimal("0"):
                 self._garantir_saldo_ano_anterior_no_fluxo(writer)
             if meses_visiveis:
@@ -421,18 +430,27 @@ class FluxoCaixaProcessamentoService:
     def _classificacao_canonica(
         self,
         movimento: FCMovimento,
-        classificacoes_template: dict[str, str],
+        classificacoes_template: dict[str, str | dict[str, str]],
     ) -> str:
         classificacao = movimento.classificacao or "Sem classificação"
-        if classificacao.startswith("Transferência "):
-            return classificacao
+        if movimento.eh_transferencia:
+            return (
+                "Transferência Emitida"
+                if movimento.transferencia_emitida
+                else "Transferência Recebida"
+            )
 
         for candidata in (movimento.conta_gerencial, movimento.classificacao):
             codigo = extrair_codigo_gerencial(candidata)
             if codigo:
                 rotulo_por_codigo = classificacoes_template.get(f"@cod:{codigo}")
                 if rotulo_por_codigo:
-                    return rotulo_por_codigo
+                    if isinstance(rotulo_por_codigo, dict):
+                        rotulo_natureza = rotulo_por_codigo.get(movimento.tipo.value)
+                        if rotulo_natureza:
+                            return rotulo_natureza
+                    elif isinstance(rotulo_por_codigo, str):
+                        return rotulo_por_codigo
 
             chave = self._normalizar_chave_classificacao(candidata)
             if chave and chave in classificacoes_template:
@@ -603,6 +621,208 @@ class FluxoCaixaProcessamentoService:
             ws.cell(row=row, column=28, value=self._float_ou_vazio(total_debito))
 
         writer._modified_sheets.add("Apoio")
+
+    def _garantir_vale_transporte_no_fluxo(self, writer: TemplateWriter) -> None:
+        """Cria a rubrica visual exclusiva do código 12.20 no template legado."""
+        wb = writer._wb
+        if wb is None or "Fluxo de Caixa " not in wb.sheetnames:
+            return
+
+        ws = wb["Fluxo de Caixa "]
+        if self._encontrar_linha_rotulo(ws, "VALE TRANSPORTE", coluna=3):
+            return
+
+        linha_transporte = self._encontrar_linha_rotulo(
+            ws,
+            "TRANSPORTE DE COLABORADORES",
+            coluna=3,
+        )
+        linha_grupo = self._encontrar_linha_rotulo(ws, "Gastos com Pessoal", coluna=3)
+        if not linha_transporte or not linha_grupo:
+            return
+
+        formula_grupo = ws.cell(row=linha_grupo, column=4).value
+        match = re.fullmatch(r"=SUM\(D(\d+):D(\d+)\)", str(formula_grupo or ""))
+        if not match:
+            return
+
+        primeira_linha = int(match.group(1))
+        ultima_linha = int(match.group(2))
+        linha_vale = ultima_linha + 1
+        if ws.cell(row=linha_vale, column=3).value not in (None, ""):
+            return
+
+        for column in range(2, 18):
+            origem = ws.cell(row=linha_transporte, column=column)
+            destino = ws.cell(row=linha_vale, column=column)
+            if origem.has_style:
+                destino._style = copy(origem._style)
+            if origem.number_format:
+                destino.number_format = origem.number_format
+            destino.alignment = copy(origem.alignment)
+            destino.protection = copy(origem.protection)
+
+        ws.row_dimensions[linha_vale].height = ws.row_dimensions[linha_transporte].height
+        ws.cell(row=linha_vale, column=3, value="VALE TRANSPORTE")
+        for column in range(4, 16):
+            ws.cell(
+                row=linha_vale,
+                column=column,
+                value=self._formula_indice_apoio(linha_vale, column, debito=True),
+            )
+        ws.cell(row=linha_vale, column=16, value=None)
+        ws.cell(row=linha_vale, column=17, value=f"=SUM(D{linha_vale}:P{linha_vale})")
+
+        for column in (*range(4, 16), 17):
+            col_letter = get_column_letter(column)
+            ws.cell(
+                row=linha_grupo,
+                column=column,
+                value=f"=SUM({col_letter}{primeira_linha}:{col_letter}{linha_vale})",
+            )
+
+        writer._modified_sheets.add("Fluxo de Caixa ")
+
+    def _ajustar_formulas_liquidas_fluxo(self, writer: TemplateWriter) -> None:
+        """Compensa estornos sem duplicar rubricas bidirecionais do template."""
+        wb = writer._wb
+        if wb is None or "Fluxo de Caixa " not in wb.sheetnames:
+            return
+
+        ws = wb["Fluxo de Caixa "]
+        ocorrencias: dict[str, list[tuple[int, bool]]] = defaultdict(list)
+        for row in range(1, ws.max_row + 1):
+            rotulo = ws.cell(row=row, column=3).value
+            formula = ws.cell(row=row, column=4).value
+            if (
+                not isinstance(rotulo, str)
+                or not isinstance(formula, str)
+                or "INDEX(Apoio!" not in formula
+                or self._eh_rotulo_saldo(rotulo)
+            ):
+                continue
+            chave = self._normalizar_chave_classificacao(rotulo)
+            if chave:
+                ocorrencias[chave].append((row, self._formula_usa_debito_apoio(formula)))
+
+        alterou = False
+        for itens in ocorrencias.values():
+            if len(itens) != 1:
+                continue
+            row, orientada_para_debito = itens[0]
+            for column in range(4, 16):
+                formula_atual = ws.cell(row=row, column=column).value
+                if not isinstance(formula_atual, str) or "INDEX(Apoio!" not in formula_atual:
+                    continue
+                formula_credito = self._formula_indice_apoio(row, column, debito=False)
+                formula_debito = self._formula_indice_apoio(row, column, debito=True)
+                ws.cell(
+                    row=row,
+                    column=column,
+                    value=(
+                        f"={formula_debito[1:]}-{formula_credito[1:]}"
+                        if orientada_para_debito
+                        else f"={formula_credito[1:]}-{formula_debito[1:]}"
+                    ),
+                )
+                alterou = True
+
+        if alterou:
+            writer._modified_sheets.add("Fluxo de Caixa ")
+
+    def _validar_cobertura_movimentos_fluxo(
+        self,
+        movimentos: list[FCMovimento],
+        wb,
+        classificacoes_template: dict[str, str | dict[str, str]],
+    ) -> None:
+        """Bloqueia geração quando um movimento não participa uma única vez do saldo."""
+        if wb is None or "Fluxo de Caixa " not in wb.sheetnames:
+            return
+
+        ws = wb["Fluxo de Caixa "]
+        if self._encontrar_linha_rotulo(ws, "(=) SALDO FINAL", coluna=2) is None:
+            return
+
+        cobertura: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"credito": 0, "debito": 0}
+        )
+        for row in range(1, ws.max_row + 1):
+            rotulo = ws.cell(row=row, column=3).value
+            formula = ws.cell(row=row, column=4).value
+            if (
+                not isinstance(rotulo, str)
+                or not isinstance(formula, str)
+                or "INDEX(Apoio!" not in formula
+                or self._eh_rotulo_saldo(rotulo)
+            ):
+                continue
+
+            chave = self._normalizar_chave_classificacao(rotulo)
+            if not chave:
+                continue
+            total_indices = formula.count("INDEX(Apoio!")
+            if total_indices >= 2:
+                cobertura[chave]["credito"] += 1
+                cobertura[chave]["debito"] += 1
+            elif self._formula_usa_debito_apoio(formula):
+                cobertura[chave]["debito"] += 1
+            else:
+                cobertura[chave]["credito"] += 1
+
+        inconsistencias: list[str] = []
+        for movimento in movimentos:
+            if movimento.eh_transferencia:
+                continue
+            destino = self._classificacao_canonica(movimento, classificacoes_template)
+            chave = self._normalizar_chave_classificacao(destino)
+            natureza = movimento.tipo.value
+            participacoes = cobertura.get(chave, {}).get(natureza, 0)
+            if participacoes == 1:
+                continue
+
+            codigo = (
+                extrair_codigo_gerencial(movimento.conta_gerencial)
+                or extrair_codigo_gerencial(movimento.classificacao)
+            )
+            if not codigo:
+                # Compatibilidade com arquivos legados sem código dedicado. A
+                # validação rígida é aplicada aos movimentos já canônicos.
+                continue
+            nome = self._remover_codigo_gerencial(
+                movimento.conta_gerencial or movimento.classificacao or destino
+            )
+            inconsistencias.append(
+                f"código={codigo}; nome={nome or destino}; tipo={natureza}; "
+                f"valor={abs(movimento.valor)}; destino={destino}; "
+                f"participações={participacoes}"
+            )
+
+        if inconsistencias:
+            detalhes = "\n- ".join(dict.fromkeys(inconsistencias))
+            raise ValueError(
+                "Movimentos sem destino financeiro único no template:\n- "
+                f"{detalhes}"
+            )
+
+    @staticmethod
+    def _formula_indice_apoio(row: int, column: int, debito: bool) -> str:
+        col_letter = get_column_letter(column)
+        deslocamento = "+1" if debito else ""
+        return (
+            "=IFERROR("
+            f"INDEX(Apoio!$B:$AB,MATCH($C{row},Apoio!$B$1:$B$176,0),"
+            f"MATCH('Fluxo de Caixa '!{col_letter}$5,Apoio!$B$4:$AB$4,0)"
+            f"{deslocamento}),0)"
+        )
+
+    @staticmethod
+    def _formula_usa_debito_apoio(formula: str) -> bool:
+        return ",0)+1),0)" in formula.replace(" ", "")
+
+    @staticmethod
+    def _eh_rotulo_saldo(rotulo: str) -> bool:
+        return str(rotulo).strip().upper().startswith(("SALDO INICIAL ", "SALDO FINAL "))
 
     @staticmethod
     def _coluna_credito_apoio(mes: int) -> int:
@@ -860,8 +1080,13 @@ class FluxoCaixaProcessamentoService:
             ("SALDO INICIAL ", "SALDO FINAL ")
         )
 
-    def _mapear_classificacoes_template(self, wb, ws, limite_fim: int) -> dict[str, str]:
-        mapa: dict[str, str] = {}
+    def _mapear_classificacoes_template(
+        self,
+        wb,
+        ws,
+        limite_fim: int,
+    ) -> dict[str, str | dict[str, str]]:
+        mapa: dict[str, str | dict[str, str]] = {}
         for rotulo in self._rotulos_visuais_fluxo(wb):
             chave_rotulo = self._normalizar_chave_classificacao(rotulo)
             if chave_rotulo:
@@ -887,12 +1112,29 @@ class FluxoCaixaProcessamentoService:
                     mapa[chave_descricao] = classificacao
         return mapa
 
-    def _rotulos_template_por_codigo(self) -> dict[str, str]:
+    def _rotulos_template_por_codigo(self) -> dict[str, str | dict[str, str]]:
         saida = self.parser.mapping.get("saida", {})
         rotulos = saida.get("rotulos_template_por_codigo", {})
         if not isinstance(rotulos, dict):
             return {}
-        return {str(codigo).strip(): str(rotulo) for codigo, rotulo in rotulos.items() if rotulo}
+
+        normalizados: dict[str, str | dict[str, str]] = {}
+        for codigo, rotulo in rotulos.items():
+            codigo_normalizado = str(codigo).strip()
+            if not codigo_normalizado or not rotulo:
+                continue
+            if isinstance(rotulo, str):
+                normalizados[codigo_normalizado] = rotulo
+                continue
+            if isinstance(rotulo, dict):
+                por_natureza = {
+                    natureza: str(destino)
+                    for natureza, destino in rotulo.items()
+                    if natureza in {"credito", "debito"} and destino
+                }
+                if por_natureza:
+                    normalizados[codigo_normalizado] = por_natureza
+        return normalizados
 
     @staticmethod
     def _rotulos_visuais_fluxo(wb) -> list[str]:

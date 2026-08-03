@@ -360,13 +360,24 @@ class FluxoCaixaRepository:
     def upsert_competencia(
         self,
         uploads_movimentos: list[tuple[FluxoUpload, list[FluxoMovimentoDB]]],
+        substituir_bancos: set[str] | None = None,
+        substituir_arquivos: set[str] | None = None,
     ) -> tuple[int, int]:
-        """Substitui transacionalmente os dados de uma competência."""
+        """Atualiza transacionalmente uma competência.
+
+        Sem filtros, mantém a compatibilidade de substituição integral. Quando
+        bancos/arquivos são informados, remove somente as fontes reenviadas.
+        """
         if not uploads_movimentos:
             return 0, 0
 
         ano = uploads_movimentos[0][0].competencia_ano
         mes = uploads_movimentos[0][0].competencia_mes
+        if any(
+            upload.competencia_ano != ano or upload.competencia_mes != mes
+            for upload, _ in uploads_movimentos
+        ):
+            raise ValueError("Todos os uploads do lote devem pertencer à mesma competência.")
         # Garante que o schema (incl. contas_gerenciais) esteja íntegro mesmo se
         # a ingestão ocorrer antes do lifespan ou após uma migration nova.
         run_migrations(self.db)
@@ -389,8 +400,27 @@ class FluxoCaixaRepository:
             uploads_movimentos = uploads_movimentos_normalizados
 
             uploads_anteriores = self.uploads.get_by_competencia(ano, mes, connection)
+            bancos_normalizados = {
+                str(banco).strip().lower() for banco in (substituir_bancos or set()) if banco
+            }
+            arquivos_normalizados = {
+                str(arquivo).strip().lower()
+                for arquivo in (substituir_arquivos or set())
+                if arquivo
+            }
+            substituicao_filtrada = (
+                substituir_bancos is not None or substituir_arquivos is not None
+            )
             removidos = 0
             for upload_ant in uploads_anteriores:
+                if substituicao_filtrada:
+                    banco_anterior = str(upload_ant.banco or "").strip().lower()
+                    arquivo_anterior = upload_ant.arquivo_nome.strip().lower()
+                    if (
+                        banco_anterior not in bancos_normalizados
+                        and arquivo_anterior not in arquivos_normalizados
+                    ):
+                        continue
                 removidos += self.movimentos.delete_by_upload(upload_ant.id, connection)
                 self.uploads.delete(upload_ant.id, connection)
 

@@ -13,6 +13,7 @@ from ..ingestao.parser import ExcelParser
 from ..repository.dre_repository import DRERepository
 from ..transformacao.engine import DRETransformer
 from ..validacao.validators import DREValidator
+from .auditoria_upload import arquivar_upload, calcular_sha256
 
 logger = logging.getLogger(__name__)
 
@@ -20,20 +21,25 @@ logger = logging.getLogger(__name__)
 class DREIngestaoService:
     """Serviço para ingestão mensal de dados DRE no banco."""
 
-    def __init__(self, db: DatabaseConnection | None = None):
+    def __init__(
+        self,
+        db: DatabaseConnection | None = None,
+        archive_dir: Path | None = None,
+    ):
         self.db = db or DatabaseConnection()
         self.repository = DRERepository(self.db)
         self.parser = ExcelParser("dre")
         self.validator = DREValidator()
         self.transformer = DRETransformer()
+        self.archive_dir = (
+            Path(archive_dir)
+            if archive_dir
+            else self.db.db_path.parent / "uploads_archive"
+        )
 
     def _calcular_sha256(self, file_path: Path) -> str:
         """Calcula SHA256 do arquivo."""
-        sha256_hash = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for byte_block in iter(lambda: f.read(4096), b""):
-                sha256_hash.update(byte_block)
-        return sha256_hash.hexdigest()
+        return calcular_sha256(file_path)
 
     def _parse_competencia(self, competencia: str) -> tuple[int, int]:
         """Converte 'MM/AAAA' ou 'M/AAAA' para (ano, mes)."""
@@ -137,6 +143,24 @@ class DREIngestaoService:
 
         # 2. Calcular hash do arquivo
         arquivo_hash = self._calcular_sha256(arquivo_path)
+        try:
+            arquivo_arquivado = arquivar_upload(
+                file_path=arquivo_path,
+                arquivo_nome=arquivo_nome,
+                fluxo="dre",
+                ano=ano,
+                mes=mes,
+                arquivo_sha256=arquivo_hash,
+                archive_dir=self.archive_dir,
+            )
+        except Exception as exc:
+            return {
+                "success": False,
+                "status": "archive_error",
+                "error": f"Não foi possível preservar o arquivo-fonte: {exc}",
+                "upload_id": None,
+                "competencia": competencia,
+            }
 
         # 3. Verificar se arquivo já foi processado na MESMA competência (idempotência)
         upload_existente = self.repository.uploads.get_by_sha256_competencia(arquivo_hash, ano, mes)
@@ -157,6 +181,7 @@ class DREIngestaoService:
                 "message": "Arquivo já foi processado anteriormente",
                 "total_linhas": upload_existente.total_linhas,
                 "linhas_validas": upload_existente.linhas_validas,
+                "arquivo_arquivado": str(arquivo_arquivado),
             }
         if upload_existente and upload_existente.status != "completed":
             logger.info(
@@ -212,6 +237,7 @@ class DREIngestaoService:
                 "status": "validation_error",
                 "erros": erros,
                 "total_linhas": resultado_validacao.total_linhas,
+                "arquivo_arquivado": str(arquivo_arquivado),
             }
 
         # 6. Transformar dados
@@ -302,6 +328,7 @@ class DREIngestaoService:
                 "removidos": removidos,
                 "inseridos": inseridos,
                 "meses_disponiveis_ano": meses_disponiveis,
+                "arquivo_arquivado": str(arquivo_arquivado),
             }
 
         except Exception as e:

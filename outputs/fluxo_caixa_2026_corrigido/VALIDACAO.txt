@@ -1,0 +1,31 @@
+VALIDAÇÃO DO FLUXO DE CAIXA CORRIGIDO — 2026
+
+Arquivo:
+AIDEAL_Fluxo_Caixa_01-05_2026_CORRIGIDO.xlsx
+
+Fonte recuperada:
+/Users/gousero/Downloads/AIDEAL_Fluxo_Caixa_06-2026_20260625_122519.xlsx
+
+Saldo inicial aplicado:
+R$ 396.934,78
+
+Saldos finais recalculados:
+- Janeiro:   R$ 421.100,82
+- Fevereiro: R$ 625.451,77
+- Março:     R$ 957.671,24
+- Abril:     R$ 1.061.055,74
+- Maio:     -R$ 97.008,94
+
+Diferenças em relação aos valores informados:
+- Janeiro:    R$ 0,00
+- Fevereiro: -R$ 0,01
+- Março:     -R$ 0,04
+- Abril:     -R$ 0,02
+- Maio:       R$ 0,96
+
+As diferenças inferiores a R$ 1,00 decorrem dos valores fracionários presentes
+na fonte acumulada recuperada.
+
+Junho não foi regenerado porque a base local e o arquivo acumulado disponível
+terminam em 29/05/2026. Nenhum lançamento artificial foi criado para forçar o
+saldo esperado de R$ 378.296,08.

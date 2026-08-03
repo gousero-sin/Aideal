@@ -33,6 +33,7 @@ tmp/
 *.tmp
 backend/logs/
 backend/aideal.db
+data/uploads_archive/
 *.db-shm
 *.db-wal
 .playwright-cli/

@@ -13,6 +13,7 @@ import logging
 import re
 from collections import defaultdict
 from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,10 @@ _FATURAMENTO_ROTULO = "Faturamento"
 _RECEITA_LIQUIDA_ROTULO = "(=)Receita Líquida"
 _RESULTADO_LIQUIDO_ROTULO = "(=)RESULTADO LÍQUIDO"
 _RESULTADO_GERENCIAL_ROTULO = "(=)RESULTADO GERENCIAL"
+_DEDUCOES_RECEITA_ROTULO = "(-)Deduções sobre vendas"
+_GASTOS_FIXOS_ROTULO = "(-)Gastos Fixos"
+_FINANCEIRO_ROTULO = "(+/-)Despesas e Receitas Financeiras"
+_CODIGOS_EXCLUSIVOS_PESSOAL = frozenset(("12.9", "12.11"))
 _PLANO_CONTAS_CODIGO_OVERRIDES = {
     # Correções aprovadas para o painel DRE. O código gerencial é a chave
     # canônica; descrições dos relatórios podem mudar sem alterar a regra.
@@ -88,6 +93,18 @@ _PLANO_CONTAS_CODIGO_OVERRIDES = {
         "conta_filho": "(-) Despesas Não Operacionais",
         "conta_pai": "(+/-)Despesas e Recebimentos Não Operacionais",
         "cod": 5,
+    },
+    "12.9": {
+        "rubrica": "PASSAGENS COLABORADORES",
+        "conta_filho": "Despesas com Pessoal",
+        "conta_pai": _GASTOS_FIXOS_ROTULO,
+        "cod": 4,
+    },
+    "12.11": {
+        "rubrica": "ASSISTENCIA MEDICA ADM",
+        "conta_filho": "Despesas com Pessoal",
+        "conta_pai": _GASTOS_FIXOS_ROTULO,
+        "cod": 4,
     },
     "12.19": {
         "rubrica": "AUXILIO MORADIA",
@@ -197,6 +214,23 @@ _DRE_MESES_POR_COLUNA_TRIMESTRE = {
     24: (7, 8, 9),
     32: (10, 11, 12),
 }
+_DRE_SUBTOTAIS_FILHOS_ARREDONDADOS = {
+    _GASTOS_FIXOS_ROTULO: (
+        "Despesas com Pessoal",
+        "Serviços de Terceiros",
+        "Despesas Administrativas",
+        "Despesas com Veículos e Equipamentos",
+        "Despesas com Locações",
+        "Despesas com Máquinas e Equipamentos",
+        "Despesas com Viagens e Hospedagens",
+        "Despesas Financeiras",
+        "Despesas com Infraestrutura",
+    ),
+    _FINANCEIRO_ROTULO: (
+        "(+) Receitas Financeiras",
+        "(-) Despesas Financeiras",
+    ),
+}
 _RUBRICAS_IMPOSTO_SALDO_PAINEL = frozenset(
     (
         "IR",
@@ -217,6 +251,10 @@ _RUBRICAS_IMPOSTO_SALDO_PAINEL = frozenset(
     )
 )
 _CODIGOS_IMPOSTO_SALDO_PAINEL = ("17.2", "17.3", "17.4", "17.5", "17.7", "17.8")
+_CODIGOS_DEDUCAO_RECEITA = frozenset(("17.2", "17.3", "17.7", "17.8"))
+_CODIGOS_RECOMPOSICAO_RECEITA_BRUTA = frozenset(
+    ("17.2", "17.3", "17.7", "17.8", "17.9")
+)
 # Usado apenas para recompor Receita Bruta quando bases antigas persistiram
 # recebimentos líquidos; a linha do DRE é definida pelo PLANO_CONTAS resolvido.
 _IMPOSTOS_RECEITA_ROTULOS = frozenset(
@@ -277,6 +315,28 @@ def _eh_imposto_saldo_painel(rubrica: Any, natureza_raw: Any) -> bool:
         for valor in (rubrica_texto, natureza_texto)
         for codigo in _CODIGOS_IMPOSTO_SALDO_PAINEL
     )
+
+
+def _participa_deducao_receita_por_codigo(*valores: Any) -> bool | None:
+    """Resolve participação em deduções pelo primeiro código explícito disponível."""
+    for valor in valores:
+        codigo = _extrair_codigo_gerencial(valor)
+        if codigo:
+            return codigo in _CODIGOS_DEDUCAO_RECEITA
+    return None
+
+
+def _participa_recomposicao_receita_bruta_por_codigo(*valores: Any) -> bool | None:
+    """Mantém no bruto os tributos retidos, inclusive ICMS 17.9."""
+    for valor in valores:
+        codigo = _extrair_codigo_gerencial(valor)
+        if codigo:
+            return codigo in _CODIGOS_RECOMPOSICAO_RECEITA_BRUTA
+    return None
+
+
+def _arredondar_inteiro_dre(valor: float) -> int:
+    return int(Decimal(str(valor)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def _parse_competencia(competencia: str) -> tuple[int, int]:
@@ -352,7 +412,18 @@ class DREGeracaoCompletaService:
             )
 
         if ano_todo:
-            return meses_disponiveis_ano, meses_disponiveis_ano, "ano_todo"
+            meses_esperados = list(range(1, mes_alvo + 1))
+            disponiveis_set = set(meses_disponiveis_ano)
+            meses_indisponiveis = [
+                mes for mes in meses_esperados if mes not in disponiveis_set
+            ]
+            if meses_indisponiveis:
+                raise ValueError(
+                    f"Meses sem upload completed para {ano}: "
+                    f"{meses_indisponiveis}. O modo ano todo exige sequência "
+                    f"de janeiro até {mes_alvo:02d}/{ano}."
+                )
+            return meses_disponiveis_ano, meses_esperados, "ano_todo"
 
         meses_solicitados = self._normalizar_meses_incluir(meses_incluir)
         if meses_solicitados:
@@ -450,8 +521,8 @@ class DREGeracaoCompletaService:
         """Resolve natureza/rubrica para (rubrica, conta_filho, conta_pai, cod).
 
         Ordem de tentativas (a primeira que casar vence):
-        1. texto exato e texto após o primeiro " - " (cadastro literal);
-        2. código gerencial (ex.: "1.1.1") — tolera sufixos no rótulo;
+        1. código gerencial exato (ex.: "1.1.1") — chave canônica;
+        2. texto exato e texto após o primeiro " - " (fallback legado);
         3. família do código (ex.: "1.1") — subcontas irmãs herdam a
            classificação (1.1.2/1.1.3 somam em Receita Bruta como 1.1.1);
         4. fallback não operacional para conta sem grupo canônico.
@@ -477,7 +548,14 @@ class DREGeracaoCompletaService:
             regra = _VENDA_VEICULO if codigo_gerencial == "6.11" and (valor or 0) > 0 else p
             return regra["rubrica"], regra["conta_filho"], regra["conta_pai"], regra["cod"]
 
-        # 1. Texto exato e texto após o primeiro " - ".
+        # 1. Código gerencial exato. Regras canônicas devem prevalecer sobre o
+        # texto legado, inclusive quando a descrição antiga ainda existe no plano.
+        for chave in chaves:
+            codigo = _extrair_codigo_gerencial(chave)
+            if codigo and f"@cod:{codigo}" in plano:
+                return _resultado(plano[f"@cod:{codigo}"])
+
+        # 2. Texto exato e texto após o primeiro " - ".
         for chave in chaves:
             if not chave:
                 continue
@@ -488,13 +566,11 @@ class DREGeracaoCompletaService:
                 if tentativa and tentativa in plano:
                     return _resultado(plano[tentativa])
 
-        # 2. Código gerencial exato e 3. família (fallback para subcontas irmãs).
+        # 3. Família do código (fallback para subcontas irmãs).
         for chave in chaves:
             codigo = _extrair_codigo_gerencial(chave)
             if not codigo:
                 continue
-            if f"@cod:{codigo}" in plano:
-                return _resultado(plano[f"@cod:{codigo}"])
             familia = codigo.rsplit(".", 1)[0]
             if f"@fam:{familia}" in plano:
                 return _resultado(plano[f"@fam:{familia}"])
@@ -544,6 +620,24 @@ class DREGeracaoCompletaService:
                 plano,
                 valor,
             )
+            codigo_gerencial = next(
+                (
+                    codigo
+                    for codigo in (
+                        _extrair_codigo_gerencial(lanc.rubrica),
+                        _extrair_codigo_gerencial(lanc.natureza_raw),
+                    )
+                    if codigo
+                ),
+                None,
+            )
+
+            incluir_conta_filho = True
+            incluir_conta_pai = codigo_gerencial not in _CODIGOS_EXCLUSIVOS_PESSOAL
+            if conta_pai == _DEDUCOES_RECEITA_ROTULO and codigo_gerencial:
+                participa_deducoes = codigo_gerencial in _CODIGOS_DEDUCAO_RECEITA
+                incluir_conta_filho = participa_deducoes
+                incluir_conta_pai = participa_deducoes
 
             eh_receita_bruta = conta_pai == _RECEITA_BRUTA_CONTA_PAI
             if eh_receita_bruta:
@@ -569,9 +663,9 @@ class DREGeracaoCompletaService:
 
             if rubrica:
                 agregado[(cod, rubrica)][mes] += valor
-            if conta_filho:
+            if conta_filho and incluir_conta_filho:
                 agregado[(cod, conta_filho)][mes] += valor
-            if conta_pai:
+            if conta_pai and incluir_conta_pai:
                 agregado[(cod, conta_pai)][mes] += valor
 
         for mes in meses_encontrados:
@@ -609,6 +703,13 @@ class DREGeracaoCompletaService:
         conta_filho: str,
         conta_pai: str,
     ) -> bool:
+        participa_por_codigo = _participa_recomposicao_receita_bruta_por_codigo(
+            lanc.rubrica,
+            lanc.natureza_raw,
+        )
+        if participa_por_codigo is not None:
+            return participa_por_codigo
+
         rotulos = (
             lanc.natureza_raw,
             lanc.rubrica,
@@ -786,6 +887,98 @@ class DREGeracaoCompletaService:
 
         return None
 
+    @classmethod
+    def _valor_apoio_periodo(
+        cls,
+        rotulo: str,
+        coluna: int,
+        apoio_por_rotulo: dict[str, dict[int, float]],
+        apoio_por_rotulo_normalizado: dict[str, dict[int, float]],
+    ) -> float:
+        valores = apoio_por_rotulo.get(rotulo)
+        if valores is None:
+            valores = apoio_por_rotulo_normalizado.get(_normalizar_rotulo(rotulo), {})
+        return float(cls._valor_periodo_dre(valores, coluna) or 0.0)
+
+    @staticmethod
+    def _meses_periodo_dre(coluna: int) -> tuple[int, ...] | None:
+        mes = _DRE_MES_POR_COLUNA_VALOR.get(coluna)
+        if mes:
+            return (mes,)
+        if coluna in _DRE_MESES_POR_COLUNA_TRIMESTRE:
+            return _DRE_MESES_POR_COLUNA_TRIMESTRE[coluna]
+        if coluna == _DRE_COLUNA_ANO:
+            return tuple(range(1, 13))
+        return None
+
+    @classmethod
+    def _subtotal_filhos_arredondados(
+        cls,
+        rotulo_pai: str,
+        coluna: int,
+        apoio_por_rotulo: dict[str, dict[int, float]],
+        apoio_por_rotulo_normalizado: dict[str, dict[int, float]],
+    ) -> float | None:
+        filhos = _DRE_SUBTOTAIS_FILHOS_ARREDONDADOS.get(rotulo_pai)
+        if filhos is None:
+            return None
+
+        meses = cls._meses_periodo_dre(coluna)
+        if meses is None:
+            return None
+
+        total = 0
+        for mes in meses:
+            coluna_mes = _DRE_COLUNA_VALOR_POR_MES[mes]
+            valores_filhos = {
+                filho: cls._valor_apoio_periodo(
+                    filho,
+                    coluna_mes,
+                    apoio_por_rotulo,
+                    apoio_por_rotulo_normalizado,
+                )
+                for filho in filhos
+            }
+
+            if rotulo_pai == _GASTOS_FIXOS_ROTULO:
+                # 12.9 e 12.11 compõem a linha pública de Pessoal, mas não o
+                # subtotal de Fixos. A diferença para o pai, calculado por código,
+                # identifica essa participação exclusiva sem depender da descrição.
+                valor_pai = cls._valor_apoio_periodo(
+                    rotulo_pai,
+                    coluna_mes,
+                    apoio_por_rotulo,
+                    apoio_por_rotulo_normalizado,
+                )
+                diferenca_exclusiva = sum(valores_filhos.values()) - valor_pai
+                valores_filhos["Despesas com Pessoal"] -= diferenca_exclusiva
+
+            total += sum(
+                _arredondar_inteiro_dre(valor) for valor in valores_filhos.values()
+            )
+
+        return float(total)
+
+    @classmethod
+    def _receita_bruta_arredondada(
+        cls,
+        coluna: int,
+        apoio_por_rotulo: dict[str, dict[int, float]],
+        apoio_por_rotulo_normalizado: dict[str, dict[int, float]],
+    ) -> float | None:
+        valores = apoio_por_rotulo.get(_RECEITA_BRUTA_CONTA_PAI)
+        if valores is None:
+            valores = apoio_por_rotulo_normalizado.get(
+                _normalizar_rotulo(_RECEITA_BRUTA_CONTA_PAI),
+                {},
+            )
+
+        meses = cls._meses_periodo_dre(coluna)
+        if meses is None:
+            return None
+
+        return float(sum(_arredondar_inteiro_dre(valores.get(mes_ref, 0.0)) for mes_ref in meses))
+
     def _materializar_dre(
         self,
         writer: TemplateWriter,
@@ -839,8 +1032,23 @@ class DREGeracaoCompletaService:
                 celula = ws_dre.cell(row=linha, column=coluna)
                 valor_atual = celula.value
                 valor_calculado: float | None = None
+                rotulo_linha = str(ws_dre.cell(row=linha, column=1).value or "").strip()
 
-                if linha == linha_resultado_liquido and saldos_painel:
+                subtotal_arredondado = self._subtotal_filhos_arredondados(
+                    rotulo_linha,
+                    coluna,
+                    apoio_por_rotulo,
+                    apoio_por_rotulo_normalizado,
+                )
+                if rotulo_linha == _RECEITA_BRUTA_CONTA_PAI:
+                    valor_calculado = self._receita_bruta_arredondada(
+                        coluna,
+                        apoio_por_rotulo,
+                        apoio_por_rotulo_normalizado,
+                    )
+                elif subtotal_arredondado is not None:
+                    valor_calculado = subtotal_arredondado
+                elif linha == linha_resultado_liquido and saldos_painel:
                     valor_calculado = self._valor_periodo_dre(saldos_painel, coluna)
                 elif isinstance(valor_atual, str) and valor_atual.startswith("="):
                     valor_calculado = self._avaliar_formula_dre(

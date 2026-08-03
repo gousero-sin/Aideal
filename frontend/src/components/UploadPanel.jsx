@@ -277,6 +277,9 @@ export default function UploadPanel({
       }
       formData.append('competencia', competenciaParaExibicao(ano, mesAtivo));
       formData.append('replace', 'true');
+      if (isFluxoCaixa) {
+        formData.append('replace_scope', 'bancos');
+      }
 
       const recurso = isDre ? 'dre' : 'fluxo_caixa';
       const response = await fetch(`${apiBase}/${recurso}/ingestoes`, {
@@ -532,7 +535,7 @@ export default function UploadPanel({
             </span>
             <span className="aideal-anotodo-text">
               <strong>Ano todo</strong>
-              <em>Consolida todos os meses salvos de {ano}</em>
+              <em>Consolida de janeiro até o mês ativo e bloqueia lacunas</em>
             </span>
           </label>
         </div>

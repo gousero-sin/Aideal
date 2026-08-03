@@ -1003,6 +1003,10 @@ async def ingestao_fluxo_caixa(
     arquivos: list[UploadFile] = File(...),
     competencia: str = Form(..., description="Competência no formato MM/AAAA (ex: 08/2025)"),
     replace: bool = Form(True, description="Substituir competência existente se houver"),
+    replace_scope: str = Form(
+        "bancos",
+        description="bancos preserva fontes não reenviadas; competencia substitui o mês inteiro",
+    ),
 ):
     """Ingestão mensal de extratos do Fluxo de Caixa para persistência no banco."""
     tmp_paths: list[Path] = []
@@ -1018,6 +1022,7 @@ async def ingestao_fluxo_caixa(
             arquivos=arquivos_lote,
             competencia=competencia,
             replace=replace,
+            replace_scope=replace_scope,
         )
         if not resultado["success"]:
             status_code = 400 if resultado.get("status") == "validation_error" else 500
