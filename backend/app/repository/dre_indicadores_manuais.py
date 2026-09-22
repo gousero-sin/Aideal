@@ -98,16 +98,13 @@ class DREIndicadoresManuaisRepository:
             "ano": ano,
             "meses": meses_ref,
             "competencias": [
-                {"ano": ano, "mes": mes, "periodo": f"{ano}-{mes:02d}"}
-                for mes in meses_ref
+                {"ano": ano, "mes": mes, "periodo": f"{ano}-{mes:02d}"} for mes in meses_ref
             ],
             "total_registros": total_registros,
             "contas_pagar": Decimal(str(row["contas_pagar"] or 0)) if row else Decimal("0"),
             "contas_receber": Decimal(str(row["contas_receber"] or 0)) if row else Decimal("0"),
             "total_impostos_retidos_acima_meta": (
-                Decimal(str(row["total_impostos_retidos_acima_meta"] or 0))
-                if row
-                else Decimal("0")
+                Decimal(str(row["total_impostos_retidos_acima_meta"] or 0)) if row else Decimal("0")
             ),
             "total_impostos_retidos": (
                 Decimal(str(row["total_impostos_retidos"] or 0)) if row else Decimal("0")
@@ -154,16 +151,13 @@ class DREIndicadoresManuaisRepository:
             "ano": next(iter(anos)) if len(anos) == 1 else None,
             "meses": [mes for _ano, mes in competencias] if len(anos) == 1 else [],
             "competencias": [
-                {"ano": ano, "mes": mes, "periodo": f"{ano}-{mes:02d}"}
-                for ano, mes in competencias
+                {"ano": ano, "mes": mes, "periodo": f"{ano}-{mes:02d}"} for ano, mes in competencias
             ],
             "total_registros": total_registros,
             "contas_pagar": Decimal(str(row["contas_pagar"] or 0)) if row else Decimal("0"),
             "contas_receber": Decimal(str(row["contas_receber"] or 0)) if row else Decimal("0"),
             "total_impostos_retidos_acima_meta": (
-                Decimal(str(row["total_impostos_retidos_acima_meta"] or 0))
-                if row
-                else Decimal("0")
+                Decimal(str(row["total_impostos_retidos_acima_meta"] or 0)) if row else Decimal("0")
             ),
             "total_impostos_retidos": (
                 Decimal(str(row["total_impostos_retidos"] or 0)) if row else Decimal("0")

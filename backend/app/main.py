@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from typing import Any, Literal
 
 from fastapi import (
     Depends,
@@ -22,15 +23,24 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
-from .auth import (
-    admin_auth_configured,
-    clear_admin_session_cookie,
-    current_admin_username,
-    require_admin_session,
-    set_admin_session_cookie,
-    verify_admin_credentials,
+from .access_control import (
+    AuthenticatedSession,
+    CsrfSession,
+    clear_session_cookies,
+    enforce_login_rate_limit,
+    get_identity_service,
+    get_orcamento_service,
+    record_login_result,
+    require_permission,
+    require_permission_with_csrf,
+    require_permissions,
+    require_permissions_with_csrf,
+    session_payload,
+    set_session_cookie,
+    token_from_request,
 )
 from .config import settings
 from .contracts.common import FlowType
@@ -38,9 +48,26 @@ from .contracts.persistence import DREIndicadoresManuais, FluxoIndicadoresManuai
 from .contracts.processamento import DREProcessamentoResponse
 from .db.connection import db
 from .db.manager import run_migrations
+from .identity import (
+    InvalidCredentialsError,
+    InvalidIdentityInputError,
+    LastOwnerError,
+    UnknownPermissionError,
+    UsernameAlreadyExistsError,
+    UserNotFoundError,
+)
 from .ingestao.dre_ingestao import DREIngestaoService
 from .ingestao.fluxo_caixa_ingestao import FluxoCaixaIngestaoService
 from .ingestao.parser import ExcelParser
+from .orcamento import (
+    CodigoAlreadyExistsError,
+    InvalidOrcamentoInputError,
+    InvalidSituacaoTransitionError,
+    OrcamentoNotFoundError,
+    RevisaoNotFoundError,
+    compute_dfp_summary,
+    get_dfp_window_schema,
+)
 from .processamento import DREProcessamentoService, FluxoCaixaProcessamentoService
 from .processamento.competencia import CompetenciaDetectorService
 from .processamento.dashboard import DashboardResumoService
@@ -66,6 +93,89 @@ class AdminLoginRequest(BaseModel):
     username: str
     password: str
 
+    model_config = {"extra": "forbid"}
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    display_name: str
+    password: str
+    permissions: list[str]
+    active: bool = True
+    must_change_password: bool = True
+
+    model_config = {"extra": "forbid"}
+
+
+class UpdateUserRequest(BaseModel):
+    display_name: str | None = None
+    password: str | None = None
+    permissions: list[str] | None = None
+    active: bool | None = None
+
+    model_config = {"extra": "forbid"}
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    model_config = {"extra": "forbid"}
+
+
+class RevisaoOrcamentoRequest(BaseModel):
+    """Cabeçalho canônico de Orçamento.md; obrigatoriedade é validada no domínio."""
+
+    escopo: str | None = None
+    modalidade: Literal["HH", "Spot", "Rotina", "m²"] | None = None
+    regiao: str | None = None
+    prazo_execucao_dias: int | None = Field(default=None, strict=True, ge=1)
+    saldo_mao_de_obra: float | None = Field(
+        default=None, ge=0, le=1_000_000_000, allow_inf_nan=False
+    )
+    dados_contratante: str | None = None
+    mobilizacao: str | None = None
+    desmobilizacao: str | None = None
+    area_unidade_base: str | None = None
+    regime_tributario: str | None = None
+    dfp: dict[str, Any] | None = None
+    motivo: str | None = None
+
+    model_config = {"extra": "forbid"}
+
+
+class CreateOrcamentoRequest(RevisaoOrcamentoRequest):
+    contratante: str
+
+    model_config = {"extra": "forbid"}
+
+
+class UpdateCabecalhoOrcamentoRequest(BaseModel):
+    """Edição parcial dos campos pertencentes à revisão do orçamento."""
+
+    escopo: str | None = None
+    modalidade: Literal["HH", "Spot", "Rotina", "m²"] | None = None
+    regiao: str | None = None
+    prazo_execucao_dias: int | None = Field(default=None, strict=True, ge=1)
+    saldo_mao_de_obra: float | None = Field(
+        default=None, ge=0, le=1_000_000_000, allow_inf_nan=False
+    )
+    dados_contratante: str | None = None
+    mobilizacao: str | None = None
+    desmobilizacao: str | None = None
+    area_unidade_base: str | None = None
+    regime_tributario: str | None = None
+    dfp: dict[str, Any] | None = None
+
+    model_config = {"extra": "forbid"}
+
+
+class SituacaoRevisaoRequest(BaseModel):
+    situacao: Literal["rascunho", "em_revisao", "pronto_para_proposta", "emitido", "inativo"]
+    motivo: str
+
+    model_config = {"extra": "forbid"}
+
 
 def _ensure_runtime_dirs() -> None:
     """Cria diretórios operacionais necessários para produção."""
@@ -79,6 +189,7 @@ async def lifespan(_app: FastAPI):
     require_runtime_compatibility()
     _ensure_runtime_dirs()
     run_migrations()
+    get_identity_service()
     logger.info("Migrações executadas com sucesso")
     yield
 
@@ -93,8 +204,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -137,8 +248,7 @@ def _validar_quantidade_uploads(uploads: list[UploadFile]) -> None:
         raise HTTPException(
             status_code=400,
             detail=(
-                "Quantidade máxima de arquivos excedida: "
-                f"{settings.max_files_per_batch} por lote."
+                f"Quantidade máxima de arquivos excedida: {settings.max_files_per_batch} por lote."
             ),
         )
 
@@ -162,8 +272,7 @@ async def _salvar_upload_temporario(arquivo: UploadFile) -> Path:
                 raise HTTPException(
                     status_code=413,
                     detail=(
-                        "Arquivo excede o limite de "
-                        f"{settings.max_upload_size_mb} MB por arquivo."
+                        f"Arquivo excede o limite de {settings.max_upload_size_mb} MB por arquivo."
                     ),
                 )
             tmp.write(chunk)
@@ -209,9 +318,7 @@ def _payload_indicadores_manuais(
         "indicadores": {
             "contas_pagar": float(registro.contas_pagar),
             "contas_receber": float(registro.contas_receber),
-            "total_impostos_retidos_acima_meta": float(
-                registro.total_impostos_retidos_acima_meta
-            ),
+            "total_impostos_retidos_acima_meta": float(registro.total_impostos_retidos_acima_meta),
             "total_impostos_retidos": float(registro.total_impostos_retidos),
         },
         "created_at": registro.created_at.isoformat() if existe else None,
@@ -255,13 +362,19 @@ def _resolver_output_xlsx(arquivo_nome: str) -> Path:
     return arquivo_path
 
 
-def _excel_file_response(path: Path, filename: str | None = None) -> FileResponse:
+def _excel_file_response(
+    path: Path,
+    filename: str | None = None,
+    *,
+    remove_after_send: bool = False,
+) -> FileResponse:
     if path.suffix.lower() != ".xlsx":
         raise HTTPException(status_code=400, detail="Download permitido apenas para .xlsx.")
     return FileResponse(
         path=str(path),
         filename=filename or path.name,
         media_type=EXCEL_MEDIA_TYPE,
+        background=(BackgroundTask(path.unlink, missing_ok=True) if remove_after_send else None),
     )
 
 
@@ -287,6 +400,8 @@ async def health():
 async def ready():
     checks = {
         "database": False,
+        "identity_database": False,
+        "orcamento_database": False,
         "templates": False,
         "directories": False,
         "excel_runtime": False,
@@ -298,9 +413,23 @@ async def ready():
     except Exception as exc:
         logger.error("Readiness database check failed: %s", exc)
 
+    try:
+        identity_service = get_identity_service()
+        with identity_service.repository.database.connection() as connection:
+            connection.execute("SELECT 1").fetchone()
+        checks["identity_database"] = True
+    except Exception as exc:
+        logger.error("Readiness identity database check failed: %s", exc)
+
+    try:
+        with get_orcamento_service().repository.database.connection() as connection:
+            connection.execute("SELECT 1").fetchone()
+        checks["orcamento_database"] = True
+    except Exception as exc:
+        logger.error("Readiness orcamento database check failed: %s", exc)
+
     checks["templates"] = (
-        settings.template_dre_path.exists()
-        and settings.template_fluxo_path.exists()
+        settings.template_dre_path.exists() and settings.template_fluxo_path.exists()
     )
     checks["directories"] = all(
         path.exists() and path.is_dir()
@@ -326,35 +455,373 @@ async def ready():
     return {"status": "ready", "checks": checks}
 
 
-@app.post("/api/admin/login")
-async def admin_login(payload: AdminLoginRequest, response: Response):
-    """Autentica o operador da aba Admin Banco."""
-    if not verify_admin_credentials(payload.username, payload.password):
-        raise HTTPException(status_code=401, detail="Credenciais inválidas.")
+def _authenticate(
+    payload: AdminLoginRequest,
+    request: Request,
+    response: Response,
+    *,
+    legacy: bool = False,
+):
+    enforce_login_rate_limit(request, payload.username)
+    try:
+        service = get_identity_service()
+        user = service.authenticate(payload.username, payload.password)
+        credentials = service.create_session(user.id)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except InvalidCredentialsError as exc:
+        record_login_result(request, payload.username, authenticated=False)
+        raise HTTPException(status_code=401, detail="Credenciais inválidas.") from exc
+    record_login_result(request, payload.username, authenticated=True)
+    set_session_cookie(response, credentials.token, include_legacy=legacy)
+    return service, credentials, user
 
-    username = settings.admin_username.strip()
-    set_admin_session_cookie(response, username)
-    return {"authenticated": True, "username": username}
+
+@app.post("/api/auth/login")
+async def auth_login(payload: AdminLoginRequest, request: Request, response: Response):
+    """Cria uma sessão global, opaca e revogável para o GoFlow."""
+    service, credentials, _user = _authenticate(payload, request, response)
+    return session_payload(service, credentials.token)
+
+
+@app.get("/api/auth/session")
+async def auth_session(request: Request, _session: AuthenticatedSession):
+    """Retorna identidade, acessos e módulos visíveis da sessão atual."""
+    token = token_from_request(request)
+    return session_payload(get_identity_service(), str(token))
+
+
+@app.post("/api/auth/logout")
+async def auth_logout(request: Request, response: Response, session: CsrfSession):
+    """Revoga a sessão no servidor e remove seus cookies."""
+    get_identity_service().revoke_session(
+        token_from_request(request), actor_user_id=session.user.id
+    )
+    clear_session_cookies(response)
+    return {"authenticated": False}
+
+
+@app.post("/api/auth/change-password")
+async def change_password(
+    payload: ChangePasswordRequest,
+    response: Response,
+    session: CsrfSession,
+):
+    """Substitui a senha temporária e renova a sessão do usuário."""
+    try:
+        service = get_identity_service()
+        user = service.change_own_password(
+            session.user.id,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+        )
+        credentials = service.create_session(user.id)
+    except InvalidCredentialsError as exc:
+        raise HTTPException(status_code=401, detail="Senha atual inválida.") from exc
+    except InvalidIdentityInputError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    set_session_cookie(response, credentials.token)
+    return session_payload(service, credentials.token)
+
+
+@app.get("/api/admin/users")
+async def list_users(
+    session=Depends(require_permission("users.manage")),
+):
+    """Lista usuários e permissões para administradores autorizados."""
+    users = get_identity_service().list_users(actor_user_id=session.user.id)
+    return {"users": [user.to_dict() for user in users]}
+
+
+def _raise_identity_http_error(exc: Exception) -> None:
+    if isinstance(exc, UserNotFoundError):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, (UsernameAlreadyExistsError, LastOwnerError)):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, (InvalidIdentityInputError, UnknownPermissionError)):
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if isinstance(exc, InvalidCredentialsError):
+        raise HTTPException(status_code=403, detail="Permissão insuficiente.") from exc
+    raise exc
+
+
+@app.post("/api/admin/users", status_code=201)
+async def create_user(payload: CreateUserRequest, session: CsrfSession):
+    """Cria um usuário com negação padrão e permissões explícitas."""
+    try:
+        user = get_identity_service().create_user(
+            username=payload.username,
+            display_name=payload.display_name,
+            password=payload.password,
+            permissions=tuple(payload.permissions),
+            active=payload.active,
+            must_change_password=payload.must_change_password,
+            actor_user_id=session.user.id,
+        )
+        return user.to_dict()
+    except (
+        InvalidCredentialsError,
+        InvalidIdentityInputError,
+        UnknownPermissionError,
+        UsernameAlreadyExistsError,
+    ) as exc:
+        _raise_identity_http_error(exc)
+
+
+@app.patch("/api/admin/users/{user_id}")
+async def update_user(user_id: str, payload: UpdateUserRequest, session: CsrfSession):
+    """Atualiza dados e substitui a lista completa de acessos de um usuário."""
+    try:
+        service = get_identity_service()
+        user = service.update_user_access(
+            user_id,
+            display_name=payload.display_name,
+            active=payload.active,
+            password=payload.password,
+            permissions=payload.permissions,
+            actor_user_id=session.user.id,
+        )
+        return user.to_dict()
+    except (
+        InvalidCredentialsError,
+        InvalidIdentityInputError,
+        LastOwnerError,
+        UnknownPermissionError,
+        UserNotFoundError,
+    ) as exc:
+        _raise_identity_http_error(exc)
+
+
+def _orcamento_payload(service, orcamento, agora) -> dict:
+    """Acrescenta ao payload o que falta no cabeçalho para avançar a revisão."""
+    corpo = orcamento.to_dict(agora=agora)
+    atual = orcamento.revisao_atual
+    corpo["cabecalho_pendente"] = list(service.cabecalho_pendente(atual)) if atual else []
+    corpo["dfp_summary"] = compute_dfp_summary(atual.dfp if atual else None)
+    return corpo
+
+
+def _raise_orcamento_http_error(exc: Exception) -> None:
+    if isinstance(exc, (OrcamentoNotFoundError, RevisaoNotFoundError)):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, CodigoAlreadyExistsError):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if isinstance(exc, (InvalidOrcamentoInputError, InvalidSituacaoTransitionError)):
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    raise exc
+
+
+@app.get("/api/orcamento/orcamentos")
+async def listar_orcamentos(_session=Depends(require_permission("orcamento.view"))):
+    """Lista orçamentos com a revisão atual de cada um."""
+    service = get_orcamento_service()
+    agora = service.clock()
+    return {
+        "orcamentos": [
+            _orcamento_payload(service, item, agora) for item in service.list_orcamentos()
+        ],
+    }
+
+
+@app.get("/api/orcamento/schema")
+async def obter_schema_orcamento(
+    calculation_version: int = Query(default=2, ge=1, le=2),
+    _session=Depends(require_permission("orcamento.view")),
+):
+    """Retorna o catálogo DFP usado para montar a UI do orçamento."""
+    return get_dfp_window_schema(calculation_version=calculation_version)
+
+
+@app.post("/api/orcamento/orcamentos", status_code=201)
+async def criar_orcamento(
+    payload: CreateOrcamentoRequest,
+    session=Depends(require_permissions_with_csrf("orcamento.view", "orcamento.edit")),
+):
+    """Cria o orçamento com código sequencial e a revisão 0 em rascunho."""
+    service = get_orcamento_service()
+    try:
+        orcamento = service.create_orcamento(payload.model_dump(), autor_user_id=session.user.id)
+    except InvalidOrcamentoInputError as exc:
+        _raise_orcamento_http_error(exc)
+    return _orcamento_payload(service, orcamento, service.clock())
+
+
+@app.get("/api/orcamento/orcamentos/{orcamento_id}")
+async def obter_orcamento(
+    orcamento_id: str,
+    _session=Depends(require_permission("orcamento.view")),
+):
+    """Retorna o orçamento com todo o histórico de revisões preservado."""
+    service = get_orcamento_service()
+    try:
+        orcamento = service.get_orcamento(orcamento_id)
+    except OrcamentoNotFoundError as exc:
+        _raise_orcamento_http_error(exc)
+    return _orcamento_payload(service, orcamento, service.clock())
+
+
+@app.post("/api/orcamento/orcamentos/{orcamento_id}/revisoes", status_code=201)
+async def criar_revisao_orcamento(
+    orcamento_id: str,
+    payload: RevisaoOrcamentoRequest,
+    session=Depends(require_permissions_with_csrf("orcamento.view", "orcamento.edit")),
+):
+    """Cria a próxima revisão sem sobrescrever as anteriores."""
+    service = get_orcamento_service()
+    try:
+        revisao = service.create_revisao(
+            orcamento_id,
+            payload.model_dump(exclude_unset=True),
+            autor_user_id=session.user.id,
+        )
+    except (OrcamentoNotFoundError, InvalidOrcamentoInputError) as exc:
+        _raise_orcamento_http_error(exc)
+    return revisao.to_dict(agora=service.clock())
+
+
+@app.patch("/api/orcamento/revisoes/{revisao_id}")
+async def editar_cabecalho_revisao(
+    revisao_id: str,
+    payload: UpdateCabecalhoOrcamentoRequest,
+    session=Depends(require_permissions_with_csrf("orcamento.view", "orcamento.edit")),
+):
+    """Edita o cabeçalho apenas da revisão atual enquanto estiver em rascunho."""
+    service = get_orcamento_service()
+    try:
+        revisao = service.update_cabecalho(
+            revisao_id,
+            payload.model_dump(exclude_unset=True),
+            responsavel_user_id=session.user.id,
+        )
+    except (
+        InvalidOrcamentoInputError,
+        InvalidSituacaoTransitionError,
+        RevisaoNotFoundError,
+    ) as exc:
+        _raise_orcamento_http_error(exc)
+    return revisao.to_dict(agora=service.clock())
+
+
+@app.post("/api/orcamento/revisoes/{revisao_id}/situacao")
+async def alterar_situacao_revisao(
+    revisao_id: str,
+    payload: SituacaoRevisaoRequest,
+    session=Depends(
+        require_permissions_with_csrf("orcamento.view", "orcamento.transition")
+    ),
+):
+    """Aplica a transição de situação registrando motivo e responsável."""
+    service = get_orcamento_service()
+    try:
+        revisao = service.alterar_situacao(
+            revisao_id,
+            situacao=payload.situacao,
+            motivo=payload.motivo,
+            responsavel_user_id=session.user.id,
+        )
+    except (
+        InvalidOrcamentoInputError,
+        InvalidSituacaoTransitionError,
+        RevisaoNotFoundError,
+    ) as exc:
+        _raise_orcamento_http_error(exc)
+    return revisao.to_dict(agora=service.clock())
+
+
+@app.get("/api/orcamento/catalogo")
+def obter_catalogo_orcamento(_session=Depends(require_permission("orcamento.view"))):
+    return get_orcamento_service().get_catalogo()
+
+
+@app.get("/api/orcamento/catalogo/historico")
+def historico_catalogo_orcamento(_session=Depends(require_permission("orcamento.view"))):
+    """Expõe as versões e vigências do catálogo para auditoria do orçamento."""
+    return {"historico": list(get_orcamento_service().list_catalogo_historico())}
+
+
+@app.post("/api/orcamento/catalogo")
+def salvar_catalogo_orcamento(
+    payload: dict[str, Any],
+    session=Depends(require_permissions_with_csrf("orcamento.view", "orcamento.edit")),
+):
+    try:
+        return get_orcamento_service().save_catalogo(payload, responsavel_user_id=session.user.id)
+    except InvalidOrcamentoInputError as exc:
+        _raise_orcamento_http_error(exc)
+
+
+@app.get("/api/orcamento/orcamentos/{orcamento_id}/historico")
+def historico_orcamento(
+    orcamento_id: str,
+    _session=Depends(require_permission("orcamento.view")),
+):
+    try:
+        service = get_orcamento_service()
+        service.get_orcamento(orcamento_id)
+        return {"historico": list(service.list_historico(orcamento_id))}
+    except OrcamentoNotFoundError as exc:
+        _raise_orcamento_http_error(exc)
+
+
+@app.get("/api/orcamento/revisoes/{revisao_id}/exportar")
+def exportar_orcamento(
+    revisao_id: str,
+    formato: Literal["docx", "pdf"] = "pdf",
+    _session=Depends(require_permission("orcamento.view")),
+):
+    from .orcamento.documents import export_orcamento_document
+
+    service = get_orcamento_service()
+    try:
+        revisao = service.get_revisao(revisao_id)
+        orcamento = service.get_orcamento(revisao.orcamento_id)
+        content, media_type, filename = export_orcamento_document(
+            orcamento.to_dict(agora=service.clock()),
+            revisao.to_dict(agora=service.clock()),
+            formato,
+        )
+    except (RevisaoNotFoundError, OrcamentoNotFoundError, InvalidOrcamentoInputError) as exc:
+        _raise_orcamento_http_error(exc)
+    return Response(content, media_type=media_type, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store",
+    })
+
+
+# Rotas legadas temporárias: mantêm clientes antigos usando a nova sessão persistida.
+@app.post("/api/admin/login")
+async def admin_login(payload: AdminLoginRequest, request: Request, response: Response):
+    _service, _credentials, user = _authenticate(payload, request, response, legacy=True)
+    return {"authenticated": True, "username": user.username}
 
 
 @app.get("/api/admin/session")
 async def admin_session(request: Request):
-    """Retorna o estado atual da sessão admin."""
-    if not admin_auth_configured():
-        return {"authenticated": False, "username": None}
-
-    username = current_admin_username(request)
-    return {"authenticated": bool(username), "username": username}
+    try:
+        session = get_identity_service().resolve_session(token_from_request(request))
+    except RuntimeError:
+        session = None
+    has_admin_access = session is not None and "admin_banco.use" in session.user.permissions
+    return {
+        "authenticated": has_admin_access,
+        "username": session.user.username if has_admin_access else None,
+    }
 
 
 @app.post("/api/admin/logout")
-async def admin_logout(response: Response):
-    """Encerra a sessão admin atual."""
-    clear_admin_session_cookie(response)
+async def admin_logout(request: Request, response: Response):
+    try:
+        get_identity_service().revoke_session(token_from_request(request))
+    except RuntimeError:
+        pass
+    clear_session_cookies(response)
     return {"authenticated": False}
 
 
-@app.get("/api/dashboard/resumo")
+@app.get(
+    "/api/dashboard/resumo",
+    dependencies=[Depends(require_permissions("dre.view", "fluxo.view"))],
+)
 async def dashboard_resumo(
     ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
     mes: int | None = Query(None, description="Mês de referência 1..12"),
@@ -375,7 +842,7 @@ async def dashboard_resumo(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/dre/painel")
+@app.get("/api/dre/painel", dependencies=[Depends(require_permission("dre.view"))])
 async def painel_dre(
     ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
     meses: list[int] | None = Query(None, description="Meses a incluir, repetível"),
@@ -405,7 +872,10 @@ async def painel_dre(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/fluxo_caixa/painel")
+@app.get(
+    "/api/fluxo_caixa/painel",
+    dependencies=[Depends(require_permission("fluxo.view"))],
+)
 async def painel_fluxo_caixa(
     ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
     meses: list[int] | None = Query(None, description="Meses a incluir, repetível"),
@@ -429,7 +899,10 @@ async def painel_fluxo_caixa(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/api/detectar-competencia/{fluxo}", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/detectar-competencia/{fluxo}",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def detectar_competencia(
     fluxo: FlowType,
     arquivo: UploadFile | None = File(None),
@@ -466,7 +939,10 @@ async def detectar_competencia(
                 path.unlink()
 
 
-@app.post("/api/validar/{fluxo}", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/validar/{fluxo}",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def validar_arquivo(
     fluxo: FlowType,
     arquivo: UploadFile = File(...),
@@ -513,7 +989,7 @@ async def validar_arquivo(
 @app.post(
     "/api/processar/dre",
     response_model=DREProcessamentoResponse,
-    dependencies=[Depends(require_admin_session)],
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
 )
 async def processar_dre(
     arquivo: UploadFile = File(...),
@@ -554,7 +1030,7 @@ async def processar_dre(
 @app.post(
     "/api/processar/fluxo_caixa",
     response_model=DREProcessamentoResponse,
-    dependencies=[Depends(require_admin_session)],
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
 )
 async def processar_fluxo_caixa(
     arquivos: list[UploadFile] = File(...),
@@ -584,7 +1060,10 @@ async def processar_fluxo_caixa(
                 path.unlink()
 
 
-@app.post("/api/fluxo_caixa/gerar", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/fluxo_caixa/gerar",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def gerar_fluxo_caixa(
     arquivos: list[UploadFile] | None = File(
         None,
@@ -656,7 +1135,10 @@ async def gerar_fluxo_caixa(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/api/validar/fluxo_caixa/lote", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/validar/fluxo_caixa/lote",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def validar_lote_fluxo(
     arquivos: list[UploadFile] = File(...),
 ):
@@ -691,7 +1173,9 @@ async def validar_lote_fluxo(
                 p.unlink()
 
 
-@app.get("/api/templates/info/{fluxo}", dependencies=[Depends(require_admin_session)])
+@app.get(
+    "/api/templates/info/{fluxo}", dependencies=[Depends(require_permission("admin_banco.use"))]
+)
 async def info_template(fluxo: FlowType):
     """Retorna informações estruturais do template oficial."""
     try:
@@ -728,7 +1212,7 @@ async def info_template(fluxo: FlowType):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/config/{fluxo}", dependencies=[Depends(require_admin_session)])
+@app.get("/api/config/{fluxo}", dependencies=[Depends(require_permission("admin_banco.use"))])
 async def get_config(fluxo: FlowType):
     """Retorna configuração de mapeamento do fluxo."""
     import json
@@ -745,7 +1229,7 @@ async def get_config(fluxo: FlowType):
     return config
 
 
-@app.get("/api/logs", dependencies=[Depends(require_admin_session)])
+@app.get("/api/logs", dependencies=[Depends(require_permission("admin_banco.use"))])
 async def listar_logs():
     """Lista logs de processamento disponíveis."""
     logs = []
@@ -761,7 +1245,7 @@ async def listar_logs():
 @app.get(
     "/api/processamentos/{processamento_id}",
     response_model=DREProcessamentoResponse,
-    dependencies=[Depends(require_admin_session)],
+    dependencies=[Depends(require_permission("admin_banco.use"))],
 )
 async def obter_processamento(processamento_id: str):
     """Consulta o status persistido de um processamento (DRE ou Fluxo)."""
@@ -775,7 +1259,7 @@ async def obter_processamento(processamento_id: str):
 
 @app.get(
     "/api/processamentos/{processamento_id}/download",
-    dependencies=[Depends(require_admin_session)],
+    dependencies=[Depends(require_permission("admin_banco.use"))],
 )
 async def download_processamento(processamento_id: str):
     """Baixa o arquivo final gerado por um processamento (DRE ou Fluxo)."""
@@ -787,7 +1271,7 @@ async def download_processamento(processamento_id: str):
     return _excel_file_response(arquivo_saida)
 
 
-@app.get("/api/etapa1/status", dependencies=[Depends(require_admin_session)])
+@app.get("/api/etapa1/status", dependencies=[Depends(require_permission("admin_banco.use"))])
 async def status_etapa1():
     """Resumo de prontidão da Etapa 1 (fundação e arquitetura)."""
     baseline_dir = settings.config_dir / "template_baselines"
@@ -815,7 +1299,10 @@ async def status_etapa1():
 # ============================================================================
 
 
-@app.post("/api/dre/ingestoes", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/dre/ingestoes",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def ingestao_dre(
     arquivo: UploadFile = File(...),
     competencia: str = Form(..., description="Competência no formato MM/AAAA (ex: 05/2025)"),
@@ -855,7 +1342,9 @@ async def ingestao_dre(
             tmp_path.unlink()
 
 
-@app.get("/api/dre/ingestoes/{upload_id}", dependencies=[Depends(require_admin_session)])
+@app.get(
+    "/api/dre/ingestoes/{upload_id}", dependencies=[Depends(require_permission("admin_banco.use"))]
+)
 async def obter_status_ingestao(upload_id: str):
     """Consulta o status de uma ingestão DRE."""
     resultado = dre_ingestao_service.obter_status(upload_id)
@@ -864,7 +1353,7 @@ async def obter_status_ingestao(upload_id: str):
     return resultado
 
 
-@app.get("/api/dre/ingestoes", dependencies=[Depends(require_admin_session)])
+@app.get("/api/dre/ingestoes", dependencies=[Depends(require_permission("admin_banco.use"))])
 async def listar_ingestoes(
     ano: int | None = None,
     mes: int | None = None,
@@ -878,7 +1367,10 @@ async def listar_ingestoes(
     }
 
 
-@app.post("/api/dre/admin/limpar", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/dre/admin/limpar",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def limpar_base_dre(
     ano: int | None = Form(None, description="Ano opcional (ex: 2025)"),
     mes: int | None = Form(None, description="Mês opcional 1..12 (requer ano)"),
@@ -912,7 +1404,10 @@ async def limpar_base_dre(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/dre/admin/indicadores", dependencies=[Depends(require_admin_session)])
+@app.get(
+    "/api/dre/admin/indicadores",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def consultar_indicadores_manuais_dre(
     ano: int = Query(..., description="Ano da competência"),
     mes: int = Query(..., description="Mês da competência"),
@@ -926,7 +1421,9 @@ async def consultar_indicadores_manuais_dre(
     return _payload_indicadores_manuais(registro, existe)
 
 
-@app.post("/api/dre/admin/indicadores", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/dre/admin/indicadores", dependencies=[Depends(require_permission("admin_banco.use"))]
+)
 async def salvar_indicadores_manuais_dre(
     ano: int = Form(..., description="Ano da competência"),
     mes: int = Form(..., description="Mês da competência"),
@@ -960,7 +1457,10 @@ async def salvar_indicadores_manuais_dre(
     return _payload_indicadores_manuais(salvo, True)
 
 
-@app.get("/api/fluxo_caixa/admin/indicadores", dependencies=[Depends(require_admin_session)])
+@app.get(
+    "/api/fluxo_caixa/admin/indicadores",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def consultar_indicadores_manuais_fluxo(
     ano: int = Query(..., description="Ano de referência do Fluxo de Caixa"),
 ):
@@ -973,7 +1473,10 @@ async def consultar_indicadores_manuais_fluxo(
     return _payload_indicadores_manuais_fluxo(registro, existe)
 
 
-@app.post("/api/fluxo_caixa/admin/indicadores", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/fluxo_caixa/admin/indicadores",
+    dependencies=[Depends(require_permission("admin_banco.use"))],
+)
 async def salvar_indicadores_manuais_fluxo(
     ano: int = Form(..., description="Ano de referência do Fluxo de Caixa"),
     saldo_ano_anterior: float = Form(0, description="Saldo do ano anterior"),
@@ -998,7 +1501,10 @@ async def salvar_indicadores_manuais_fluxo(
 # ============================================================================
 
 
-@app.post("/api/fluxo_caixa/ingestoes", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/fluxo_caixa/ingestoes",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def ingestao_fluxo_caixa(
     arquivos: list[UploadFile] = File(...),
     competencia: str = Form(..., description="Competência no formato MM/AAAA (ex: 08/2025)"),
@@ -1040,7 +1546,9 @@ async def ingestao_fluxo_caixa(
                 path.unlink()
 
 
-@app.get("/api/fluxo_caixa/ingestoes", dependencies=[Depends(require_admin_session)])
+@app.get(
+    "/api/fluxo_caixa/ingestoes", dependencies=[Depends(require_permission("admin_banco.use"))]
+)
 async def listar_ingestoes_fluxo_caixa(
     ano: int | None = None,
     mes: int | None = None,
@@ -1054,7 +1562,10 @@ async def listar_ingestoes_fluxo_caixa(
     }
 
 
-@app.post("/api/fluxo_caixa/admin/limpar", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/fluxo_caixa/admin/limpar",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def limpar_base_fluxo_caixa(
     ano: int | None = Form(None, description="Ano opcional (ex: 2025)"),
     mes: int | None = Form(None, description="Mês opcional 1..12 (requer ano)"),
@@ -1088,7 +1599,10 @@ async def limpar_base_fluxo_caixa(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.post("/api/dre/gerar", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/dre/gerar",
+    dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
+)
 async def gerar_dre_cumulativo(
     competencia: str = Form(..., description="Competência alvo no formato MM/AAAA"),
     centro_custo: str | None = Form(None, description="Filtrar por obra/centro de custo"),
@@ -1183,7 +1697,53 @@ async def gerar_dre_cumulativo(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/dre/lancamentos", dependencies=[Depends(require_admin_session)])
+@app.post(
+    "/api/dre/exportar",
+    dependencies=[Depends(require_permission_with_csrf("dre.view"))],
+)
+async def exportar_dre_por_centro_custo(
+    competencia: str = Form(..., description="Competência alvo no formato MM/AAAA"),
+    centro_custo: str = Form(..., description="Obra/centro de custo a exportar"),
+    meses_incluir: list[int] | None = Form(None),
+):
+    """Gera e baixa um DRE restrito a uma única obra selecionada no painel."""
+    obra = centro_custo.strip()
+    if not obra:
+        raise HTTPException(status_code=400, detail="Selecione uma obra para exportar o DRE.")
+    try:
+        verificacao = dre_geracao_completa_service.verificar_dados(
+            competencia=competencia,
+            centro_custo=obra,
+            meses_incluir=meses_incluir,
+            ano_todo=False,
+        )
+        if not verificacao["valido"]:
+            raise HTTPException(
+                status_code=400,
+                detail=verificacao.get("error", "Dados insuficientes para exportação."),
+            )
+        resultado = dre_geracao_completa_service.gerar_arquivo(
+            competencia=competencia,
+            centro_custo=obra,
+            meses_incluir=meses_incluir,
+            ano_todo=False,
+        )
+        arquivo_path = _resolver_output_xlsx(resultado["arquivo_saida"])
+        return _excel_file_response(
+            arquivo_path,
+            arquivo_path.name,
+            remove_after_send=True,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Erro na exportação filtrada do DRE: %s", exc)
+        raise HTTPException(status_code=500, detail="Não foi possível exportar o DRE.")
+
+
+@app.get("/api/dre/lancamentos", dependencies=[Depends(require_permission("admin_banco.use"))])
 async def listar_lancamentos(
     ano: int,
     mes: int,
@@ -1245,7 +1805,7 @@ async def listar_lancamentos(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/dre/resumo", dependencies=[Depends(require_admin_session)])
+@app.get("/api/dre/resumo", dependencies=[Depends(require_permission("admin_banco.use"))])
 async def resumo_dre(
     ano: int,
     mes: int | None = None,
@@ -1277,7 +1837,10 @@ async def resumo_dre(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@app.get("/api/dre/download/{arquivo_nome:path}", dependencies=[Depends(require_admin_session)])
+@app.get(
+    "/api/dre/download/{arquivo_nome:path}",
+    dependencies=[Depends(require_permission("admin_banco.use"))],
+)
 async def download_dre(arquivo_nome: str):
     """Download de arquivo DRE gerado."""
     arquivo_path = _resolver_output_xlsx(arquivo_nome)
@@ -1286,7 +1849,7 @@ async def download_dre(arquivo_nome: str):
 
 @app.get(
     "/api/fluxo_caixa/download/{arquivo_nome:path}",
-    dependencies=[Depends(require_admin_session)],
+    dependencies=[Depends(require_permission("admin_banco.use"))],
 )
 async def download_fluxo_caixa(arquivo_nome: str):
     """Download de arquivo Fluxo de Caixa gerado."""

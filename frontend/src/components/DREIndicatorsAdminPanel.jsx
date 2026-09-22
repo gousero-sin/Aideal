@@ -63,7 +63,12 @@ const parseMoney = (key, value) => {
   return parsed;
 };
 
-export default function DREIndicatorsAdminPanel({ apiBase, onNotify, onBusyChange }) {
+export default function DREIndicatorsAdminPanel({
+  apiBase,
+  onNotify,
+  onBusyChange,
+  csrfToken,
+}) {
   const [ano, setAno] = useState(() => hoje().getFullYear());
   const [mesAtivo, setMesAtivo] = useState(() => hoje().getMonth() + 1);
   const [form, setForm] = useState(emptyForm);
@@ -164,6 +169,7 @@ export default function DREIndicatorsAdminPanel({ apiBase, onNotify, onBusyChang
       const response = await fetch(`${apiBase}/dre/admin/indicadores`, {
         method: 'POST',
         credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrfToken },
         body: formData,
       });
       if (!response.ok) {

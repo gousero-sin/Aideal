@@ -25,7 +25,9 @@ def _novo_db() -> DatabaseConnection:
 def _client_com_db(db: DatabaseConnection) -> TestClient:
     main_module.dre_painel_service = PainelDREService(db=db)
     main_module.fluxo_painel_service = PainelFluxoCaixaService(db=db)
-    return TestClient(main_module.app)
+    client = TestClient(main_module.app)
+    _login_admin(client)
+    return client
 
 
 def _patch_admin_services(db: DatabaseConnection) -> None:
@@ -53,6 +55,9 @@ def _login_admin(client: TestClient) -> None:
         json={"username": "Eduardo", "password": "senha-admin-teste"},
     )
     assert resp.status_code == 200
+    session = client.get("/api/auth/session")
+    assert session.status_code == 200
+    client.headers.update({"X-CSRF-Token": session.json()["csrf_token"]})
 
 
 def test_painel_dre_vazio_retorna_kpis_zerados():
@@ -587,9 +592,7 @@ def test_painel_dre_reproduz_receita_liquida_recomposta_do_dre_gerado():
         )
 
     client = _client_com_db(db)
-    resp = client.get(
-        "/api/dre/painel?ano=2026&meses=8&centro_custo=Obra%20Receita%20Recomposta"
-    )
+    resp = client.get("/api/dre/painel?ano=2026&meses=8&centro_custo=Obra%20Receita%20Recomposta")
 
     assert resp.status_code == 200
     indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
@@ -1163,8 +1166,7 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
 
     client = _client_com_db(db)
     resp = client.get(
-        "/api/dre/painel"
-        "?ano=2026&meses=5&centro_custo=Obra%20Alpha&escopo_periodo=projeto_completo"
+        "/api/dre/painel?ano=2026&meses=5&centro_custo=Obra%20Alpha&escopo_periodo=projeto_completo"
     )
 
     assert resp.status_code == 200
@@ -1339,8 +1341,7 @@ def test_painel_dre_indicadores_usam_contas_filhas_do_template_e_gasto_total_par
 
     client = _client_com_db(db)
     resp = client.get(
-        "/api/dre/painel"
-        "?ano=2025&centro_custo=Obra%20Leaf&escopo_periodo=projeto_completo"
+        "/api/dre/painel?ano=2025&centro_custo=Obra%20Leaf&escopo_periodo=projeto_completo"
     )
 
     assert resp.status_code == 200
@@ -2247,9 +2248,7 @@ def test_painel_dre_usa_indicadores_manuais_para_ncg_e_impostos_retidos():
     assert body["indicadores_manuais"]["contas_pagar"] == pytest.approx(300.0)
     assert body["indicadores_manuais"]["contas_receber"] == pytest.approx(500.0)
     assert body["indicadores_manuais"]["total_impostos_retidos"] == pytest.approx(120.0)
-    assert body["indicadores_manuais"]["total_impostos_retidos_acima_meta"] == pytest.approx(
-        20.0
-    )
+    assert body["indicadores_manuais"]["total_impostos_retidos_acima_meta"] == pytest.approx(20.0)
     assert body["indicadores_manuais"]["periodo_dre"]["competencias"] == [
         {"ano": 2025, "mes": 5, "periodo": "2025-05"}
     ]
@@ -2438,6 +2437,7 @@ def test_admin_indicadores_manuais_exige_sessao_confirmacao_e_salva(monkeypatch)
     _configurar_admin(monkeypatch)
     db = _novo_db()
     client = _client_com_db(db)
+    client.cookies.clear()
 
     sem_sessao = client.get("/api/dre/admin/indicadores?ano=2025&mes=5")
     assert sem_sessao.status_code == 401
@@ -2494,6 +2494,7 @@ def test_admin_indicadores_manuais_fluxo_exige_sessao_confirmacao_e_alimenta_pai
     _configurar_admin(monkeypatch)
     db = _novo_db()
     client = _client_com_db(db)
+    client.cookies.clear()
 
     sem_sessao = client.get("/api/fluxo_caixa/admin/indicadores?ano=2025")
     assert sem_sessao.status_code == 401
@@ -2951,12 +2952,9 @@ def test_painel_fluxo_2026_reproduz_variacoes_e_saldos_da_conferencia_por_codigo
         return Decimal(str(valor)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     observado = {
-        "variacoes": {
-            item["mes"]: centavos(item["saldo"]) for item in body["series_mensais"]
-        },
+        "variacoes": {item["mes"]: centavos(item["saldo"]) for item in body["series_mensais"]},
         "saldos_finais": {
-            item["mes"]: centavos(item["saldo_final"])
-            for item in body["series_mensais"]
+            item["mes"]: centavos(item["saldo_final"]) for item in body["series_mensais"]
         },
         "saldo_ano_anterior": centavos(body["kpis"]["saldo_ano_anterior"]),
         "saldo_liquido": centavos(body["kpis"]["saldo_liquido"]),
@@ -3875,6 +3873,7 @@ def test_admin_limpar_remove_somente_competencia_informada(monkeypatch):
 
     _patch_admin_services(db)
     client = _client_com_db(db)
+    client.cookies.clear()
 
     dre_sem_sessao = client.post(
         "/api/dre/admin/limpar",

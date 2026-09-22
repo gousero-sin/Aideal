@@ -2,6 +2,7 @@
 
 import tempfile
 
+from conftest import login_admin
 from fastapi.testclient import TestClient
 
 import app.main as main_module
@@ -26,6 +27,7 @@ def test_dashboard_resumo_vazio(monkeypatch, tmp_path):
         DashboardResumoService(db=db, logs_dir=tmp_path),
     )
     client = TestClient(main_module.app)
+    login_admin(client)
 
     resp = client.get("/api/dashboard/resumo?ano=2025&mes=5")
 
@@ -221,6 +223,7 @@ def test_dashboard_resumo_com_dre_e_fluxo(monkeypatch, tmp_path):
         DashboardResumoService(db=db, logs_dir=tmp_path),
     )
     client = TestClient(main_module.app)
+    login_admin(client)
 
     resp = client.get("/api/dashboard/resumo?ano=2025&mes=5")
 
@@ -342,6 +345,7 @@ def test_dashboard_resumo_dre_usa_receita_liquida_sem_descontar_impostos_duas_ve
         DashboardResumoService(db=db, logs_dir=tmp_path),
     )
     client = TestClient(main_module.app)
+    login_admin(client)
 
     resp = client.get("/api/dashboard/resumo?ano=2026&mes=6")
 
@@ -362,6 +366,7 @@ def test_dashboard_resumo_rejeita_periodo_invalido(monkeypatch, tmp_path):
         DashboardResumoService(db=db, logs_dir=tmp_path),
     )
     client = TestClient(main_module.app)
+    login_admin(client)
 
     resp = client.get("/api/dashboard/resumo?ano=2025&mes=13")
 

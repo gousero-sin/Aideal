@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { fetchWithCsrfRecovery } from '../auth/csrfFetch';
 import {
   BarChart3,
   Download,
@@ -24,6 +25,7 @@ import {
 } from './PanelShared';
 import { FilterDock, MonthSlicer, SearchableSlicer, YearSelect } from './PanelSlicers';
 import {
+  buildDREExportRequest,
   buildFilterSummary,
   buildDREPanelQuery,
   countSelectedFilters,
@@ -139,11 +141,12 @@ function DREAnalysisPanel({ title, subtitle, items, emptyText, type }) {
   );
 }
 
-export default function PainelDRE({ apiBase, onBusyChange }) {
+export default function PainelDRE({ apiBase, csrfToken, onBusyChange, onNotify }) {
   const [filters, setFilters] = useState(emptyFilters);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const query = useMemo(() => buildDREPanelQuery(filters), [filters]);
 
@@ -171,8 +174,8 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
   }, [carregarPainel]);
 
   useEffect(() => {
-    onBusyChange?.(loading);
-  }, [loading, onBusyChange]);
+    onBusyChange?.(loading || exporting);
+  }, [exporting, loading, onBusyChange]);
 
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 
@@ -186,6 +189,47 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
 
   const clearFilters = () => {
     setFilters({ ...emptyFilters, ano: filters.ano || String(data?.periodo?.ano || '') });
+  };
+
+  const exportDRE = async () => {
+    const request = buildDREExportRequest(filters, data);
+    if (!request.valid) {
+      onNotify?.({ type: 'error', message: request.error });
+      return;
+    }
+    setExporting(true);
+    try {
+      const form = new FormData();
+      form.set('competencia', request.competencia);
+      form.set('centro_custo', request.centroCusto);
+      request.meses.forEach((month) => form.append('meses_incluir', String(month)));
+      const response = await fetchWithCsrfRecovery(`${apiBase}/dre/exportar`, {
+        method: 'POST',
+        body: form,
+      }, { csrfToken, apiBase });
+      if (!response.ok) {
+        const detail = await response.json().catch(() => ({}));
+        throw new Error(typeof detail?.detail === 'string' ? detail.detail : 'Não foi possível exportar o DRE.');
+      }
+      const disposition = response.headers.get('content-disposition') || '';
+      const filenameMatch = disposition.match(/filename\*?=(?:UTF-8''|\")?([^";]+)/i);
+      const filename = filenameMatch?.[1]
+        ? decodeURIComponent(filenameMatch[1])
+        : `DRE_${request.centroCusto}_${request.competencia.replace('/', '-')}.xlsx`;
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      onNotify?.({ type: 'success', message: `DRE da obra ${request.centroCusto} exportado.` });
+    } catch (requestError) {
+      onNotify?.({ type: 'error', message: requestError.message || 'Não foi possível exportar o DRE.' });
+    } finally {
+      setExporting(false);
+    }
   };
 
   const kpis = data?.kpis || {};
@@ -306,6 +350,16 @@ export default function PainelDRE({ apiBase, onBusyChange }) {
             <button className="aideal-action aideal-action-secondary" onClick={clearFilters} disabled={!activeFilterCount}>
               <RotateCcw size={16} aria-hidden="true" />
               <span>Limpar filtros</span>
+            </button>
+            <button
+              className="aideal-action aideal-action-secondary"
+              disabled={filters.centro_custo.length !== 1 || loading || exporting}
+              onClick={exportDRE}
+              title="Selecione exatamente uma obra. O arquivo considera a obra e o período selecionados."
+              type="button"
+            >
+              <Download size={16} aria-hidden="true" />
+              <span>{exporting ? 'Exportando' : 'Exportar DRE da obra'}</span>
             </button>
             <button className="aideal-action aideal-action-primary" onClick={carregarPainel} disabled={loading}>
               <RefreshCcw size={16} aria-hidden="true" />

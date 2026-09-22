@@ -32,9 +32,7 @@ class DREIngestaoService:
         self.validator = DREValidator()
         self.transformer = DRETransformer()
         self.archive_dir = (
-            Path(archive_dir)
-            if archive_dir
-            else self.db.db_path.parent / "uploads_archive"
+            Path(archive_dir) if archive_dir else self.db.db_path.parent / "uploads_archive"
         )
 
     def _calcular_sha256(self, file_path: Path) -> str:

@@ -28,6 +28,7 @@ const competenciaParaExibicao = (ano, mes) => {
 export default function UploadPanel({
   fluxo,
   apiBase,
+  csrfToken,
   onValidation,
   onProcess,
   processamento,
@@ -166,6 +167,7 @@ export default function UploadPanel({
       const response = await fetch(`${apiBase}/detectar-competencia/${fluxo}`, {
         method: 'POST',
         credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrfToken },
         body: formData,
       });
 
@@ -230,6 +232,7 @@ export default function UploadPanel({
         response = await fetch(`${apiBase}/validar/fluxo_caixa/lote`, {
           method: 'POST',
           credentials: 'same-origin',
+          headers: { 'X-CSRF-Token': csrfToken },
           body: formData,
         });
       } else {
@@ -242,6 +245,7 @@ export default function UploadPanel({
         response = await fetch(`${apiBase}/validar/${fluxo}`, {
           method: 'POST',
           credentials: 'same-origin',
+          headers: { 'X-CSRF-Token': csrfToken },
           body: formData,
         });
       }
@@ -285,6 +289,7 @@ export default function UploadPanel({
       const response = await fetch(`${apiBase}/${recurso}/ingestoes`, {
         method: 'POST',
         credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrfToken },
         body: formData,
       });
 
@@ -350,6 +355,7 @@ export default function UploadPanel({
       const response = await fetch(`${apiBase}/${recurso}/gerar`, {
         method: 'POST',
         credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrfToken },
         body: formData,
       });
 
@@ -400,6 +406,7 @@ export default function UploadPanel({
       const response = await fetch(`${apiBase}/${recurso}/admin/limpar`, {
         method: 'POST',
         credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrfToken },
         body: formData,
       });
 

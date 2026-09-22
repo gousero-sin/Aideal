@@ -100,4 +100,22 @@ def test_operacao_admin_exige_sessao(monkeypatch):
     )
 
     assert resp.status_code == 401
-    assert resp.json()["detail"] == "Sessão admin obrigatória."
+    assert resp.json()["detail"] == "Sessão obrigatória."
+
+
+def test_operacao_admin_com_sessao_exige_csrf(monkeypatch):
+    _configurar_admin(monkeypatch)
+    client = TestClient(main_module.app)
+    login = client.post(
+        "/api/admin/login",
+        json={"username": "Eduardo", "password": "senha-admin-teste"},
+    )
+    assert login.status_code == 200
+
+    response = client.post(
+        "/api/dre/admin/limpar",
+        data={"ano": "2025", "mes": "5", "confirmar": "true"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Token CSRF inválido."

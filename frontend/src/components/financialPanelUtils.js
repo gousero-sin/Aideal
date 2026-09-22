@@ -52,6 +52,30 @@ export const buildPanelQuery = (filters) => {
 
 export const buildDREPanelQuery = (filters) => buildPanelQuery(filters);
 
+export const buildDREExportRequest = (filters = {}, data = {}) => {
+  const selectedCenters = Array.isArray(filters.centro_custo) ? filters.centro_custo : [];
+  if (selectedCenters.length !== 1) {
+    return { valid: false, error: 'Selecione exatamente uma obra para exportar o DRE.' };
+  }
+
+  const selectedMonths = Array.isArray(filters.meses) && filters.meses.length > 0
+    ? filters.meses : data?.filtros_disponiveis?.meses || [];
+  const months = [...new Set(selectedMonths.map(Number).filter((month) => month >= 1 && month <= 12))]
+    .sort((left, right) => left - right);
+  const year = Number(filters.ano || data?.periodo?.ano);
+  if (!Number.isInteger(year) || months.length === 0) {
+    return { valid: false, error: 'Não há período disponível para exportar o DRE.' };
+  }
+
+  const targetMonth = months[months.length - 1];
+  return {
+    valid: true,
+    centroCusto: selectedCenters[0],
+    competencia: `${String(targetMonth).padStart(2, '0')}/${year}`,
+    meses: months,
+  };
+};
+
 export const mergeCurrentYear = (anos, currentYear) => {
   const parsed = Number(currentYear);
   const normalized = [...new Set([...(anos || []), ...(Number.isFinite(parsed) ? [parsed] : [])])];

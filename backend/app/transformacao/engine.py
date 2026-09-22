@@ -431,10 +431,7 @@ class FluxoCaixaTransformer:
         movimentos: Sequence[FCMovimento],
     ) -> list[FCMovimento]:
         """Normaliza bancos e recupera direções legadas com evidências do lote."""
-        normalizados = [
-            self.normalizar_movimento_persistido(movimento)
-            for movimento in movimentos
-        ]
+        normalizados = [self.normalizar_movimento_persistido(movimento) for movimento in movimentos]
         direcoes_confiaveis = {
             indice
             for indice, movimento in enumerate(normalizados)
@@ -554,9 +551,7 @@ class FluxoCaixaTransformer:
 
         return [
             movimento.model_copy(
-                update=self._campos_direcao_transferencia(
-                    direcoes_propagadas[indice]
-                )
+                update=self._campos_direcao_transferencia(direcoes_propagadas[indice])
             )
             if indice in direcoes_propagadas
             else movimento

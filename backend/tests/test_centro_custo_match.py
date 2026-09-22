@@ -58,6 +58,9 @@ class TestResolverCentrosCusto:
         # Existindo match exato, não mistura com os mais permissivos.
         assert resolver_centros_custo("MOSAIC ARAXA", CENTROS) == ["MOSAIC ARAXA"]
 
+    def test_grafia_exata_prevalece_quando_normalizacoes_colidem(self):
+        assert resolver_centros_custo("Obra A", ["OBRA-A", "Obra A"]) == ["Obra A"]
+
     def test_sem_correspondencia_retorna_vazio(self):
         assert resolver_centros_custo("OBRA INEXISTENTE XYZ", CENTROS) == []
 

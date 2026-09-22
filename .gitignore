@@ -40,5 +40,22 @@ data/uploads_archive/
 
 # Segurança
 .env
+data/identity.db
+data/identity.db-shm
+data/identity.db-wal
 .env.*
 credentials.*
+
+# Artefatos de teste
+.coverage
+coverage.xml
+htmlcov/
+frontend/test-results/
+frontend/playwright-report/
+
+# Instruções locais de agente (não versionadas)
+CLAUDE.md
+
+data/orcamento.db
+data/orcamento.db-shm
+data/orcamento.db-wal

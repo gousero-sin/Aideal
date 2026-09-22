@@ -212,9 +212,7 @@ class FluxoCaixaGeracaoService:
         saldo_ano_anterior_cadastrado = (
             indicadores_manuais.saldo_ano_anterior if indicadores_manuais else None
         )
-        saldo_ano_anterior = (
-            saldo_ano_anterior_cadastrado if 1 in meses_utilizados else None
-        )
+        saldo_ano_anterior = saldo_ano_anterior_cadastrado if 1 in meses_utilizados else None
         lote = FCLote(
             periodo=competencia,
             arquivos_origem=sorted(
@@ -295,9 +293,7 @@ class FluxoCaixaGeracaoService:
             ),
             "total_creditos_apresentacao": self._valor_monetario(totais_saida["creditos"]),
             "total_debitos_apresentacao": self._valor_monetario(totais_saida["debitos"]),
-            "saldo_liquido_apresentacao": self._valor_monetario(
-                totais_saida["saldo_liquido"]
-            ),
+            "saldo_liquido_apresentacao": self._valor_monetario(totais_saida["saldo_liquido"]),
             "fonte_dados": "db",
             "estrategia_meses": verificacao["estrategia_meses"],
             "ano_todo": bool(ano_todo),

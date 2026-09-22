@@ -25,6 +25,7 @@ def test_ready_reporta_dependencias_operacionais():
     body = resp.json()
     assert body["status"] == "ready"
     assert body["checks"]["database"] is True
+    assert body["checks"]["identity_database"] is True
     assert body["checks"]["templates"] is True
     assert body["checks"]["directories"] is True
     assert body["checks"]["excel_runtime"] is True

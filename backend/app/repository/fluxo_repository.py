@@ -408,9 +408,7 @@ class FluxoCaixaRepository:
                 for arquivo in (substituir_arquivos or set())
                 if arquivo
             }
-            substituicao_filtrada = (
-                substituir_bancos is not None or substituir_arquivos is not None
-            )
+            substituicao_filtrada = substituir_bancos is not None or substituir_arquivos is not None
             removidos = 0
             for upload_ant in uploads_anteriores:
                 if substituicao_filtrada:

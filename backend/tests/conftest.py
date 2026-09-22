@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from openpyxl import Workbook
 
+from app.access_control import configure_identity_service, configure_orcamento_service
 from app.config import settings
 from app.ingestao.parser import ExcelParser
 from app.processamento.dre import DREProcessamentoService
@@ -24,6 +25,9 @@ def login_admin(client) -> None:
         json={"username": ADMIN_TEST_USERNAME, "password": ADMIN_TEST_PASSWORD},
     )
     assert resp.status_code == 200
+    session = client.get("/api/auth/session")
+    assert session.status_code == 200
+    client.headers.update({"X-CSRF-Token": session.json()["csrf_token"]})
 
 
 def _dados_dre_sintetico(
@@ -46,14 +50,21 @@ def _dados_dre_sintetico(
 
 
 @pytest.fixture(autouse=True)
-def _admin_auth_settings(monkeypatch):
+def _admin_auth_settings(monkeypatch, tmp_path):
     """Configura auth admin para a suíte; cada teste decide se faz login."""
+    configure_identity_service(None)
+    configure_orcamento_service(None)
     monkeypatch.setattr(settings, "admin_username", ADMIN_TEST_USERNAME)
     monkeypatch.setattr(settings, "admin_password", ADMIN_TEST_PASSWORD)
     monkeypatch.setattr(settings, "admin_password_hash", "")
     monkeypatch.setattr(settings, "admin_session_secret", "segredo-testes")
     monkeypatch.setattr(settings, "admin_session_max_age_seconds", 3600)
     monkeypatch.setattr(settings, "admin_cookie_secure", False)
+    monkeypatch.setattr(settings, "identity_db_path", tmp_path / "identity.db")
+    monkeypatch.setattr(settings, "orcamento_db_path", tmp_path / "orcamento.db")
+    yield
+    configure_identity_service(None)
+    configure_orcamento_service(None)
 
 
 @pytest.fixture

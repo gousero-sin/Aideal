@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     frontend_dist_dir: Path = base_dir / "frontend" / "dist"
     data_dir: Path = base_dir / "data"
     db_path: Path = data_dir / "aideal.db"
+    identity_db_path: Path = data_dir / "identity.db"
+    orcamento_db_path: Path = data_dir / "orcamento.db"
 
     # Templates oficiais
     template_dre: str = "DRE AIDEAL - 05 2025  - obra.xlsx"
@@ -47,6 +49,8 @@ class Settings(BaseSettings):
     admin_session_secret: str = ""
     admin_session_max_age_seconds: int = 8 * 60 * 60
     admin_cookie_secure: bool = False
+    login_max_attempts: int = 5
+    login_window_seconds: int = 5 * 60
 
     @property
     def template_dre_path(self) -> Path:
@@ -63,9 +67,7 @@ class Settings(BaseSettings):
     @property
     def allowed_upload_extensions_set(self) -> set[str]:
         return {
-            ext.strip().lower()
-            for ext in self.allowed_upload_extensions.split(",")
-            if ext.strip()
+            ext.strip().lower() for ext in self.allowed_upload_extensions.split(",") if ext.strip()
         }
 
     @property

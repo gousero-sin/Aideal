@@ -40,7 +40,12 @@ const parseMoney = (key, value) => {
   return parsed;
 };
 
-export default function FluxoIndicatorsAdminPanel({ apiBase, onNotify, onBusyChange }) {
+export default function FluxoIndicatorsAdminPanel({
+  apiBase,
+  onNotify,
+  onBusyChange,
+  csrfToken,
+}) {
   const [ano, setAno] = useState(() => hoje().getFullYear());
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
@@ -134,6 +139,7 @@ export default function FluxoIndicatorsAdminPanel({ apiBase, onNotify, onBusyCha
       const response = await fetch(`${apiBase}/fluxo_caixa/admin/indicadores`, {
         method: 'POST',
         credentials: 'same-origin',
+        headers: { 'X-CSRF-Token': csrfToken },
         body: formData,
       });
       if (!response.ok) {

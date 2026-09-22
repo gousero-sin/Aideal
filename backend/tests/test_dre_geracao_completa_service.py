@@ -219,6 +219,20 @@ def test_verificar_dados_meses_incluir_dispensa_mes_alvo():
     assert resultado["meses_utilizados"] == [1, 2]
 
 
+def test_verificar_dados_rejeita_obra_sem_lancamentos_no_periodo():
+    service = _build_service_com_dados()
+
+    resultado = service.verificar_dados(
+        "06/2025",
+        centro_custo="OBRA INEXISTENTE",
+        meses_incluir=[1, 2, 6],
+    )
+
+    assert resultado["valido"] is False
+    assert resultado["centro_custo"] == "OBRA INEXISTENTE"
+    assert "Nenhum lançamento encontrado" in resultado["error"]
+
+
 def test_verificar_dados_ano_todo_bloqueia_lacunas_ate_competencia():
     service = _build_service_com_dados()
 

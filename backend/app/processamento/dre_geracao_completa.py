@@ -252,9 +252,7 @@ _RUBRICAS_IMPOSTO_SALDO_PAINEL = frozenset(
 )
 _CODIGOS_IMPOSTO_SALDO_PAINEL = ("17.2", "17.3", "17.4", "17.5", "17.7", "17.8")
 _CODIGOS_DEDUCAO_RECEITA = frozenset(("17.2", "17.3", "17.7", "17.8"))
-_CODIGOS_RECOMPOSICAO_RECEITA_BRUTA = frozenset(
-    ("17.2", "17.3", "17.7", "17.8", "17.9")
-)
+_CODIGOS_RECOMPOSICAO_RECEITA_BRUTA = frozenset(("17.2", "17.3", "17.7", "17.8", "17.9"))
 # Usado apenas para recompor Receita Bruta quando bases antigas persistiram
 # recebimentos líquidos; a linha do DRE é definida pelo PLANO_CONTAS resolvido.
 _IMPOSTOS_RECEITA_ROTULOS = frozenset(
@@ -414,9 +412,7 @@ class DREGeracaoCompletaService:
         if ano_todo:
             meses_esperados = list(range(1, mes_alvo + 1))
             disponiveis_set = set(meses_disponiveis_ano)
-            meses_indisponiveis = [
-                mes for mes in meses_esperados if mes not in disponiveis_set
-            ]
+            meses_indisponiveis = [mes for mes in meses_esperados if mes not in disponiveis_set]
             if meses_indisponiveis:
                 raise ValueError(
                     f"Meses sem upload completed para {ano}: "
@@ -733,11 +729,7 @@ class DREGeracaoCompletaService:
             mes = lanc.competencia_mes or data.month
             credito = float(lanc.credito or 0)
             debito = float(lanc.debito or 0)
-            imposto = (
-                debito
-                if _eh_imposto_saldo_painel(lanc.rubrica, lanc.natureza_raw)
-                else 0.0
-            )
+            imposto = debito if _eh_imposto_saldo_painel(lanc.rubrica, lanc.natureza_raw) else 0.0
             saldos[mes] += credito - (debito - imposto)
         return dict(saldos)
 
@@ -953,9 +945,7 @@ class DREGeracaoCompletaService:
                 diferenca_exclusiva = sum(valores_filhos.values()) - valor_pai
                 valores_filhos["Despesas com Pessoal"] -= diferenca_exclusiva
 
-            total += sum(
-                _arredondar_inteiro_dre(valor) for valor in valores_filhos.values()
-            )
+            total += sum(_arredondar_inteiro_dre(valor) for valor in valores_filhos.values())
 
         return float(total)
 
@@ -1573,6 +1563,19 @@ class DREGeracaoCompletaService:
             }
 
         resumo = self.repository.lancamentos.get_resumo_competencia(ano, mes)
+        if centro_custo:
+            lancamentos_filtrados = self._get_lancamentos_ytd(
+                ano,
+                meses_utilizados,
+                centro_custo.strip(),
+            )
+            if not lancamentos_filtrados:
+                return {
+                    "valido": False,
+                    "competencia": competencia,
+                    "centro_custo": centro_custo,
+                    "error": "Nenhum lançamento encontrado para a obra e o período selecionados.",
+                }
 
         return {
             "valido": True,
@@ -1584,6 +1587,7 @@ class DREGeracaoCompletaService:
             "estrategia_meses": estrategia,
             "ano_todo": ano_todo,
             "meses_incluir": self._normalizar_meses_incluir(meses_incluir),
+            "centro_custo": centro_custo,
             "total_lancamentos_mes_alvo": resumo.total_lancamentos if resumo else 0,
             "total_credito_mes_alvo": float(resumo.total_credito) if resumo else 0.0,
             "total_debito_mes_alvo": float(resumo.total_debito) if resumo else 0.0,

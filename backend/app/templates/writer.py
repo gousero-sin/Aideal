@@ -646,9 +646,7 @@ class TemplateWriter:
 
     @staticmethod
     def _is_pivot_part(nome_parte: str) -> bool:
-        return nome_parte.startswith("xl/pivotCache/") or nome_parte.startswith(
-            "xl/pivotTables/"
-        )
+        return nome_parte.startswith("xl/pivotCache/") or nome_parte.startswith("xl/pivotTables/")
 
     @staticmethod
     def _remover_rels_por_tipo_fragmento(rels_bytes: bytes, tipo_fragmento: str) -> bytes:
@@ -795,10 +793,7 @@ class TemplateWriter:
         ):
             return content_types_xml
 
-        default_node = (
-            f'<Default Extension="{extension}" '
-            f'ContentType="{content_type}"/>'
-        )
+        default_node = f'<Default Extension="{extension}" ContentType="{content_type}"/>'
         first_override = re.search(r"<Override\b", content_types_xml)
         if first_override:
             return (

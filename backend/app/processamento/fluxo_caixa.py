@@ -744,9 +744,7 @@ class FluxoCaixaProcessamentoService:
         if self._encontrar_linha_rotulo(ws, "(=) SALDO FINAL", coluna=2) is None:
             return
 
-        cobertura: dict[str, dict[str, int]] = defaultdict(
-            lambda: {"credito": 0, "debito": 0}
-        )
+        cobertura: dict[str, dict[str, int]] = defaultdict(lambda: {"credito": 0, "debito": 0})
         for row in range(1, ws.max_row + 1):
             rotulo = ws.cell(row=row, column=3).value
             formula = ws.cell(row=row, column=4).value
@@ -781,10 +779,9 @@ class FluxoCaixaProcessamentoService:
             if participacoes == 1:
                 continue
 
-            codigo = (
-                extrair_codigo_gerencial(movimento.conta_gerencial)
-                or extrair_codigo_gerencial(movimento.classificacao)
-            )
+            codigo = extrair_codigo_gerencial(
+                movimento.conta_gerencial
+            ) or extrair_codigo_gerencial(movimento.classificacao)
             if not codigo:
                 # Compatibilidade com arquivos legados sem código dedicado. A
                 # validação rígida é aplicada aos movimentos já canônicos.
@@ -800,10 +797,7 @@ class FluxoCaixaProcessamentoService:
 
         if inconsistencias:
             detalhes = "\n- ".join(dict.fromkeys(inconsistencias))
-            raise ValueError(
-                "Movimentos sem destino financeiro único no template:\n- "
-                f"{detalhes}"
-            )
+            raise ValueError(f"Movimentos sem destino financeiro único no template:\n- {detalhes}")
 
     @staticmethod
     def _formula_indice_apoio(row: int, column: int, debito: bool) -> str:
@@ -910,10 +904,7 @@ class FluxoCaixaProcessamentoService:
 
     @staticmethod
     def _linha_vazia(ws, linha: int) -> bool:
-        return all(
-            ws.cell(row=linha, column=coluna).value in (None, "")
-            for coluna in range(1, 18)
-        )
+        return all(ws.cell(row=linha, column=coluna).value in (None, "") for coluna in range(1, 18))
 
     @staticmethod
     def _fim_bloco_saldo_inicial(ws, linha_grupo: int, linha_saldo: int) -> int:

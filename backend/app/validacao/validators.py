@@ -548,9 +548,8 @@ class DREValidator(BaseValidator):
             "classificacao"
         )
         coluna_natureza = mapeamento.get("natureza")
-        if (
-            (coluna_classificacao is None or coluna_classificacao not in df.columns)
-            and (coluna_natureza is None or coluna_natureza not in df.columns)
+        if (coluna_classificacao is None or coluna_classificacao not in df.columns) and (
+            coluna_natureza is None or coluna_natureza not in df.columns
         ):
             return []
 
@@ -591,9 +590,7 @@ class DREValidator(BaseValidator):
             ):
                 continue
 
-            classif_placeholder = self._mask_placeholder(
-                pd.Series([valor_classificacao])
-            ).iloc[0]
+            classif_placeholder = self._mask_placeholder(pd.Series([valor_classificacao])).iloc[0]
             natureza_placeholder = self._mask_placeholder(pd.Series([valor_natureza])).iloc[0]
             if classif_placeholder and natureza_placeholder:
                 continue
@@ -605,10 +602,7 @@ class DREValidator(BaseValidator):
             return []
 
         exemplos = sorted({v for v in invalidos if v})[:8]
-        msg = (
-            f"Arquivo possui {total_invalidos} linha(s) com classificação/natureza "
-            "não mapeada."
-        )
+        msg = f"Arquivo possui {total_invalidos} linha(s) com classificação/natureza não mapeada."
         return [
             ValidationError(
                 campo="natureza",
@@ -757,8 +751,7 @@ class FluxoCaixaValidator(BaseValidator):
             else pd.Series("", index=df.index, dtype="object")
         )
         mask_ignorar = (
-            self._mask_placeholder(serie)
-            & self._mask_placeholder(serie_codigo)
+            self._mask_placeholder(serie) & self._mask_placeholder(serie_codigo)
             | self._mask_linhas_cabecalho_repetido(df, mapeamento)
             | self._mask_linhas_rodape_relatorio(df)
         )
@@ -767,8 +760,10 @@ class FluxoCaixaValidator(BaseValidator):
         codigos_classificacao = serie.map(extrair_codigo_gerencial)
         codigos = codigos_codigo.where(codigos_codigo.astype(bool), codigos_classificacao)
         mask_com_codigo = codigos.astype(bool)
-        mask_invalida = (~mask_ignorar) & mask_com_codigo & ~codigos.map(
-            lambda codigo: codigo_gerencial_valido(codigo, codigos_validos)
+        mask_invalida = (
+            (~mask_ignorar)
+            & mask_com_codigo
+            & ~codigos.map(lambda codigo: codigo_gerencial_valido(codigo, codigos_validos))
         )
         total_invalidos = int(mask_invalida.sum())
         if total_invalidos == 0:

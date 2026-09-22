@@ -52,6 +52,10 @@ def resolver_centros_custo(termo: str, candidatos: Iterable[str]) -> list[str]:
     normalizados = {original: normalizar_centro_custo(original) for original in unicos}
     termo_tokens = set(termo_norm.split())
 
+    grafia_exata = [original for original in unicos if original == str(termo).strip()]
+    if grafia_exata:
+        return grafia_exata
+
     exatos = [orig for orig, norm in normalizados.items() if norm == termo_norm]
     if exatos:
         return exatos

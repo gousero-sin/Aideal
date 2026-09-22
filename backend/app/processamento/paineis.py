@@ -400,9 +400,7 @@ class PainelDREService(_PainelBaseService):
             ]
         ),
         "receita_liquida": _alias_set(["(=)Receita Líquida", "Receita Líquida"]),
-        "irpj_csll": _alias_set(
-            ["(-)IRPJ/CSLL", "IRPJ/CSLL", "IRPJ", "CSLL", "IRPJ Adicional"]
-        ),
+        "irpj_csll": _alias_set(["(-)IRPJ/CSLL", "IRPJ/CSLL", "IRPJ", "CSLL", "IRPJ Adicional"]),
         "custos_variaveis": _alias_set(
             [
                 "(-)Custos Variavéis",
@@ -419,9 +417,7 @@ class PainelDREService(_PainelBaseService):
                 "COMISSÃO",
             ]
         ),
-        "margem_contribuicao": _alias_set(
-            ["(=)MARGEM DE CONTRIBUIÇÃO", "MARGEM DE CONTRIBUIÇÃO"]
-        ),
+        "margem_contribuicao": _alias_set(["(=)MARGEM DE CONTRIBUIÇÃO", "MARGEM DE CONTRIBUIÇÃO"]),
         "gastos_fixos": _alias_set(
             [
                 "(-)Gastos Fixos",
@@ -545,9 +541,7 @@ class PainelDREService(_PainelBaseService):
                 "Serviços de Terceiros",
             ]
         ),
-        "resultado_operacional": _alias_set(
-            ["(=)RESULTADO OPERACIONAL", "RESULTADO OPERACIONAL"]
-        ),
+        "resultado_operacional": _alias_set(["(=)RESULTADO OPERACIONAL", "RESULTADO OPERACIONAL"]),
         "depreciacao": _alias_set(["(-)Depreciação Imobilizado", "Depreciação Imobilizado"]),
         "resultado_liquido": _alias_set(["(=)RESULTADO LÍQUIDO", "RESULTADO LÍQUIDO"]),
         "investimentos_gerencial": _alias_set(["(-)Investimentos"]),
@@ -637,9 +631,7 @@ class PainelDREService(_PainelBaseService):
         centro_custo_ref = _normalizar_lista_texto(centro_custo)
         natureza_ref = _normalizar_lista_texto(natureza)
         escopo_ref = (escopo_periodo or "").strip()
-        projeto_completo = (
-            escopo_ref == self.ESCOPO_PROJETO_COMPLETO and len(centro_custo_ref) > 0
-        )
+        projeto_completo = escopo_ref == self.ESCOPO_PROJETO_COMPLETO and len(centro_custo_ref) > 0
 
         _validar_ano(ano_ref)
         _validar_meses(meses_ref)
@@ -779,9 +771,7 @@ class PainelDREService(_PainelBaseService):
         meses_analise = len(competencias_series or meses_ref or meses_disponiveis)
         media_saida_mensal = total_saidas_liquidas / meses_analise if meses_analise else 0
         saldo_medio_mensal = saldo_liquido / meses_analise if meses_analise else 0
-        folego_caixa_meses = (
-            max(saldo_liquido, 0) / media_saida_mensal if media_saida_mensal else 0
-        )
+        folego_caixa_meses = max(saldo_liquido, 0) / media_saida_mensal if media_saida_mensal else 0
         periodo = (
             self._periodo_intervalo_payload(ano_ref, competencias_series)
             if projeto_completo
@@ -794,9 +784,7 @@ class PainelDREService(_PainelBaseService):
             meses_disponiveis,
             competencias_series,
         )
-        indicadores_impostos = self.indicadores_manuais.somar_competencias(
-            competencias_indicadores
-        )
+        indicadores_impostos = self.indicadores_manuais.somar_competencias(competencias_indicadores)
         indicadores_ncg = self.indicadores_manuais.somar_competencias(
             self._competencias_subsequentes(competencias_indicadores)
         )
@@ -830,9 +818,7 @@ class PainelDREService(_PainelBaseService):
                 "meses": meses_ref,
                 "centro_custo": centro_custo_ref,
                 "natureza": natureza_ref,
-                "escopo_periodo": (
-                    self.ESCOPO_PROJETO_COMPLETO if projeto_completo else "ano"
-                ),
+                "escopo_periodo": (self.ESCOPO_PROJETO_COMPLETO if projeto_completo else "ano"),
             },
             "kpis": {
                 "total_lancamentos": total_lancamentos,
@@ -1056,9 +1042,7 @@ class PainelDREService(_PainelBaseService):
         indicadores_ncg: dict[str, Any],
     ) -> dict[str, Any]:
         return {
-            "existe": bool(
-                indicadores_impostos.get("existe") or indicadores_ncg.get("existe")
-            ),
+            "existe": bool(indicadores_impostos.get("existe") or indicadores_ncg.get("existe")),
             "ano": indicadores_impostos.get("ano"),
             "meses": indicadores_impostos.get("meses", []),
             "total_registros": (
@@ -1073,9 +1057,7 @@ class PainelDREService(_PainelBaseService):
             "total_impostos_retidos": float(
                 indicadores_impostos.get("total_impostos_retidos") or 0
             ),
-            "periodo_dre": PainelDREService._indicadores_periodo_payload(
-                indicadores_impostos
-            ),
+            "periodo_dre": PainelDREService._indicadores_periodo_payload(indicadores_impostos),
             "periodo_ncg": PainelDREService._indicadores_periodo_payload(indicadores_ncg),
         }
 
@@ -1333,13 +1315,9 @@ class PainelDREService(_PainelBaseService):
         contas_receber, tem_contas_receber = self._somar_componente(
             rows, "contas_receber", absoluto=True
         )
-        contas_pagar, tem_contas_pagar = self._somar_componente(
-            rows, "contas_pagar", absoluto=True
-        )
+        contas_pagar, tem_contas_pagar = self._somar_componente(rows, "contas_pagar", absoluto=True)
         estoques, tem_estoques = self._somar_componente(rows, "estoques", absoluto=True)
-        fornecedores, tem_fornecedores = self._somar_componente(
-            rows, "fornecedores", absoluto=True
-        )
+        fornecedores, tem_fornecedores = self._somar_componente(rows, "fornecedores", absoluto=True)
         passivos_operacionais, tem_passivos_operacionais = self._somar_componente(
             rows, "passivos_operacionais", absoluto=True
         )
@@ -1445,8 +1423,7 @@ class PainelDREService(_PainelBaseService):
             PainelDREService._row_get(row, "natureza_norm"),
         ]
         return any(
-            _normalizar_chave_conta(valor)
-            in PainelDREService.RECEITA_BRUTA_RECOMPOSICAO_ALIASES
+            _normalizar_chave_conta(valor) in PainelDREService.RECEITA_BRUTA_RECOMPOSICAO_ALIASES
             for valor in valores
         )
 
@@ -1470,9 +1447,7 @@ class PainelDREService(_PainelBaseService):
         if codigo_conta in codigos_explicitos:
             return True
 
-        contas_pai_estritas = PainelDREService.COMPONENTES_DRE_CONTA_PAI_ESTRITA.get(
-            componente
-        )
+        contas_pai_estritas = PainelDREService.COMPONENTES_DRE_CONTA_PAI_ESTRITA.get(componente)
         if contas_pai_estritas is not None:
             conta_pai = _normalizar_chave_conta(PainelDREService._row_get(row, "conta_pai"))
             if conta_pai not in contas_pai_estritas:
@@ -1832,8 +1807,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
         "NULLIF(TRIM(conta_gerencial), ''), 'Sem classificação')"
     )
     CONTA_CANONICA_EXPR = (
-        "COALESCE(NULLIF(TRIM(conta_gerencial), ''), "
-        "NULLIF(TRIM(classificacao), ''), '')"
+        "COALESCE(NULLIF(TRIM(conta_gerencial), ''), NULLIF(TRIM(classificacao), ''), '')"
     )
     CODIGO_TRANSFERENCIA_EXPR = (
         f"(SUBSTR({CONTA_CANONICA_EXPR}, 1, 3) = '2.1' AND "
@@ -1849,9 +1823,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
         f"(UPPER({CLASSIFICACAO_NEUTRA_EXPR}) LIKE 'SALDO INICIAL %' "
         f"OR UPPER({CLASSIFICACAO_NEUTRA_EXPR}) LIKE 'SALDO FINAL %')"
     )
-    NEUTRO_CONSOLIDADO_EXPR = (
-        f"({TRANSFERENCIA_EXPR} OR {SALDO_BANCARIO_EXPR})"
-    )
+    NEUTRO_CONSOLIDADO_EXPR = f"({TRANSFERENCIA_EXPR} OR {SALDO_BANCARIO_EXPR})"
     CREDITO_EXPR = (
         f"CASE WHEN NOT {NEUTRO_CONSOLIDADO_EXPR} AND tipo = 'credito' THEN valor ELSE 0 END"
     )
@@ -1914,9 +1886,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 {"label": "12.3 férias", "aliases": _alias_set(["12.3 férias", "FERIAS"])},
                 {
                     "label": "12.4 multa rescisória FGTS",
-                    "aliases": _alias_set(
-                        ["12.4 multa rescisória FGTS", "MULTA RESCISORIAS FGTS"]
-                    ),
+                    "aliases": _alias_set(["12.4 multa rescisória FGTS", "MULTA RESCISORIAS FGTS"]),
                 },
                 {
                     "label": "12.6 acerto rescisório",
@@ -1934,15 +1904,11 @@ class PainelFluxoCaixaService(_PainelBaseService):
             "contas": [
                 {
                     "label": "7.1 locação Munck",
-                    "aliases": _alias_set(
-                        ["7.1 locação Munck", "LOCAÇÃO MUNCK / GUINDASTES"]
-                    ),
+                    "aliases": _alias_set(["7.1 locação Munck", "LOCAÇÃO MUNCK / GUINDASTES"]),
                 },
                 {
                     "label": "7.2 locação compressor",
-                    "aliases": _alias_set(
-                        ["7.2 locação compressor", "LOCAÇÃO COMPRESSORES"]
-                    ),
+                    "aliases": _alias_set(["7.2 locação compressor", "LOCAÇÃO COMPRESSORES"]),
                 },
                 {
                     "label": "7.3 locação gerador",
@@ -1950,15 +1916,11 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 },
                 {
                     "label": "7.4 locação equipamentos",
-                    "aliases": _alias_set(
-                        ["7.4 locação equipamentos", "LOCAÇÃO EQUIPAMENTOS"]
-                    ),
+                    "aliases": _alias_set(["7.4 locação equipamentos", "LOCAÇÃO EQUIPAMENTOS"]),
                 },
                 {
                     "label": "7.5 locação empilhadeira",
-                    "aliases": _alias_set(
-                        ["7.5 locação empilhadeira", "LOCAÇÃO EMPILHADEIRA"]
-                    ),
+                    "aliases": _alias_set(["7.5 locação empilhadeira", "LOCAÇÃO EMPILHADEIRA"]),
                 },
                 {
                     "label": "7.6 locação container",
@@ -2281,9 +2243,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
                 "saldo_com_ano_anterior": saldo_final_periodo,
                 "total_bancos": int(kpis["total_bancos"] or 0),
                 "total_classificacoes": int(kpis["total_classificacoes"] or 0),
-                "ticket_medio": (
-                    saldo_liquido / total_movimentos if total_movimentos else 0
-                ),
+                "ticket_medio": (saldo_liquido / total_movimentos if total_movimentos else 0),
             },
             "series_mensais": series_mensais,
             "ranking_bancos": self._rotular_bancos_payload(
@@ -3018,9 +2978,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
         return {
             "existe": indicadores is not None,
             "ano": ano,
-            "saldo_ano_anterior": (
-                float(indicadores.saldo_ano_anterior) if indicadores else 0
-            ),
+            "saldo_ano_anterior": (float(indicadores.saldo_ano_anterior) if indicadores else 0),
             "created_at": indicadores.created_at.isoformat() if indicadores else None,
             "updated_at": indicadores.updated_at.isoformat() if indicadores else None,
         }
@@ -3040,9 +2998,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
             if not valor:
                 continue
 
-            partes = self._partes_conta_destaque(
-                row["classificacao"] or row["conta_gerencial"]
-            )
+            partes = self._partes_conta_destaque(row["classificacao"] or row["conta_gerencial"])
             contabilizadas_no_movimento: set[tuple[str, str, str]] = set()
             for parte in partes:
                 codigo_parte = parte["codigo"]
