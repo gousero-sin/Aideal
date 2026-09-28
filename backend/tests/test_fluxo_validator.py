@@ -127,6 +127,24 @@ def test_fluxo_validacao_aceita_codigo_gerencial_em_coluna_separada():
     assert all(e.campo != "classificacao" for e in result.erros)
 
 
+def test_fluxo_validacao_aceita_seguro_prestamista_por_codigo():
+    df = pd.DataFrame(
+        {
+            "Data Mov.": ["10/06/2026"],
+            "Tipo": ["Débito"],
+            "Descrição": ["Prêmio do seguro"],
+            "Valor": [125.50],
+            "Cód. Conta Gerencial": ["18.5"],
+            "Conta Gerencial": ["RÓTULO ALTERADO"],
+        }
+    )
+
+    result = FluxoCaixaValidator().validar(_dados_fluxo(df))
+
+    assert result.valido is True
+    assert all(erro.campo != "classificacao" for erro in result.erros)
+
+
 def test_fluxo_validacao_bloqueia_codigo_gerencial_desconhecido():
     df = pd.DataFrame(
         {

@@ -823,6 +823,7 @@ def test_classificacao_por_codigo_pode_variar_por_natureza_e_ignora_nome_recebid
         ("3.12", "SERVIÇO LAUDO TECNICO"),
         ("14.4", "ASSISTENCIA MEDICA ADM "),
         ("18.4", "Aplicações"),
+        ("18.5", "SEGURO PRESTAMISTA"),
         ("12.3", "13° SALARIO"),
         ("12.20", "VALE TRANSPORTE"),
     ],
@@ -836,6 +837,71 @@ def test_mapa_real_do_fluxo_define_destinos_por_codigo(codigo, destino, tmp_path
     )
 
     assert service._rotulos_template_por_codigo()[codigo] == destino
+
+
+def test_escrita_inclui_18_5_seguro_prestamista_no_fluxo_financeiro(tmp_path):
+    output = tmp_path / "fluxo_seguro_prestamista.xlsx"
+    service = FluxoCaixaProcessamentoService(
+        template_path=settings.template_fluxo_path,
+        output_dir=tmp_path / "output",
+        logs_dir=tmp_path / "logs",
+        temp_dir=tmp_path / "tmp",
+    )
+    lote = FCLote(
+        periodo="06/2026",
+        movimentos=[
+            FCMovimento(
+                data_movimento=date(2026, 6, 10),
+                tipo=TipoMovimento.DEBITO,
+                descricao="Prêmio do seguro",
+                valor=Decimal("125.50"),
+                classificacao="18.5 - NOME ALTERADO",
+                conta_gerencial="18.5 - NOME ALTERADO",
+                banco_origem="itau",
+            ),
+            FCMovimento(
+                data_movimento=date(2026, 6, 11),
+                tipo=TipoMovimento.CREDITO,
+                descricao="Estorno do seguro",
+                valor=Decimal("25.50"),
+                classificacao="18.5 - RÓTULO DIFERENTE",
+                conta_gerencial="18.5 - RÓTULO DIFERENTE",
+                banco_origem="itau",
+            ),
+        ],
+    )
+
+    service._escrever_template(lote, output, meses_visiveis=[6], preservar_historico=False)
+
+    wb = load_workbook(output, data_only=False)
+    fluxo = wb["Fluxo de Caixa "]
+    assert wb["Consolidado"]["F2"].value == "SEGURO PRESTAMISTA"
+    linhas = [
+        row for row in range(1, fluxo.max_row + 1)
+        if fluxo.cell(row=row, column=3).value == "SEGURO PRESTAMISTA"
+    ]
+    assert len(linhas) == 1
+    assert linhas[0] == 213
+    assert fluxo.row_dimensions[213].hidden is False
+    assert fluxo["I213"].value.count("INDEX(Apoio!") == 2
+    assert "I213" in fluxo["I202"].value
+    assert "Q213" in fluxo["Q202"].value
+    apoio = wb["Apoio"]
+    linha_apoio = next(
+        row for row in range(6, apoio.max_row + 1)
+        if apoio.cell(row=row, column=2).value == "SEGURO PRESTAMISTA"
+    )
+    assert apoio.cell(row=linha_apoio, column=13).value == 25.50
+    assert apoio.cell(row=linha_apoio, column=14).value == 125.50
+
+    apresentacao = wb["Apresentação GMP"]
+    assert apresentacao["B245"].value == "='Fluxo de Caixa '!C213"
+    assert apresentacao["H245"].value == "='Fluxo de Caixa '!I213"
+    assert apresentacao["O245"].value == "='Fluxo de Caixa '!Q213"
+    assert apresentacao["B246"].value == "Total"
+    assert apresentacao["H246"].value == "=SUM(H235:H245)"
+    assert apresentacao["B247"].value == "% Receb. Operacionais"
+    assert apresentacao["H247"].value == "=IFERROR(H246/H$10,0)"
 
 
 def test_escrita_separa_12_20_vale_transporte_de_12_7_transporte_colaboradores(tmp_path):

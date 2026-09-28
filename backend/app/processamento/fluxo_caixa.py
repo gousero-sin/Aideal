@@ -10,6 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
+from openpyxl.formula.translate import Translator
 from openpyxl.utils import get_column_letter
 
 from ..config import settings
@@ -272,6 +273,7 @@ class FluxoCaixaProcessamentoService:
     ) -> dict[str, float]:
         with TemplateWriter(self.template_path) as writer:
             self._garantir_vale_transporte_no_fluxo(writer)
+            self._garantir_seguro_prestamista_no_fluxo(writer)
             ws = writer._wb["Consolidado"]
             limite_fim = ws.max_row
 
@@ -682,6 +684,139 @@ class FluxoCaixaProcessamentoService:
             )
 
         writer._modified_sheets.add("Fluxo de Caixa ")
+
+    def _garantir_seguro_prestamista_no_fluxo(self, writer: TemplateWriter) -> None:
+        """Cria a rubrica do código 18.5 no bloco de saídas financeiras."""
+        wb = writer._wb
+        if wb is None or "Fluxo de Caixa " not in wb.sheetnames:
+            return
+
+        ws = wb["Fluxo de Caixa "]
+        linha_grupo = self._encontrar_linha_rotulo(
+            ws, "(-) Saídas de Recursos Financeiros", coluna=2
+        )
+        if linha_grupo is None:
+            return
+
+        formula_grupo = ws.cell(row=linha_grupo, column=4).value
+        match = re.fullmatch(r"=SUBTOTAL\(9,D(\d+):D(\d+)\)", str(formula_grupo or ""))
+        if not match:
+            raise ValueError("Bloco de saídas financeiras sem intervalo reconhecido no template")
+
+        primeira_linha, ultima_linha = (int(valor) for valor in match.groups())
+        linha_seguro = self._encontrar_linha_rotulo(ws, "SEGURO PRESTAMISTA", coluna=3)
+        if linha_seguro is None:
+            linhas_vazias = [
+                linha for linha in range(ultima_linha, primeira_linha - 1, -1)
+                if ws.cell(row=linha, column=3).value in (None, "")
+                and ws.cell(row=linha, column=4).value in (None, "")
+            ]
+            if not linhas_vazias:
+                raise ValueError("Bloco de saídas financeiras sem linha para SEGURO PRESTAMISTA")
+            linha_seguro = linhas_vazias[0]
+
+            linha_modelo = self._encontrar_linha_rotulo(ws, "Financiamentos", coluna=3)
+            if linha_modelo is None:
+                raise ValueError("Bloco de saídas financeiras sem linha modelo no template")
+            for column in range(2, 18):
+                origem = ws.cell(row=linha_modelo, column=column)
+                destino = ws.cell(row=linha_seguro, column=column)
+                if origem.has_style:
+                    destino._style = copy(origem._style)
+                destino.alignment = copy(origem.alignment)
+                destino.protection = copy(origem.protection)
+            ws.row_dimensions[linha_seguro].height = ws.row_dimensions[linha_modelo].height
+
+        if not primeira_linha <= linha_seguro <= ultima_linha:
+            raise ValueError("SEGURO PRESTAMISTA fora do bloco de saídas financeiras")
+        ws.row_dimensions[linha_seguro].hidden = False
+        ws.cell(row=linha_seguro, column=3, value="SEGURO PRESTAMISTA")
+        for column in range(4, 16):
+            ws.cell(
+                row=linha_seguro,
+                column=column,
+                value=self._formula_indice_apoio(linha_seguro, column, debito=True),
+            )
+        ws.cell(row=linha_seguro, column=17, value=f"=SUM(D{linha_seguro}:O{linha_seguro})")
+        ws.cell(
+            row=linha_grupo,
+            column=17,
+            value=f"=SUBTOTAL(9,Q{primeira_linha}:Q{ultima_linha})",
+        )
+        writer._modified_sheets.add("Fluxo de Caixa ")
+        self._garantir_seguro_prestamista_apresentacao(writer, linha_seguro)
+
+    def _garantir_seguro_prestamista_apresentacao(
+        self, writer: TemplateWriter, linha_fluxo: int
+    ) -> None:
+        wb = writer._wb
+        if wb is None or "Apresentação GMP" not in wb.sheetnames:
+            return
+
+        ws = wb["Apresentação GMP"]
+        linha_grupo = self._encontrar_linha_rotulo(
+            ws, "Saídas Fluxo de Caixa de Financeiro", coluna=2
+        )
+        if linha_grupo is None:
+            return
+
+        linha_total = next(
+            (
+                row for row in range(linha_grupo + 1, ws.max_row + 1)
+                if ws.cell(row=row, column=2).value == "Total"
+            ),
+            None,
+        )
+        if linha_total is None:
+            raise ValueError("Apresentação financeira sem linha de total")
+
+        referencia_seguro = f"='Fluxo de Caixa '!C{linha_fluxo}"
+        if ws.cell(row=linha_total - 1, column=2).value == referencia_seguro:
+            return
+        linha_percentual = linha_total + 1
+        if ws.cell(row=linha_percentual, column=2).value != "% Receb. Operacionais":
+            raise ValueError("Apresentação financeira sem percentual esperado após o total")
+        if not self._linha_vazia(ws, linha_total + 2):
+            raise ValueError("Apresentação financeira sem linha para SEGURO PRESTAMISTA")
+
+        linha_seguro = linha_total
+        self._copiar_linha_apresentacao(ws, linha_percentual, linha_percentual + 1)
+        self._copiar_linha_apresentacao(ws, linha_total, linha_total + 1)
+        self._copiar_linha_apresentacao(ws, linha_total - 1, linha_seguro)
+
+        for column in range(2, 16):
+            origem = get_column_letter(column + 1)
+            ws.cell(
+                row=linha_seguro,
+                column=column,
+                value=f"='Fluxo de Caixa '!{origem}{linha_fluxo}"
+                if column < 15 else f"='Fluxo de Caixa '!Q{linha_fluxo}",
+            )
+        for column in range(3, 16):
+            letra = get_column_letter(column)
+            ws.cell(
+                row=linha_total + 1,
+                column=column,
+                value=f"=SUM({letra}{linha_grupo + 1}:{letra}{linha_seguro})",
+            )
+        writer._modified_sheets.add("Apresentação GMP")
+
+    @staticmethod
+    def _copiar_linha_apresentacao(ws, origem_linha: int, destino_linha: int) -> None:
+        for column in range(2, 18):
+            origem = ws.cell(row=origem_linha, column=column)
+            destino = ws.cell(row=destino_linha, column=column)
+            valor = origem.value
+            if isinstance(valor, str) and valor.startswith("="):
+                valor = Translator(valor, origin=origem.coordinate).translate_formula(
+                    destino.coordinate
+                )
+            destino.value = valor
+            if origem.has_style:
+                destino._style = copy(origem._style)
+            destino.alignment = copy(origem.alignment)
+            destino.protection = copy(origem.protection)
+        ws.row_dimensions[destino_linha].height = ws.row_dimensions[origem_linha].height
 
     def _ajustar_formulas_liquidas_fluxo(self, writer: TemplateWriter) -> None:
         """Compensa estornos sem duplicar rubricas bidirecionais do template."""

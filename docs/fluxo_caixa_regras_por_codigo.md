@@ -54,6 +54,11 @@ Regras homologadas:
 | `12.20` | VALE TRANSPORTE | VALE TRANSPORTE |
 | `14.4` | ASSISTENCIA MEDICA ADM | ASSISTENCIA MEDICA ADM |
 | `18.4` | Aplicações | Aplicações |
+| `18.5` | SEGURO PRESTAMISTA | SEGURO PRESTAMISTA |
+
+O código `18.5` é apresentado em rubrica própria nas Saídas de Recursos
+Financeiros das abas `Fluxo de Caixa ` e `Apresentação GMP`. O nome recebido
+no extrato não determina essa classificação.
 
 Rubricas de entrada são calculadas como `créditos - débitos`; rubricas de saída,
 como `débitos - créditos`. Dessa forma, estornos reduzem a rubrica original sem
