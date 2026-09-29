@@ -81,6 +81,7 @@ test('extrai erro seguro de detail, error ou status HTTP', async () => {
 
 test('cliente cobre consulta de sessao e ciclo de gestao de usuarios', async () => {
   const calls = [];
+  const temporaryPassword = 'senha-de-teste-123';
   const fakeFetch = async (url, options) => {
     calls.push({ url, options });
     if (url.endsWith('/auth/session')) {
@@ -103,6 +104,8 @@ test('cliente cobre consulta de sessao e ciclo de gestao de usuarios', async () 
   await client.listUsers();
   await client.createUser({ username: 'maria' }, 'csrf');
   await client.updateUser('id/seguro', { active: false }, 'csrf');
+  await client.updateUser('id/seguro', { password: temporaryPassword }, 'csrf');
+  await client.deleteUser('id/seguro', 'csrf');
 
   assert.equal(session.user.displayName, 'eduardo');
   assert.deepEqual(calls.map(({ url }) => url), [
@@ -110,8 +113,14 @@ test('cliente cobre consulta de sessao e ciclo de gestao de usuarios', async () 
     '/api/admin/users',
     '/api/admin/users',
     '/api/admin/users/id%2Fseguro',
+    '/api/admin/users/id%2Fseguro',
+    '/api/admin/users/id%2Fseguro',
   ]);
   assert.equal(calls[3].options.method, 'PATCH');
+  assert.deepEqual(JSON.parse(calls[4].options.body), { password: temporaryPassword });
+  assert.equal(calls[5].options.method, 'DELETE');
+  assert.equal(calls[5].options.headers['X-CSRF-Token'], 'csrf');
+  assert.equal(calls[5].options.body, undefined);
 });
 
 test('cliente aceita logout sem corpo e propaga erro HTTP seguro', async () => {

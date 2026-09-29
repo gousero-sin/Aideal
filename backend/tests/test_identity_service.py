@@ -229,6 +229,203 @@ def test_system_owner_cannot_be_deactivated_or_lose_user_management(tmp_path):
         service.replace_permissions(owner.id, ("dre.view",), actor_user_id=owner.id)
 
 
+def test_manager_deletes_regular_user_and_preserves_audit_without_sessions(tmp_path):
+    service = create_identity_service(tmp_path / "identity.db")
+    owner = service.bootstrap_eduardo(password=SENHA_LONGA)
+    user = service.create_user(
+        username="ana",
+        display_name="Ana",
+        password=SENHA_TEMPORARIA,
+        permissions=("dre.view",),
+        actor_user_id=owner.id,
+    )
+    credentials = service.create_session(user.id)
+
+    service.delete_user(user.id, actor_user_id=owner.id)
+
+    assert service.repository.get_user(user.id) is None
+    assert service.resolve_session(credentials.token) is None
+    assert [item.id for item in service.list_users(actor_user_id=owner.id)] == [owner.id]
+    deleted_event = next(
+        event for event in service.repository.list_audit_events()
+        if event.event_type == "user.deleted"
+    )
+    assert deleted_event.actor_user_id == owner.id
+    assert deleted_event.metadata == {"user_id": user.id, "username": "ana"}
+    created_event = next(
+        event for event in service.repository.list_audit_events()
+        if event.event_type == "user.created" and event.metadata.get("username") == "ana"
+    )
+    assert created_event.metadata["deleted_target_user_id"] == user.id
+    session_event = next(
+        event for event in service.repository.list_audit_events()
+        if event.event_type == "session.created" and event.metadata.get("deleted_actor_user_id")
+    )
+    assert session_event.metadata["deleted_actor_user_id"] == user.id
+    assert SENHA_TEMPORARIA not in repr(service.repository.list_audit_events())
+
+
+def test_manager_cannot_delete_owner_or_self_or_reset_owner_password(tmp_path):
+    service = create_identity_service(tmp_path / "identity.db")
+    owner = service.bootstrap_eduardo(password=SENHA_LONGA)
+    manager = service.create_user(
+        username="gestor",
+        display_name="Gestor",
+        password=SENHA_TEMPORARIA,
+        permissions=("users.manage",),
+        actor_user_id=owner.id,
+    )
+
+    with pytest.raises(LastOwnerError):
+        service.delete_user(owner.id, actor_user_id=manager.id)
+    with pytest.raises(InvalidIdentityInputError):
+        service.delete_user(manager.id, actor_user_id=manager.id)
+    with pytest.raises(LastOwnerError):
+        service.update_user_access(
+            owner.id,
+            password=NOVA_SENHA_SEGURA,
+            actor_user_id=manager.id,
+        )
+    with pytest.raises(LastOwnerError):
+        service.update_user(
+            owner.id,
+            password=NOVA_SENHA_SEGURA,
+            actor_user_id=manager.id,
+        )
+    assert service.authenticate("Eduardo", SENHA_LONGA).id == owner.id
+
+
+def test_manager_password_reset_requires_change_and_revokes_sessions(tmp_path):
+    service = create_identity_service(tmp_path / "identity.db")
+    owner = service.bootstrap_eduardo(password=SENHA_LONGA)
+    user = service.create_user(
+        username="ana",
+        display_name="Ana",
+        password=SENHA_TEMPORARIA,
+        must_change_password=False,
+        actor_user_id=owner.id,
+    )
+    credentials = service.create_session(user.id)
+
+    updated = service.update_user_access(
+        user.id,
+        password=NOVA_SENHA_SEGURA,
+        actor_user_id=owner.id,
+    )
+
+    assert updated.must_change_password is True
+    assert service.resolve_session(credentials.token) is None
+    assert service.authenticate("ana", NOVA_SENHA_SEGURA).id == user.id
+    with pytest.raises(InvalidCredentialsError):
+        service.authenticate("ana", SENHA_TEMPORARIA)
+    assert NOVA_SENHA_SEGURA not in repr(service.repository.list_audit_events())
+
+
+def test_manager_with_temporary_password_cannot_manage_users(tmp_path):
+    service = create_identity_service(tmp_path / "identity.db")
+    owner = service.bootstrap_eduardo(password=SENHA_LONGA)
+    manager = service.create_user(
+        username="gestor",
+        display_name="Gestor",
+        password=SENHA_TEMPORARIA,
+        permissions=("users.manage",),
+        must_change_password=True,
+        actor_user_id=owner.id,
+    )
+    target = service.create_user(
+        username="alvo",
+        display_name="Alvo",
+        password=SENHA_TEMPORARIA,
+        actor_user_id=owner.id,
+    )
+
+    with pytest.raises(InvalidCredentialsError):
+        service.delete_user(target.id, actor_user_id=manager.id)
+    assert service.repository.get_user(target.id) is not None
+
+
+def test_manager_cannot_reset_own_password_without_current_password(tmp_path):
+    service = create_identity_service(tmp_path / "identity.db")
+    owner = service.bootstrap_eduardo(password=SENHA_LONGA)
+    manager = service.create_user(
+        username="gestor",
+        display_name="Gestor",
+        password=SENHA_TEMPORARIA,
+        permissions=("users.manage",),
+        actor_user_id=owner.id,
+    )
+
+    with pytest.raises(InvalidIdentityInputError):
+        service.update_user_access(
+            manager.id,
+            password=NOVA_SENHA_SEGURA,
+            actor_user_id=manager.id,
+        )
+    assert service.authenticate("gestor", SENHA_TEMPORARIA).id == manager.id
+
+
+def test_permission_revoked_during_delete_blocks_operation(tmp_path, monkeypatch):
+    service = create_identity_service(tmp_path / "identity.db")
+    owner = service.bootstrap_eduardo(password=SENHA_LONGA)
+    manager = service.create_user(
+        username="gestor",
+        display_name="Gestor",
+        password=SENHA_TEMPORARIA,
+        permissions=("users.manage",),
+        actor_user_id=owner.id,
+    )
+    target = service.create_user(
+        username="alvo",
+        display_name="Alvo",
+        password=SENHA_TEMPORARIA,
+        actor_user_id=owner.id,
+    )
+    original_delete = service.repository.delete_user
+
+    def delete_after_permission_revoked(user_id, *, actor_user_id):
+        service.repository.replace_permissions(manager.id, (), owner.id)
+        return original_delete(user_id, actor_user_id=actor_user_id)
+
+    monkeypatch.setattr(service.repository, "delete_user", delete_after_permission_revoked)
+
+    with pytest.raises(InvalidCredentialsError):
+        service.delete_user(target.id, actor_user_id=manager.id)
+    assert service.repository.get_user(target.id) is not None
+
+
+def test_permission_revoked_during_password_reset_blocks_operation(tmp_path, monkeypatch):
+    service = create_identity_service(tmp_path / "identity.db")
+    owner = service.bootstrap_eduardo(password=SENHA_LONGA)
+    manager = service.create_user(
+        username="gestor",
+        display_name="Gestor",
+        password=SENHA_TEMPORARIA,
+        permissions=("users.manage",),
+        actor_user_id=owner.id,
+    )
+    target = service.create_user(
+        username="alvo",
+        display_name="Alvo",
+        password=SENHA_TEMPORARIA,
+        actor_user_id=owner.id,
+    )
+    original_update = service.repository.update_user_access
+
+    def update_after_permission_revoked(user_id, **kwargs):
+        service.repository.replace_permissions(manager.id, (), owner.id)
+        return original_update(user_id, **kwargs)
+
+    monkeypatch.setattr(service.repository, "update_user_access", update_after_permission_revoked)
+
+    with pytest.raises(InvalidCredentialsError):
+        service.update_user_access(
+            target.id,
+            password=NOVA_SENHA_SEGURA,
+            actor_user_id=manager.id,
+        )
+    assert service.authenticate("alvo", SENHA_TEMPORARIA).id == target.id
+
+
 def test_sessions_are_opaque_resolvable_and_revocable(tmp_path):
     now = datetime(2026, 8, 27, 12, tzinfo=timezone.utc)
     service = create_identity_service(

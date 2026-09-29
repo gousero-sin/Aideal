@@ -177,6 +177,10 @@ class IdentityService:
         existing = self._require_user(user_id)
         if existing.is_system_owner and active is False:
             raise LastOwnerError("O proprietário do sistema não pode ser desativado")
+        if existing.is_system_owner and (password is not None or password_hash is not None):
+            raise LastOwnerError("A senha do proprietário deve ser alterada pelo próprio usuário")
+        if user_id == actor_user_id and (password is not None or password_hash is not None):
+            raise InvalidIdentityInputError("Use a troca de senha com a senha atual")
         next_password_hash = None
         if password is not None or password_hash is not None:
             next_password_hash = self._encode_password(password, password_hash, allow_legacy=False)
@@ -233,6 +237,12 @@ class IdentityService:
                 raise LastOwnerError("O proprietário do sistema não pode ser desativado")
             if normalized_permissions is not None and "users.manage" not in normalized_permissions:
                 raise LastOwnerError("O proprietário deve manter users.manage")
+            if password is not None:
+                raise LastOwnerError(
+                    "A senha do proprietário deve ser alterada pelo próprio usuário"
+                )
+        if user_id == actor_user_id and password is not None:
+            raise InvalidIdentityInputError("Use a troca de senha com a senha atual")
         normalized_display_name = (
             self._validate_display_name(display_name) if display_name is not None else None
         )
@@ -253,6 +263,17 @@ class IdentityService:
         if updated is None:
             raise UserNotFoundError("Usuário não encontrado")
         return updated
+
+    def delete_user(self, user_id: str, *, actor_user_id: str) -> None:
+        """Exclui usuário comum; sessões e permissões são removidas na transação."""
+        self._require_manager(actor_user_id)
+        existing = self._require_user(user_id)
+        if existing.is_system_owner:
+            raise LastOwnerError("O proprietário do sistema não pode ser excluído")
+        if user_id == actor_user_id:
+            raise InvalidIdentityInputError("Não é possível excluir a própria conta")
+        if not self.repository.delete_user(user_id, actor_user_id=actor_user_id):
+            raise UserNotFoundError("Usuário não encontrado")
 
     def change_own_password(
         self,
@@ -325,7 +346,11 @@ class IdentityService:
 
     def _require_manager(self, actor_user_id: str) -> User:
         actor = self._require_user(actor_user_id)
-        if not actor.active or "users.manage" not in actor.permissions:
+        if (
+            not actor.active
+            or actor.must_change_password
+            or "users.manage" not in actor.permissions
+        ):
             raise InvalidCredentialsError("Permissão users.manage obrigatória")
         return actor
 

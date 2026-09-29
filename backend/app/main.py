@@ -205,7 +205,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -587,6 +587,20 @@ async def update_user(user_id: str, payload: UpdateUserRequest, session: CsrfSes
         InvalidIdentityInputError,
         LastOwnerError,
         UnknownPermissionError,
+        UserNotFoundError,
+    ) as exc:
+        _raise_identity_http_error(exc)
+
+
+@app.delete("/api/admin/users/{user_id}", status_code=204)
+async def delete_user(user_id: str, session: CsrfSession):
+    """Exclui um usuário comum com auditoria e revogação das sessões."""
+    try:
+        get_identity_service().delete_user(user_id, actor_user_id=session.user.id)
+    except (
+        InvalidCredentialsError,
+        InvalidIdentityInputError,
+        LastOwnerError,
         UserNotFoundError,
     ) as exc:
         _raise_identity_http_error(exc)

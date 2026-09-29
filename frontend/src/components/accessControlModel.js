@@ -59,6 +59,15 @@ export const createEmptyUserForm = () => ({
 });
 
 export const PASSWORD_MIN_LENGTH_MESSAGE = 'A senha inicial deve ter pelo menos 10 caracteres.';
+export const RESET_PASSWORD_MIN_LENGTH_MESSAGE = 'A senha temporaria deve ter pelo menos 10 caracteres.';
+
+export const validateResetPassword = (password) => (
+  typeof password === 'string' && password.length >= 10
+    ? null
+    : RESET_PASSWORD_MIN_LENGTH_MESSAGE
+);
+
+export const buildPasswordResetPatch = (password) => ({ password });
 
 export const validateUserForm = (form) => ({
   ...(!form?.username?.trim() ? { username: 'Informe o nome de usuario.' } : {}),
@@ -103,10 +112,16 @@ export const updateManagedUser = (users, userId, patch) => (
   ))
 );
 
-export const getManagedUserRestrictions = (user) => ({
-  canChangeActive: user?.isSystemOwner !== true,
-  canChangePermissions: user?.isSystemOwner !== true,
-});
+export const getManagedUserRestrictions = (user, currentUserId) => {
+  const isOwner = user?.isSystemOwner === true;
+  const isCurrentUser = currentUserId != null && String(user?.id) === String(currentUserId);
+  return {
+    canChangeActive: !isOwner,
+    canChangePermissions: !isOwner,
+    canResetPassword: !isOwner && !isCurrentUser,
+    canDelete: !isOwner && !isCurrentUser,
+  };
+};
 
 export const buildUserPatch = (user, patch = {}) => ({
   display_name: String(patch.displayName ?? user.displayName).trim(),

@@ -6,6 +6,7 @@ import {
   PERMISSION_OPTIONS,
   buildCreateUserPayload,
   buildUserPatch,
+  buildPasswordResetPatch,
   createEmptyUserForm,
   filterAccessibleModules,
   getManagedUserRestrictions,
@@ -13,6 +14,7 @@ import {
   togglePermission,
   updateManagedUser,
   validateUserForm,
+  validateResetPassword,
 } from './accessControlModel.js';
 
 test('separa leitura, edição e transição do orçamento', () => {
@@ -144,9 +146,21 @@ test('impede auto-bloqueio do administrador principal na interface', () => {
   assert.deepEqual(getManagedUserRestrictions({ isSystemOwner: true }), {
     canChangeActive: false,
     canChangePermissions: false,
+    canResetPassword: false,
+    canDelete: false,
   });
   assert.deepEqual(getManagedUserRestrictions({ isSystemOwner: false }), {
     canChangeActive: true,
     canChangePermissions: true,
+    canResetPassword: true,
+    canDelete: true,
   });
+  assert.equal(getManagedUserRestrictions({ id: 'u-1' }, 'u-1').canDelete, false);
+  assert.equal(getManagedUserRestrictions({ id: 'u-1' }, 'u-1').canResetPassword, false);
+});
+
+test('valida senha temporaria de redefinicao e envia somente a senha', () => {
+  assert.equal(validateResetPassword('curta'), 'A senha temporaria deve ter pelo menos 10 caracteres.');
+  assert.equal(validateResetPassword('abcdefghij'), null);
+  assert.deepEqual(buildPasswordResetPatch('abcdefghij'), { password: 'abcdefghij' });
 });

@@ -106,6 +106,10 @@ export const createAuthClient = ({ apiBase = '/api', fetchImpl = globalThis.fetc
       `/admin/users/${encodeURIComponent(userId)}`,
       { method: 'PATCH', body: patch, csrfToken },
     ),
+    deleteUser: async (userId, csrfToken) => request(
+      `/admin/users/${encodeURIComponent(userId)}`,
+      { method: 'DELETE', csrfToken },
+    ),
   });
 };
 

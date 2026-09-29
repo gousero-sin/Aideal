@@ -1,6 +1,24 @@
 # Handoff — Etapa 1: controle de acesso do GoFlow
 
-Atualizado em: 2026-08-27
+Atualizado em: 2026-09-29
+
+## Atualização — 2026-09-29
+
+- O Controle de Acessos permite redefinir a senha temporária de usuários comuns.
+  A operação usa `PATCH /api/admin/users/{id}`, revoga as sessões abertas e exige
+  troca da senha no próximo acesso. A senha do administrador principal só pode
+  ser alterada pelo próprio usuário no fluxo de troca de senha.
+- A exclusão de usuários comuns usa `DELETE /api/admin/users/{id}`, com sessão,
+  permissão `users.manage` e token CSRF. O administrador principal e o próprio
+  gestor não podem ser excluídos. Sessões e permissões do usuário excluído são
+  removidas na mesma transação, e o evento `user.deleted` conserva o ID e nome
+  de usuário na auditoria. Eventos anteriores preservam os IDs históricos em
+  `deleted_actor_user_id` e `deleted_target_user_id` no metadata.
+- Gestores com troca obrigatória de senha pendente não podem gerenciar usuários.
+  A própria senha do gestor só pode ser trocada no fluxo que exige a senha atual;
+  uma revogação concorrente de `users.manage` também bloqueia exclusão e reset.
+- O painel exige confirmação antes de excluir. O CORS permite `DELETE` para
+  atender à nova rota.
 
 Este documento é uma lista operacional para continuar a implementação caso a sessão atual seja interrompida. O pedido do usuário é concluir a Etapa 1: login global, usuários administrados por Eduardo, permissões por painel e migração das abas superiores para um menu lateral.
 
@@ -28,7 +46,7 @@ Este documento é uma lista operacional para continuar a implementação caso a 
 - [x] Revisões de código e segurança do domínio corrigidas: timing de login, autorização obrigatória em `list_users`, corrida de bootstrap e sessões após troca de senha.
 - [x] Camada HTTP inicial em `backend/app/access_control.py`.
 - [x] Rotas globais `/api/auth/login`, `/api/auth/session` e `/api/auth/logout`.
-- [x] Rotas `/api/admin/users` para listar, criar e atualizar usuários.
+- [x] Rotas `/api/admin/users` para listar, criar, atualizar e excluir usuários.
 - [x] Proteção das APIs dos painéis DRE e Fluxo e das operações do Admin Banco.
 - [x] Rate limit em memória por IP + usuário iniciado na camada HTTP.
 - [x] Novos componentes frontend entregues:
@@ -76,7 +94,7 @@ Cobertura dos módulos de identidade: `models.py` 100%, `repository.py` 96%, `pa
 - Remoção do login local do Admin Banco; a sessão passou a ser global.
 - Rate limit de login por IP + usuário, com teste de regressão (429 na sexta tentativa, login válido zera o contador).
 - Banco de identidade incluído no readiness check `/ready`.
-- CORS restrito a `GET, POST, PATCH, OPTIONS`.
+- CORS restrito a `GET, POST, PATCH, DELETE, OPTIONS`.
 - `.gitignore` cobrindo banco de identidade e artefatos de teste (`.coverage`, `frontend/test-results/`).
 
 ## Pendências e riscos conhecidos

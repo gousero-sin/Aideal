@@ -4,12 +4,14 @@ import {
   Loader2,
   Save,
   ShieldCheck,
+  Trash2,
   UserPlus,
   Users,
 } from 'lucide-react';
 import { createAuthClient } from '../auth/authClient';
 import {
   buildCreateUserPayload,
+  buildPasswordResetPatch,
   buildUserPatch,
   createEmptyUserForm,
   getManagedUserRestrictions,
@@ -17,6 +19,7 @@ import {
   PERMISSION_OPTIONS,
   togglePermission,
   updateManagedUser,
+  validateResetPassword,
   validateUserForm,
 } from './accessControlModel';
 import '../styles/access-control.css';
@@ -42,6 +45,7 @@ function PermissionFields({ permissions, onChange, disabled = false, labelledBy 
 export default function AccessManagementPanel({
   apiBase = '/api',
   csrfToken,
+  currentUserId,
   onNotify,
   onBusyChange,
 }) {
@@ -52,8 +56,13 @@ export default function AccessManagementPanel({
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [savingUserId, setSavingUserId] = useState(null);
+  const [actionUserId, setActionUserId] = useState(null);
+  const [resetUserId, setResetUserId] = useState(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetPasswordError, setResetPasswordError] = useState(null);
+  const [deleteUserId, setDeleteUserId] = useState(null);
   const [error, setError] = useState(null);
-  const busy = loading || creating || savingUserId !== null;
+  const busy = loading || creating || savingUserId !== null || actionUserId !== null;
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -112,7 +121,7 @@ export default function AccessManagementPanel({
   };
 
   const handleSaveUser = async (user) => {
-    if (savingUserId) return;
+    if (busy) return;
     setSavingUserId(user.id);
     setError(null);
     try {
@@ -124,6 +133,58 @@ export default function AccessManagementPanel({
       onNotify?.({ type: 'error', message: requestError.message });
     } finally {
       setSavingUserId(null);
+    }
+  };
+
+  const closePasswordReset = () => {
+    setResetUserId(null);
+    setResetPassword('');
+    setResetPasswordError(null);
+  };
+
+  const openPasswordReset = (userId) => {
+    closePasswordReset();
+    setDeleteUserId(null);
+    setResetUserId(userId);
+  };
+
+  const handleResetPassword = async (event, user) => {
+    event.preventDefault();
+    const validationError = validateResetPassword(resetPassword);
+    setResetPasswordError(validationError);
+    if (validationError || busy) return;
+
+    setActionUserId(user.id);
+    setError(null);
+    try {
+      await client.updateUser(user.id, buildPasswordResetPatch(resetPassword), csrfToken);
+      closePasswordReset();
+      onNotify?.({ type: 'success', message: `Senha de ${user.displayName} redefinida. A troca sera exigida no proximo acesso.` });
+    } catch {
+      const message = 'Nao foi possivel redefinir a senha. Tente novamente.';
+      setError(message);
+      onNotify?.({ type: 'error', message });
+    } finally {
+      setActionUserId(null);
+    }
+  };
+
+  const handleDeleteUser = async (user) => {
+    if (busy || deleteUserId !== user.id) return;
+    setActionUserId(user.id);
+    setError(null);
+    try {
+      await client.deleteUser(user.id, csrfToken);
+      setDeleteUserId(null);
+      closePasswordReset();
+      await loadUsers();
+      onNotify?.({ type: 'success', message: `Usuario ${user.displayName} excluido.` });
+    } catch {
+      const message = 'Nao foi possivel excluir o usuario. Tente novamente.';
+      setError(message);
+      onNotify?.({ type: 'error', message });
+    } finally {
+      setActionUserId(null);
     }
   };
 
@@ -251,7 +312,7 @@ export default function AccessManagementPanel({
         {users.map((user) => {
           const permissionTitleId = `permissions-${user.id}`;
           const saving = savingUserId === user.id;
-          const restrictions = getManagedUserRestrictions(user);
+          const restrictions = getManagedUserRestrictions(user, currentUserId);
           return (
             <article className="access-user-card" key={user.id}>
               <header>
@@ -306,11 +367,73 @@ export default function AccessManagementPanel({
                 className="access-secondary-button"
                 type="button"
                 onClick={() => handleSaveUser(user)}
-                disabled={saving || !user.displayName.trim() || user.permissions.length === 0}
+                disabled={busy || !user.displayName.trim() || user.permissions.length === 0}
               >
                 {saving ? <Loader2 className="access-spin" size={17} aria-hidden="true" /> : <Save size={17} aria-hidden="true" />}
                 {saving ? 'Salvando...' : 'Salvar alteracoes'}
               </button>
+
+              {(restrictions.canResetPassword || restrictions.canDelete) && (
+                <div className="access-account-actions">
+                  {restrictions.canResetPassword && (
+                    <button
+                      className="access-secondary-button"
+                      type="button"
+                      onClick={() => openPasswordReset(user.id)}
+                      disabled={busy}
+                    >
+                      <KeyRound size={17} aria-hidden="true" /> Redefinir senha
+                    </button>
+                  )}
+                  {restrictions.canDelete && (
+                    <button
+                      className="access-secondary-button access-danger-button"
+                      type="button"
+                      onClick={() => { closePasswordReset(); setDeleteUserId(user.id); }}
+                      disabled={busy}
+                    >
+                      <Trash2 size={17} aria-hidden="true" /> Excluir usuario
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {resetUserId === user.id && restrictions.canResetPassword && (
+                <form className="access-inline-action" onSubmit={(event) => handleResetPassword(event, user)} noValidate>
+                  <label className="access-field">
+                    <span>Nova senha temporaria para {user.displayName}</span>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={10}
+                      value={resetPassword}
+                      onChange={(event) => { setResetPassword(event.target.value); setResetPasswordError(null); }}
+                      aria-invalid={Boolean(resetPasswordError)}
+                      aria-describedby={resetPasswordError ? `reset-password-error-${user.id}` : undefined}
+                    />
+                    {resetPasswordError && <small id={`reset-password-error-${user.id}`}>{resetPasswordError}</small>}
+                  </label>
+                  <p>Entregue a senha por um canal seguro. O usuario precisara troca-la no proximo acesso.</p>
+                  <div className="access-account-actions">
+                    <button className="access-secondary-button" type="button" onClick={closePasswordReset} disabled={busy}>Cancelar</button>
+                    <button className="access-primary-button" type="submit" disabled={busy}>
+                      {actionUserId === user.id ? 'Redefinindo...' : 'Confirmar nova senha'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {deleteUserId === user.id && restrictions.canDelete && (
+                <div className="access-inline-action" role="group" aria-label={`Confirmar exclusao de ${user.displayName}`}>
+                  <p>Excluir {user.displayName} permanentemente? Essa acao nao pode ser desfeita.</p>
+                  <div className="access-account-actions">
+                    <button className="access-secondary-button" type="button" onClick={() => setDeleteUserId(null)} disabled={busy}>Cancelar</button>
+                    <button className="access-secondary-button access-danger-button" type="button" onClick={() => handleDeleteUser(user)} disabled={busy}>
+                      {actionUserId === user.id ? 'Excluindo...' : 'Confirmar exclusao'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </article>
           );
         })}

@@ -66,7 +66,7 @@ test('Eduardo controla acessos e a revogacao tem efeito imediato', async ({ page
   await page.getByRole('button', { name: 'Definir nova senha' }).click();
   await expect(page.locator('.access-sidebar')).toBeVisible();
   await expect(page.locator('.access-sidebar-item')).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'DRE' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'DRE', exact: true })).toBeVisible();
   const sessionResponse = await page.request.get('/api/auth/session');
   expect(sessionResponse.status()).toBe(200);
   const sessionPayload = await sessionResponse.json();
@@ -92,6 +92,62 @@ test('Eduardo controla acessos e a revogacao tem efeito imediato', async ({ page
 
   expect((await page.request.get('/api/auth/session')).status()).toBe(401);
   expect((await page.request.get('/api/dre/painel?ano=2025')).status()).toBe(401);
+});
+
+test('administrador redefine senha temporaria e exclui usuario com confirmacao', async ({ page }) => {
+  const username = `reset.e2e.${Date.now()}`;
+  const novaSenha = 'nova-temporaria-e2e-123';
+
+  await login(page, 'Eduardo', ADMIN_PASSWORD, { view: 'usuarios' });
+  await page.getByRole('button', { name: 'Controle de Acessos' }).click();
+  const ownerCard = page.locator('.access-user-card', { hasText: '@Eduardo' });
+  await expect(ownerCard.getByRole('button', { name: 'Redefinir senha' })).toHaveCount(0);
+  await expect(ownerCard.getByRole('button', { name: 'Excluir usuario' })).toHaveCount(0);
+
+  const createForm = page.locator('.access-create-card');
+  await createForm.getByLabel('Nome de usuario').fill(username);
+  await createForm.getByLabel('Nome de exibicao').fill('Reset E2E');
+  await createForm.getByLabel('Senha inicial').fill('senha-inicial-e2e-123');
+  await createForm.getByLabel('Visualizar Painel DRE').check();
+  await createForm.getByRole('button', { name: 'Criar usuario' }).click();
+  const userCard = page.locator('.access-user-card', { hasText: `@${username}` });
+  await expect(userCard).toBeVisible();
+
+  await userCard.getByRole('button', { name: 'Redefinir senha' }).click();
+  await userCard.getByLabel('Nova senha temporaria para Reset E2E').fill('curta');
+  await userCard.getByRole('button', { name: 'Confirmar nova senha' }).click();
+  await expect(userCard.getByText('A senha temporaria deve ter pelo menos 10 caracteres.')).toBeVisible();
+  await userCard.getByLabel('Nova senha temporaria para Reset E2E').fill(novaSenha);
+  const resetResponse = page.waitForResponse((response) => (
+    response.request().method() === 'PATCH' && response.url().includes('/api/admin/users/')
+  ));
+  await userCard.getByRole('button', { name: 'Confirmar nova senha' }).click();
+  expect((await resetResponse).status()).toBe(200);
+  await expect(userCard.getByLabel('Nova senha temporaria para Reset E2E')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Sair' }).click();
+  await login(page, username, novaSenha, { expectSidebar: false });
+  await expect(page.getByRole('heading', { name: 'Crie sua senha definitiva' })).toBeVisible();
+  await page.getByLabel('Senha atual (temporaria)').fill(novaSenha);
+  await page.getByLabel('Nova senha', { exact: true }).fill('senha-final-e2e-123');
+  await page.getByLabel('Confirme a nova senha').fill('senha-final-e2e-123');
+  await page.getByRole('button', { name: 'Definir nova senha' }).click();
+  await expect(page.locator('.access-sidebar')).toBeVisible();
+  await page.getByRole('button', { name: 'Sair' }).click();
+
+  await login(page, 'Eduardo', ADMIN_PASSWORD, { view: 'usuarios' });
+  await page.getByRole('button', { name: 'Controle de Acessos' }).click();
+  const cardToDelete = page.locator('.access-user-card', { hasText: `@${username}` });
+  await cardToDelete.getByRole('button', { name: 'Excluir usuario' }).click();
+  await cardToDelete.getByRole('button', { name: 'Cancelar' }).click();
+  await expect(cardToDelete).toBeVisible();
+  await cardToDelete.getByRole('button', { name: 'Excluir usuario' }).click();
+  const deleteResponse = page.waitForResponse((response) => (
+    response.request().method() === 'DELETE' && response.url().includes('/api/admin/users/')
+  ));
+  await cardToDelete.getByRole('button', { name: 'Confirmar exclusao' }).click();
+  expect((await deleteResponse).status()).toBe(204);
+  await expect(cardToDelete).toHaveCount(0);
 });
 
 test('Orcamento so aparece para quem tem orcamento.view e preserva revisoes', async ({ page }) => {
@@ -148,7 +204,9 @@ test('Orcamento so aparece para quem tem orcamento.view e preserva revisoes', as
   await novo.getByLabel('Modalidade do Trabalho').selectOption('Spot');
   await novo.getByLabel('Prazo de execução (dias)').fill('10');
   await expect(novo.getByLabel('Saldo de Mão de Obra')).toHaveCount(0);
-  await novo.getByLabel('Região da Obra').fill('Anápolis/GO');
+  const location = novo.getByRole('group', { name: 'Região da Obra' });
+  await location.getByRole('combobox', { name: 'Estado' }).selectOption('GO');
+  await location.getByRole('combobox', { name: 'Cidade' }).selectOption('Anápolis');
   await novo.getByRole('button', { name: 'Criar orçamento' }).click();
 
   // O código é sequencial e a base pode já conter dados de outros testes.

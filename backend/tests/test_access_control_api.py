@@ -157,6 +157,159 @@ def test_deactivation_revokes_active_user_session(tmp_path):
     assert user_client.get("/api/dre/painel?ano=2025").status_code == 401
 
 
+def test_user_deletion_requires_manager_and_csrf_and_revokes_session(tmp_path):
+    service, owner = _configure_isolated_identity(tmp_path)
+    user = service.create_user(
+        username="carlos",
+        display_name="Carlos",
+        password=SENHA_TEMPORARIA,
+        permissions=("dre.view",),
+        actor_user_id=owner.id,
+    )
+    owner_client = TestClient(main_module.app)
+    user_client = TestClient(main_module.app)
+    anonymous_client = TestClient(main_module.app)
+    owner_session = _login(owner_client, "Eduardo", ADMIN_PASSWORD)
+    user_session = _login(user_client, "carlos", SENHA_TEMPORARIA)
+    path = f"/api/admin/users/{user.id}"
+
+    assert anonymous_client.delete(path).status_code == 401
+    forbidden = user_client.delete(
+        path, headers={"X-CSRF-Token": user_session["csrf_token"]}
+    )
+    assert forbidden.status_code == 403
+    assert owner_client.delete(path).status_code == 403
+    response = owner_client.delete(path, headers={"X-CSRF-Token": owner_session["csrf_token"]})
+
+    assert response.status_code == 204
+    assert service.repository.get_user(user.id) is None
+    assert user_client.get("/api/auth/session").status_code == 401
+    missing = owner_client.delete(
+        path, headers={"X-CSRF-Token": owner_session["csrf_token"]}
+    )
+    assert missing.status_code == 404
+    assert owner_client.delete(
+        f"/api/admin/users/{owner.id}",
+        headers={"X-CSRF-Token": owner_session["csrf_token"]},
+    ).status_code == 409
+
+
+def test_manager_cannot_delete_own_account_via_api(tmp_path):
+    service, owner = _configure_isolated_identity(tmp_path)
+    manager = service.create_user(
+        username="gestor",
+        display_name="Gestor",
+        password=SENHA_TEMPORARIA,
+        permissions=("users.manage",),
+        actor_user_id=owner.id,
+    )
+    client = TestClient(main_module.app)
+    session = _login(client, "gestor", SENHA_TEMPORARIA)
+
+    response = client.delete(
+        f"/api/admin/users/{manager.id}",
+        headers={"X-CSRF-Token": session["csrf_token"]},
+    )
+
+    assert response.status_code == 422
+    assert service.repository.get_user(manager.id) is not None
+
+
+def test_manager_cannot_reset_own_password_via_admin_api(tmp_path):
+    service, owner = _configure_isolated_identity(tmp_path)
+    manager = service.create_user(
+        username="gestor",
+        display_name="Gestor",
+        password=SENHA_TEMPORARIA,
+        permissions=("users.manage",),
+        actor_user_id=owner.id,
+    )
+    client = TestClient(main_module.app)
+    session = _login(client, "gestor", SENHA_TEMPORARIA)
+
+    response = client.patch(
+        f"/api/admin/users/{manager.id}",
+        json={"password": "nova-temporaria-123"},
+        headers={"X-CSRF-Token": session["csrf_token"]},
+    )
+
+    assert response.status_code == 422
+    assert service.authenticate("gestor", SENHA_TEMPORARIA).id == manager.id
+
+
+def test_admin_password_reset_revokes_session_and_requires_change(tmp_path):
+    service, owner = _configure_isolated_identity(tmp_path)
+    user = service.create_user(
+        username="carlos",
+        display_name="Carlos",
+        password=SENHA_TEMPORARIA,
+        must_change_password=False,
+        actor_user_id=owner.id,
+    )
+    owner_client = TestClient(main_module.app)
+    user_client = TestClient(main_module.app)
+    owner_session = _login(owner_client, "Eduardo", ADMIN_PASSWORD)
+    _login(user_client, "carlos", SENHA_TEMPORARIA)
+
+    path = f"/api/admin/users/{user.id}"
+    assert owner_client.patch(path, json={"password": "nova-temporaria-123"}).status_code == 403
+    assert owner_client.patch(
+        path,
+        json={"password": "curta"},
+        headers={"X-CSRF-Token": owner_session["csrf_token"]},
+    ).status_code == 422
+
+    response = owner_client.patch(
+        path,
+        json={"password": "nova-temporaria-123"},
+        headers={"X-CSRF-Token": owner_session["csrf_token"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["must_change_password"] is True
+    assert "nova-temporaria-123" not in response.text
+    assert user_client.get("/api/auth/session").status_code == 401
+    next_session = _login(TestClient(main_module.app), "carlos", "nova-temporaria-123")
+    assert next_session["password_change_required"] is True
+
+
+def test_manager_with_pending_password_change_cannot_delete_or_update_users(tmp_path):
+    service, owner = _configure_isolated_identity(tmp_path)
+    manager = service.create_user(
+        username="gestor",
+        display_name="Gestor",
+        password=SENHA_TEMPORARIA,
+        permissions=("users.manage",),
+        must_change_password=True,
+        actor_user_id=owner.id,
+    )
+    target = service.create_user(
+        username="alvo",
+        display_name="Alvo",
+        password=SENHA_TEMPORARIA,
+        actor_user_id=owner.id,
+    )
+    client = TestClient(main_module.app)
+    session = _login(client, manager.username, SENHA_TEMPORARIA)
+    headers = {"X-CSRF-Token": session["csrf_token"]}
+    path = f"/api/admin/users/{target.id}"
+
+    assert session["password_change_required"] is True
+    assert client.delete(path, headers=headers).status_code == 403
+    assert client.patch(path, json={"display_name": "Alterado"}, headers=headers).status_code == 403
+    assert client.post(
+        "/api/admin/users",
+        json={
+            "username": "novo",
+            "display_name": "Novo",
+            "password": SENHA_TEMPORARIA,
+            "permissions": ["dre.view"],
+        },
+        headers=headers,
+    ).status_code == 403
+    assert service.repository.get_user(target.id).display_name == "Alvo"
+
+
 def test_invalid_login_and_duplicate_username_use_safe_status_codes(tmp_path):
     _configure_isolated_identity(tmp_path)
     client = TestClient(main_module.app)

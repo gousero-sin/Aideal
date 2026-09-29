@@ -217,6 +217,7 @@ export default function App() {
           <AccessManagementPanel
             apiBase={API_BASE}
             csrfToken={auth.csrfToken}
+            currentUserId={auth.user?.id}
             onNotify={setNotification}
             onBusyChange={setBusy}
           />

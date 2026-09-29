@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from .database import IdentityDatabase
-from .exceptions import UsernameAlreadyExistsError
+from .exceptions import InvalidCredentialsError, UsernameAlreadyExistsError
 from .models import AuditEvent, Session, User
 
 
@@ -187,6 +187,66 @@ class IdentityRepository:
             )
             self._insert_audit(connection, "password.rehashed", user_id, user_id, {}, timestamp)
 
+    def delete_user(self, user_id: str, *, actor_user_id: str) -> bool:
+        timestamp = _serialize_time(self.clock())
+        with self.database.transaction() as connection:
+            self._require_active_manager(connection, actor_user_id)
+            existing = connection.execute(
+                "SELECT username, is_system_owner FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+            if existing is None or existing["is_system_owner"] or user_id == actor_user_id:
+                return False
+            self._preserve_deleted_user_audit_ids(connection, user_id)
+            self._insert_audit(
+                connection,
+                "user.deleted",
+                actor_user_id,
+                user_id,
+                {"user_id": user_id, "username": str(existing["username"])},
+                timestamp,
+            )
+            connection.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            return True
+
+    @staticmethod
+    def _require_active_manager(connection: sqlite3.Connection, actor_user_id: str) -> None:
+        row = connection.execute(
+            """
+            SELECT active, must_change_password,
+                   EXISTS(
+                       SELECT 1 FROM user_permissions
+                       WHERE user_id = users.id AND permission_code = 'users.manage'
+                   ) AS can_manage
+            FROM users WHERE id = ?
+            """,
+            (actor_user_id,),
+        ).fetchone()
+        if row is None or not row["active"] or row["must_change_password"] or not row["can_manage"]:
+            raise InvalidCredentialsError("Permissão users.manage obrigatória")
+
+    @staticmethod
+    def _preserve_deleted_user_audit_ids(
+        connection: sqlite3.Connection, user_id: str
+    ) -> None:
+        rows = connection.execute(
+            """
+            SELECT id, actor_user_id, target_user_id, metadata_json
+            FROM audit_events
+            WHERE actor_user_id = ? OR target_user_id = ?
+            """,
+            (user_id, user_id),
+        ).fetchall()
+        for row in rows:
+            metadata = json.loads(str(row["metadata_json"]))
+            if row["actor_user_id"] == user_id:
+                metadata["deleted_actor_user_id"] = user_id
+            if row["target_user_id"] == user_id:
+                metadata["deleted_target_user_id"] = user_id
+            connection.execute(
+                "UPDATE audit_events SET metadata_json = ? WHERE id = ?",
+                (json.dumps(metadata, ensure_ascii=False), row["id"]),
+            )
+
     def replace_permissions(
         self,
         user_id: str,
@@ -228,6 +288,7 @@ class IdentityRepository:
         """Atualiza perfil e acessos em uma única transação."""
         timestamp = _serialize_time(self.clock())
         with self.database.transaction() as connection:
+            self._require_active_manager(connection, actor_user_id)
             existing = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
             if existing is None:
                 return None

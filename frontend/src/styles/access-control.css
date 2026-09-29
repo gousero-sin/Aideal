@@ -532,6 +532,34 @@
   gap: 17px;
 }
 
+.access-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.access-inline-action {
+  background: rgba(7, 9, 13, 0.45);
+  border: 1px solid rgba(143, 213, 255, 0.18);
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.access-inline-action p {
+  margin: 0;
+}
+
+.access-danger-button {
+  border-color: rgba(240, 24, 33, 0.4);
+  color: #ffabb0;
+}
+
+.access-danger-button:hover:not(:disabled) {
+  border-color: #ff9297;
+}
+
 .access-user-card > header {
   align-items: flex-start;
   gap: 12px;
