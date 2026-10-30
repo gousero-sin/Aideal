@@ -14,7 +14,14 @@ HOST="${AIDEAL_HOST:-0.0.0.0}"
 PORT="${AIDEAL_PORT:-8000}"
 WORKERS="${AIDEAL_WORKERS:-1}"
 
-export AIDEAL_CORS_ORIGINS="${AIDEAL_CORS_ORIGINS:-http://127.0.0.1:${PORT},http://localhost:${PORT}}"
+# Endereço que os usuários digitam no navegador. HOST é só a interface de bind;
+# o nome goflowaideal precisa resolver para este servidor (DNS do roteador,
+# avahi/.local ou arquivo hosts nos clientes). A barra final é removida porque
+# origem CORS não a aceita.
+PUBLIC_URL="${AIDEAL_PUBLIC_URL:-http://goflowaideal.local:${PORT}}"
+PUBLIC_URL="${PUBLIC_URL%/}"
+
+export AIDEAL_CORS_ORIGINS="${AIDEAL_CORS_ORIGINS:-${PUBLIC_URL},http://127.0.0.1:${PORT},http://localhost:${PORT}}"
 
 log() {
     printf '%s\n' "$*"
@@ -367,9 +374,9 @@ main() {
     log ""
     log "[6/6] Subindo aplicacao final..."
     log "  Frontend estatico: frontend/dist"
-    log "  API + frontend: http://${HOST}:${PORT}"
-    log "  Health: http://${HOST}:${PORT}/health"
-    log "  Ready: http://${HOST}:${PORT}/ready"
+    log "  API + frontend: ${PUBLIC_URL}"
+    log "  Health: ${PUBLIC_URL}/health"
+    log "  Ready: ${PUBLIC_URL}/ready"
     log ""
     log "Pressione Ctrl+C para parar."
 

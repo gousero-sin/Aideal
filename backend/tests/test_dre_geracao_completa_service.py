@@ -409,9 +409,9 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "B") == -300
     assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "B") == -100
     assert _celula_dre_por_rotulo(ws_dre_valores, "IRPJ", "B") == -200
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "B") == 1030
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "B") == 1120
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Investimentos", "B") == -50
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "B") == 980
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "B") == 1070
     assert ws_dre_valores["AH6"].value == 1320
     assert ws_dre_valores["AH7"].value == 1000
     assert ws_dre_valores["AH8"].value == 0
@@ -422,9 +422,9 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "AH") == -300
     assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "AH") == -100
     assert _celula_dre_por_rotulo(ws_dre_valores, "IRPJ", "AH") == -200
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "AH") == 1030
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "AH") == 1120
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Investimentos", "AH") == -50
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "AH") == 980
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "AH") == 1070
 
     wb_formulas = load_workbook(output_path, data_only=False)
     ws_dre_formulas = wb_formulas["DRE"]
@@ -433,8 +433,98 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     assert ws_dre_formulas["B34"].value == 1320
     assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO OPERACIONAL", "B") == 1320
     assert _celula_dre_por_rotulo(ws_dre_formulas, "(-)IRPJ/CSLL", "B") == -300
-    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO LÍQUIDO", "B") == 1030
-    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO GERENCIAL", "B") == 980
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO LÍQUIDO", "B") == 1120
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO GERENCIAL", "B") == 1070
+
+
+def _linha_dre_por_rotulo(ws, rotulo: str) -> int:
+    linhas = [linha for linha in range(1, ws.max_row + 1) if ws.cell(linha, 1).value == rotulo]
+    assert len(linhas) == 1, f"Rótulo DRE ausente ou duplicado: {rotulo} -> {linhas}"
+    return linhas[0]
+
+
+def test_gerar_arquivo_resultados_finais_seguem_a_estrutura_da_dre(tmp_path):
+    """RL = RAI + IRPJ/CSLL e RG = RL + Investimentos em todas as colunas de valor.
+
+    O Resultado Líquido não pode vir de saldo de caixa: isso devolvia o IRPJ/CSLL
+    ao resultado e descontava Investimentos duas vezes no Resultado Gerencial.
+    """
+    service = _build_service_com_receita_liquida_e_impostos()
+    output_path = tmp_path / "dre_resultados_finais.xlsx"
+
+    service.gerar_arquivo(competencia="01/2026", output_path=output_path)
+
+    ws = load_workbook(output_path, data_only=True)["DRE"]
+    linha_rai = _linha_dre_por_rotulo(ws, "(=)RESULTADO ANTES DO IR")
+    linha_ir = _linha_dre_por_rotulo(ws, "(-)IRPJ/CSLL")
+    linha_rl = _linha_dre_por_rotulo(ws, "(=)RESULTADO LÍQUIDO")
+    linha_inv = _linha_dre_por_rotulo(ws, "(-)Investimentos")
+    linha_rg = _linha_dre_por_rotulo(ws, "(=)RESULTADO GERENCIAL")
+
+    for coluna in range(2, 35, 2):
+        rai = ws.cell(linha_rai, coluna).value or 0
+        ir = ws.cell(linha_ir, coluna).value or 0
+        rl = ws.cell(linha_rl, coluna).value or 0
+        investimentos = ws.cell(linha_inv, coluna).value or 0
+        rg = ws.cell(linha_rg, coluna).value or 0
+        assert rl == rai + ir, f"coluna {coluna}: RL {rl} != RAI {rai} + IR {ir}"
+        assert rg == rl + investimentos, (
+            f"coluna {coluna}: RG {rg} != RL {rl} + Investimentos {investimentos}"
+        )
+
+    assert ws.cell(linha_rai, 2).value == 1420
+    assert ws.cell(linha_rl, 2).value == 1120
+    assert ws.cell(linha_rg, 2).value == 1070
+
+
+def test_gerar_arquivo_tarifa_antecipacao_e_despesa_financeira_e_recompoe_bruto(tmp_path):
+    """Tarifa de Antecipação sai das deduções e passa a compor Despesas Financeiras.
+
+    O faturamento chega líquido da tarifa, então ela continua recompondo a
+    Receita Bruta; o Resultado antes do IR não muda, só a linha onde a tarifa cai.
+    """
+    service = _build_service_com_receita_liquida_e_impostos()
+    upload_id = service.repository.uploads.list_all()[0].id
+    service.repository.lancamentos.create(
+        DRELancamentoDB(
+            upload_id=upload_id,
+            competencia_ano=2026,
+            competencia_mes=1,
+            data_lancamento="2026-01-10",
+            historico="Tarifa de antecipação de recebíveis",
+            credito=Decimal("0"),
+            debito=Decimal("40.00"),
+            natureza_raw="Tarifa de Antecipação",
+            rubrica="Tarifa de Antecipação",
+            centro_custo="OBRA A",
+            hash_linha="hash_tarifa_antecipacao",
+        )
+    )
+    output_path = tmp_path / "dre_tarifa_antecipacao.xlsx"
+
+    service.gerar_arquivo(competencia="01/2026", output_path=output_path)
+
+    ws = load_workbook(output_path, data_only=True)["DRE"]
+    linha_tarifa = _linha_dre_por_rotulo(ws, "Tarifa de Antecipação")
+    linha_desp_fin = _linha_dre_por_rotulo(ws, "(-) Despesas Financeiras")
+    linha_nao_operacional = _linha_dre_por_rotulo(
+        ws, "(+/-)Despesas e Recebimentos Não Operacionais"
+    )
+    assert linha_desp_fin < linha_tarifa < linha_nao_operacional
+
+    for coluna in ("B", "AH"):
+        assert ws[f"{coluna}{linha_tarifa}"].value == -40
+        # Receita Bruta recomposta: 1000 líquido + IR 200 + CSLL 100 + ICMS 20 + tarifa 40.
+        assert _celula_dre_por_rotulo(ws, "(=)Receita Bruta", coluna) == 1360
+        assert _celula_dre_por_rotulo(ws, "(-)Deduções sobre vendas", coluna) == 0
+        assert _celula_dre_por_rotulo(ws, "Impostos sobre vendas", coluna) == 0
+        assert _celula_dre_por_rotulo(ws, "(=)Receita Líquida", coluna) == 1360
+        assert _celula_dre_por_rotulo(ws, "(-) Despesas Financeiras", coluna) == -40
+        # Receitas financeiras: recebimento de empréstimo 100; despesas: tarifa -40.
+        assert _celula_dre_por_rotulo(ws, "(+/-)Despesas e Receitas Financeiras", coluna) == 60
+        # Igual ao cenário sem a tarifa: o bruto sobe 40 e a financeira desce 40.
+        assert _celula_dre_por_rotulo(ws, "(=)RESULTADO ANTES DO IR", coluna) == 1420
+        assert _celula_dre_por_rotulo(ws, "(=)RESULTADO LÍQUIDO", coluna) == 1120
 
 
 def test_gerar_arquivo_protege_formulas_auxiliares_da_apoio(tmp_path):
@@ -914,41 +1004,6 @@ def test_subtotais_trimestrais_somam_os_meses_ja_arredondados():
     ) == 30
 
 
-def test_saldos_painel_por_mes_trata_codigos_de_imposto_como_deducao():
-    lancamentos = [
-        DRELancamentoDB(
-            upload_id="u1",
-            competencia_ano=2026,
-            competencia_mes=2,
-            data_lancamento="2026-02-10",
-            historico="Receita",
-            valor_bruto=Decimal("1000.00"),
-            credito=Decimal("1000.00"),
-            debito=Decimal("0"),
-            natureza_raw="1.1.1 - Recebimento de Clientes",
-            rubrica="1.1.1 - Recebimento de Clientes",
-            centro_custo="OBRA A",
-            hash_linha="h-receita",
-        ),
-        DRELancamentoDB(
-            upload_id="u1",
-            competencia_ano=2026,
-            competencia_mes=2,
-            data_lancamento="2026-02-10",
-            historico="ISS",
-            valor_bruto=Decimal("111.00"),
-            credito=Decimal("0"),
-            debito=Decimal("111.00"),
-            natureza_raw="17.8 - ISS",
-            rubrica="17.8 - ISS",
-            centro_custo="OBRA A",
-            hash_linha="h-iss",
-        ),
-    ]
-
-    assert DREGeracaoCompletaService._saldos_painel_por_mes(lancamentos) == {2: 1000.0}
-
-
 def test_agregar_apoio_receita_bruta_recompoe_bruto_sem_abater_ir_na_receita_liquida():
     service = _build_service_com_dados([6])
     with TemplateWriter(settings.template_dre_path) as writer:
@@ -1236,3 +1291,40 @@ def test_template_dre_exibe_novas_rubricas_somente_no_nivel_expandido():
         4,
     )
     assert next(iter(ws_plano.tables.values())).ref == f"A1:E{ws_plano.max_row}"
+
+
+def test_template_dre_posiciona_tarifa_antecipacao_em_despesas_financeiras():
+    workbook = load_workbook(settings.template_dre_path, data_only=False)
+    ws_dre = workbook["DRE"]
+    ws_plano = workbook["PLANO_CONTAS"]
+
+    linha_tarifa = _linha_dre_por_rotulo(ws_dre, "Tarifa de Antecipação")
+    linha_desp_fin = _linha_dre_por_rotulo(ws_dre, "(-) Despesas Financeiras")
+    linha_nao_operacional = _linha_dre_por_rotulo(
+        ws_dre, "(+/-)Despesas e Recebimentos Não Operacionais"
+    )
+    assert linha_desp_fin < linha_tarifa < linha_nao_operacional
+    assert ws_dre.row_dimensions[linha_tarifa].outlineLevel == 1
+    assert ws_dre.row_dimensions[linha_tarifa].hidden is True
+    assert ws_dre.cell(linha_tarifa, 2).value == (
+        f"=IFERROR(VLOOKUP($A{linha_tarifa},APOIO!$B:$N,"
+        "MATCH(B$5,APOIO!$B$5:$N$5,0),FALSE),0)"
+    )
+    # A antiga posição dentro de Impostos sobre vendas fica sem rótulo.
+    linha_impostos = _linha_dre_por_rotulo(ws_dre, "Impostos sobre vendas")
+    linha_receita_liquida = _linha_dre_por_rotulo(ws_dre, "(=)Receita Líquida")
+    assert linha_tarifa not in range(linha_impostos, linha_receita_liquida)
+
+    linhas_plano = [
+        row[1:5]
+        for row in ws_plano.iter_rows(min_row=2, max_col=5, values_only=True)
+        if row[0] == "Tarifa de Antecipação"
+    ]
+    assert linhas_plano == [
+        (
+            "Tarifa de Antecipação",
+            "(-) Despesas Financeiras",
+            "(+/-)Despesas e Receitas Financeiras",
+            6,
+        )
+    ]

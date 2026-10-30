@@ -139,3 +139,14 @@ export const buildFilterSummary = (filters, descriptors) =>
       text: `${label}: ${value}`,
     })),
   );
+
+// Card de resultado do Painel DRE: o valor é o Resultado Líquido da DRE
+// (linha 181); o saldo de caixa só entra quando a API não o envia.
+export const buildResultadoLiquidoKpi = (kpis = {}) => {
+  const value = kpis.resultado_liquido ?? kpis.saldo_liquido;
+  const temDetalhe = kpis.resultado_antes_ir != null && kpis.resultado_gerencial != null;
+  const detail = temDetalhe
+    ? `antes do IR ${formatSignedCurrency(kpis.resultado_antes_ir)} · gerencial ${formatSignedCurrency(kpis.resultado_gerencial)}`
+    : 'resultado líquido do DRE';
+  return { value, detail };
+};

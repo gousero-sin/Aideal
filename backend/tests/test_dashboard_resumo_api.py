@@ -358,6 +358,114 @@ def test_dashboard_resumo_dre_usa_receita_liquida_sem_descontar_impostos_duas_ve
     assert body["dre"]["saldo_liquido"] == 445525.0
 
 
+def test_dashboard_resumo_dre_trata_tarifa_antecipacao_como_saida(monkeypatch, tmp_path):
+    """Tarifa de Antecipação é despesa financeira, não imposto: entra nas saídas."""
+    db = _novo_db()
+    with db.transaction() as conn:
+        conn.execute(
+            """
+            INSERT INTO dre_uploads
+            (id, created_at, arquivo_nome, arquivo_sha256, competencia_ano, competencia_mes,
+             status, total_linhas, linhas_validas, linhas_rejeitadas, observacao)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "dre-tarifa",
+                "2026-06-01T10:00:00",
+                "dre_tarifa.xls",
+                "hash-dre-tarifa",
+                2026,
+                6,
+                "completed",
+                3,
+                3,
+                0,
+                None,
+            ),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dre_lancamentos
+            (upload_id, competencia_ano, competencia_mes, data_lancamento, historico,
+             valor_bruto, credito, debito, natureza_raw, natureza_norm, centro_custo,
+             rubrica, conta_pai, linha_origem, hash_linha, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "dre-tarifa",
+                    2026,
+                    6,
+                    "2026-06-10",
+                    "Recebimento de clientes",
+                    9000,
+                    9000,
+                    0,
+                    "1.1.1 - Recebimento de Clientes",
+                    "ENTRADA",
+                    "Obra Tarifa",
+                    "1.1.1 - Recebimento de Clientes",
+                    None,
+                    1,
+                    "tarifa-h1",
+                    "2026-06-01T10:00:00",
+                ),
+                (
+                    "dre-tarifa",
+                    2026,
+                    6,
+                    "2026-06-11",
+                    "ISS",
+                    500,
+                    0,
+                    500,
+                    "ISS",
+                    "SAIDA",
+                    "Obra Tarifa",
+                    "ISS",
+                    None,
+                    2,
+                    "tarifa-h2",
+                    "2026-06-01T10:00:00",
+                ),
+                (
+                    "dre-tarifa",
+                    2026,
+                    6,
+                    "2026-06-12",
+                    "Tarifa de antecipação de recebíveis",
+                    300,
+                    0,
+                    300,
+                    "Tarifa de Antecipação",
+                    "SAIDA",
+                    "Obra Tarifa",
+                    "Tarifa de Antecipação",
+                    None,
+                    3,
+                    "tarifa-h3",
+                    "2026-06-01T10:00:00",
+                ),
+            ],
+        )
+
+    monkeypatch.setattr(
+        main_module,
+        "dashboard_resumo_service",
+        DashboardResumoService(db=db, logs_dir=tmp_path),
+    )
+    client = TestClient(main_module.app)
+    login_admin(client)
+
+    resp = client.get("/api/dashboard/resumo?ano=2026&mes=6")
+
+    assert resp.status_code == 200
+    dre = resp.json()["dre"]
+    assert dre["total_impostos"] == 500.0
+    assert dre["total_saidas_liquidas"] == 300.0
+    assert dre["saldo_liquido"] == 8700.0
+
+
 def test_dashboard_resumo_rejeita_periodo_invalido(monkeypatch, tmp_path):
     db = _novo_db()
     monkeypatch.setattr(

@@ -1,8 +1,8 @@
 {
   "workbook_name": "DRE AIDEAL - 05 2025  - obra.xlsx",
-  "captured_at_utc": "2026-06-23T13:31:13.038367+00:00",
-  "file_size_bytes": 1000961,
-  "file_sha256": "612baff02c963ec11a711a6b3a8ef11f3f89e762254db2ba6f28ce08c14931fb",
+  "captured_at_utc": "2026-10-30T20:35:57.949840+00:00",
+  "file_size_bytes": 1000957,
+  "file_sha256": "64105a095152af0d7b64a91cbd3464706475da0010b7cc5fb488be95d3db3e4e",
   "entries": [
     {
       "name": "[Content_Types].xml",
@@ -966,9 +966,9 @@
     {
       "name": "xl/worksheets/sheet2.xml",
       "file_size": 583973,
-      "compress_size": 60352,
-      "crc": 60348673,
-      "sha256": "b74cc627ba1eaf65b41fc04f62a2605150bca860c4e6a46f0371f92246a4ed6a"
+      "compress_size": 60354,
+      "crc": 1861542971,
+      "sha256": "f04496e48e2cfc70a2a09d56973bbad33332b0a97ac86830b6ecce3a6dc402a1"
     },
     {
       "name": "xl/worksheets/sheet3.xml",
@@ -980,9 +980,9 @@
     {
       "name": "xl/worksheets/sheet4.xml",
       "file_size": 47893,
-      "compress_size": 6783,
-      "crc": 128894059,
-      "sha256": "184d527d4f4b1f332ff5678a86cb0bbbef30ebf39394a90185e03cec4ca0cfbf"
+      "compress_size": 6777,
+      "crc": 697118916,
+      "sha256": "ef35367a97b306e7ae21aeb8a853c4bf428e26750ca6a10b850f2b2700346480"
     },
     {
       "name": "xl/worksheets/sheet5.xml",

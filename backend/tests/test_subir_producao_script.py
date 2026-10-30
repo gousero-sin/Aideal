@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = ROOT_DIR / "scripts" / "subir-producao.sh"
+VALIDATE_PATH = ROOT_DIR / "scripts" / "validate-prod.sh"
 
 
 def run_bash(command: str) -> subprocess.CompletedProcess[str]:
@@ -163,3 +164,81 @@ def test_dependencias_base_nao_forcam_instalador_quando_toolchain_existe(tmp_pat
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_url_publica_padrao_usa_nome_goflowaideal():
+    result = run_bash(
+        "unset AIDEAL_PUBLIC_URL AIDEAL_PORT AIDEAL_CORS_ORIGINS; "
+        f"source {shlex.quote(str(SCRIPT_PATH))}; "
+        "printf '%s|%s' \"$PUBLIC_URL\" \"$AIDEAL_CORS_ORIGINS\""
+    )
+
+    assert result.returncode == 0, result.stderr
+    public_url, cors = result.stdout.split("|")
+    assert public_url == "http://goflowaideal.local:8000"
+    assert cors.split(",") == [
+        "http://goflowaideal.local:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+    ]
+
+
+def test_url_publica_acompanha_porta_configurada():
+    result = run_bash(
+        "unset AIDEAL_PUBLIC_URL AIDEAL_CORS_ORIGINS; "
+        f"AIDEAL_PORT=8010 source {shlex.quote(str(SCRIPT_PATH))}; "
+        "printf '%s' \"$PUBLIC_URL\""
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "http://goflowaideal.local:8010"
+
+
+def test_url_publica_pode_ser_sobrescrita_por_variavel_de_ambiente():
+    result = run_bash(
+        "unset AIDEAL_CORS_ORIGINS; "
+        "export AIDEAL_PUBLIC_URL=http://goflowaideal.local:8000/; "
+        f"source {shlex.quote(str(SCRIPT_PATH))}; "
+        "printf '%s|%s' \"$PUBLIC_URL\" \"$AIDEAL_CORS_ORIGINS\""
+    )
+
+    assert result.returncode == 0, result.stderr
+    public_url, cors = result.stdout.split("|")
+    # Origem CORS não aceita barra final; o script a remove.
+    assert public_url == "http://goflowaideal.local:8000"
+    assert cors.split(",")[0] == "http://goflowaideal.local:8000"
+
+
+def run_validacao_cors(cors_origins: str, public_url: str = "") -> subprocess.CompletedProcess[str]:
+    return run_bash(
+        f"export AIDEAL_CORS_ORIGINS={shlex.quote(cors_origins)}; "
+        f"export AIDEAL_PUBLIC_URL={shlex.quote(public_url)}; "
+        f"source {shlex.quote(str(VALIDATE_PATH))}; "
+        "check_local_config"
+    )
+
+
+def test_validate_prod_aceita_origem_goflowaideal_junto_de_loopback():
+    result = run_validacao_cors(
+        "http://goflowaideal:8000,http://127.0.0.1:8000,http://localhost:8000"
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "limites e CORS locais OK" in result.stdout
+
+
+def test_validate_prod_aceita_origem_publica_configurada():
+    result = run_validacao_cors(
+        "http://app-interno:9000,http://127.0.0.1:9000",
+        public_url="http://app-interno:9000",
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_validate_prod_rejeita_curinga_e_origem_externa():
+    curinga = run_validacao_cors("*")
+    externa = run_validacao_cors("http://goflowaideal.example.com:8000")
+
+    assert curinga.returncode != 0
+    assert externa.returncode != 0

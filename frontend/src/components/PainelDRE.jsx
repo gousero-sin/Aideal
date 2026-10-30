@@ -28,6 +28,7 @@ import {
   buildDREExportRequest,
   buildFilterSummary,
   buildDREPanelQuery,
+  buildResultadoLiquidoKpi,
   countSelectedFilters,
   formatCurrency,
   formatDecimal,
@@ -235,6 +236,7 @@ export default function PainelDRE({ apiBase, csrfToken, onBusyChange, onNotify }
   const kpis = data?.kpis || {};
   const receitaBruta = kpis.receita_bruta ?? kpis.total_credito;
   const receitaLiquida = kpis.receita_liquida ?? kpis.total_credito;
+  const resultadoLiquido = buildResultadoLiquidoKpi(kpis);
   const filtros = data?.filtros_disponiveis || {};
   const projetoCompletoAtivo = data?.filtros_aplicados?.escopo_periodo === 'projeto_completo';
   const indicadores = Array.isArray(data?.indicadores_viabilidade)
@@ -308,7 +310,7 @@ export default function PainelDRE({ apiBase, csrfToken, onBusyChange, onNotify }
       {
         label: 'Margem do resultado',
         value: formatPercent(margem),
-        detail: 'saldo / receita líquida',
+        detail: 'resultado líquido / receita líquida',
         progress: margem,
         tone: margem < 0 ? 'red' : margem < 15 ? 'yellow' : 'cyan',
       },
@@ -441,7 +443,7 @@ export default function PainelDRE({ apiBase, csrfToken, onBusyChange, onNotify }
             <KpiCard label="Receita Líquida" value={formatCurrency(receitaLiquida)} detail={`deduções ${formatCurrency(kpis.deducoes_vendas)}`} tone="cyan" icon={<TrendingUp size={20} />} />
             <KpiCard label="Saídas" value={formatCurrency(kpis.total_saidas_liquidas ?? kpis.total_debito)} detail="despesas (sem impostos)" tone="red" icon={<Download size={20} />} />
             <KpiCard label="Impostos" value={formatCurrency(kpis.total_impostos)} detail={`IRPJ/CSLL ${formatCurrency(kpis.irpj_csll)}`} tone="orange" icon={<Receipt size={20} />} />
-            <KpiCard label="Saldo" value={formatCurrency(kpis.resultado_liquido ?? kpis.saldo_liquido)} detail="resultado líquido do DRE" tone="yellow" icon={<BarChart3 size={20} />} />
+            <KpiCard label="Resultado Líquido" value={formatCurrency(resultadoLiquido.value)} detail={resultadoLiquido.detail} tone="yellow" icon={<BarChart3 size={20} />} />
             <KpiCard label="Fôlego" value={formatMonths(kpis.folego_caixa_meses)} detail="saldo / média de saídas" tone="cyan" icon={<Gauge size={20} />} />
           </section>
 

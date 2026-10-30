@@ -3,7 +3,7 @@ const deepClone = (value) => {
   return JSON.parse(JSON.stringify(value));
 };
 
-// crypto.randomUUID só existe em secure context; o app também roda em http://IP na rede.
+// crypto.randomUUID só existe em secure context; o app roda em http://goflowaideal (sem HTTPS) na rede.
 export const createDfpItemId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();

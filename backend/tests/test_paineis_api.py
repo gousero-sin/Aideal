@@ -335,7 +335,11 @@ def test_painel_dre_calcula_saldo_com_receita_liquida_sem_descontar_impostos_dua
     assert body["kpis"]["total_impostos"] == 100000.0
     assert body["kpis"]["total_saidas_liquidas"] == 2372883.0
     assert body["kpis"]["saldo_liquido"] == 445525.0
-    assert body["kpis"]["resultado_liquido"] == 445525.0
+    # O IR (17.4 → (-)IRPJ/CSLL) fica fora do saldo de caixa, mas é descontado
+    # do Resultado Líquido, como na linha 181 da DRE gerada.
+    assert body["kpis"]["resultado_antes_ir"] == 445525.0
+    assert body["kpis"]["resultado_liquido"] == 345525.0
+    assert body["kpis"]["resultado_gerencial"] == 345525.0
 
     serie = body["series_mensais"][0]
     assert serie["receita_liquida"] == 2818408.0
@@ -1364,8 +1368,19 @@ def test_painel_dre_indicadores_usam_contas_filhas_do_template_e_gasto_total_par
     assert objetivos["itmir"]["componentes_faltantes"] == ["Total de Imposto Retido"]
 
 
-def test_painel_dre_roi_usa_saldo_liquido_quando_resultado_liquido_nao_explicito():
-    db = _novo_db()
+def _inserir_lancamentos_dre(
+    db: DatabaseConnection,
+    upload_id: str,
+    ano: int,
+    mes: int,
+    centro_custo: str,
+    linhas: list[tuple[str, float, float, str]],
+) -> None:
+    """Insere lançamentos (historico, credito, debito, natureza) como na ingestão real.
+
+    A natureza bruta vai para natureza_raw e rubrica; a conta pai é resolvida pelo
+    PLANO_CONTAS do template, igual ao DRE gerado.
+    """
     with db.transaction() as conn:
         conn.execute(
             """
@@ -1375,15 +1390,15 @@ def test_painel_dre_roi_usa_saldo_liquido_quando_resultado_liquido_nao_explicito
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                "dre-roi-saldo-liquido",
-                "2026-04-01T10:00:00",
-                "dre_roi_saldo_liquido.xls",
-                "hash-dre-roi-saldo-liquido",
-                2025,
-                5,
+                upload_id,
+                f"{ano}-{mes:02d}-01T10:00:00",
+                f"{upload_id}.xls",
+                f"hash-{upload_id}",
+                ano,
+                mes,
                 "completed",
-                2,
-                2,
+                len(linhas),
+                len(linhas),
                 0,
                 None,
             ),
@@ -1398,53 +1413,132 @@ def test_painel_dre_roi_usa_saldo_liquido_quando_resultado_liquido_nao_explicito
             """,
             [
                 (
-                    "dre-roi-saldo-liquido",
-                    2025,
-                    5,
-                    "2025-05-10",
-                    "Receita",
-                    1000,
-                    1000,
-                    0,
-                    "(=)Receita Líquida",
-                    "ENTRADA",
-                    "Obra ROI",
-                    "(=)Receita Líquida",
-                    "(=)Receita Líquida",
-                    1,
-                    "roi-saldo-liquido-h1",
-                    "2026-04-01T10:00:00",
-                ),
-                (
-                    "dre-roi-saldo-liquido",
-                    2025,
-                    5,
-                    "2025-05-12",
-                    "Investimento",
-                    200,
-                    0,
-                    200,
-                    "8.4 - MAQUINAS / EQUIPAMENTOS",
-                    "SAIDA",
-                    "Obra ROI",
-                    "8.4 - MAQUINAS / EQUIPAMENTOS",
-                    "(-)Investimentos",
-                    2,
-                    "roi-saldo-liquido-h2",
-                    "2026-04-01T10:00:00",
-                ),
+                    upload_id,
+                    ano,
+                    mes,
+                    f"{ano}-{mes:02d}-10",
+                    historico,
+                    credito or debito,
+                    credito,
+                    debito,
+                    natureza,
+                    "ENTRADA" if credito else "SAIDA",
+                    centro_custo,
+                    natureza,
+                    None,
+                    indice,
+                    f"{upload_id}-h{indice}",
+                    f"{ano}-{mes:02d}-01T10:00:00",
+                )
+                for indice, (historico, credito, debito, natureza) in enumerate(linhas, start=1)
             ],
         )
 
+
+# Competência completa com todos os blocos abaixo do Resultado Operacional, nas
+# naturezas da base real (faturamento chega líquido do ISS e da tarifa).
+_LANCAMENTOS_RESULTADO_DRE = [
+    ("Recebimento de clientes", 9000, 0, "1.1.1 - Recebimento de Clientes"),
+    ("ISS sobre faturamento", 0, 500, "17.8 - ISS"),
+    ("Tarifa de antecipação de recebíveis", 0, 300, "Tarifa de Antecipação"),
+    ("Tintas", 0, 1000, "4.1 - TINTAS E SOLVENTES"),
+    ("Salários", 0, 2000, "12.1 - SALARIO"),
+    ("Juros bancários", 0, 100, "18.1 - JUROS BANCARIOS"),
+    ("Rendimento de aplicação", 50, 0, "1.2.3 - Origens Financeiras"),
+    ("Retiradas dos sócios", 0, 400, "16.2 - RETIRADAS GILVAN / GENILDO"),
+    ("IRPJ", 0, 600, "17.4 - IRPJ"),
+    ("Compra de equipamento", 0, 700, "8.4 - MAQUINAS / EQUIPAMENTOS"),
+]
+
+
+def test_painel_dre_resultado_liquido_segue_dre_gerado_sem_somar_irpj_ao_saldo():
+    db = _novo_db()
+    _inserir_lancamentos_dre(db, "dre-resultado", 2026, 5, "Obra RL", _LANCAMENTOS_RESULTADO_DRE)
+
     client = _client_com_db(db)
-    resp = client.get("/api/dre/painel?ano=2025&meses=5&centro_custo=Obra%20ROI")
+    resp = client.get("/api/dre/painel?ano=2026&meses=5&centro_custo=Obra%20RL")
 
     assert resp.status_code == 200
-    indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
+    body = resp.json()
+    kpis = body["kpis"]
+    # Receita Bruta 9.800 (9.000 + ISS 500 + tarifa 300); Receita Líquida 9.300;
+    # Resultado Operacional 9.300 - 1.000 - 2.000 = 6.300.
+    # Financeiras: -300 - 100 + 50 = -350; Não Operacionais: -400.
+    assert kpis["resultado_antes_ir"] == pytest.approx(5550.0)
+    assert kpis["resultado_liquido"] == pytest.approx(4950.0)
+    assert kpis["resultado_gerencial"] == pytest.approx(4250.0)
+    # Identidades da DRE gerada: linha 181 = 176 + 177 e linha 189 = 181 + 182.
+    assert kpis["resultado_liquido"] == pytest.approx(kpis["resultado_antes_ir"] - 600.0)
+    assert kpis["resultado_gerencial"] == pytest.approx(kpis["resultado_liquido"] - 700.0)
+    assert kpis["irpj_csll"] == pytest.approx(600.0)
+    assert kpis["margem_resultado_percentual"] == pytest.approx(4950 / 9300 * 100)
+    # O saldo de caixa continua sendo crédito - (débito - impostos), sem a tarifa.
+    assert kpis["total_impostos"] == pytest.approx(1100.0)
+    assert kpis["saldo_liquido"] == pytest.approx(9050.0 - (5600.0 - 1100.0))
+
+    indicadores = {item["id"]: item for item in body["indicadores_viabilidade"]}
+    assert indicadores["ebitda"]["valor"] == pytest.approx(6300.0)
+    assert indicadores["fcl"]["valor"] == pytest.approx(4250.0)
     assert indicadores["roi"]["status"] == "calculado"
-    assert indicadores["roi"]["valor"] == pytest.approx(400.0)
-    assert indicadores["roi"]["componentes"]["lucro_liquido"] == pytest.approx(800.0)
-    assert indicadores["roi"]["componentes"]["investimento_total"] == pytest.approx(200.0)
+    assert indicadores["roi"]["componentes"]["lucro_liquido"] == pytest.approx(4950.0)
+    investimento_total = indicadores["roi"]["componentes"]["investimento_total"]
+    assert indicadores["roi"]["valor"] == pytest.approx(4950 / investimento_total * 100)
+
+
+def test_painel_dre_tarifa_antecipacao_sai_das_deducoes_e_compoe_despesas_financeiras():
+    db = _novo_db()
+    _inserir_lancamentos_dre(
+        db,
+        "dre-tarifa",
+        2026,
+        5,
+        "Obra Tarifa",
+        [
+            ("Recebimento de clientes", 9000, 0, "1.1.1 - Recebimento de Clientes"),
+            ("ISS sobre faturamento", 0, 500, "17.8 - ISS"),
+            ("Tarifa de antecipação de recebíveis", 0, 300, "Tarifa de Antecipação"),
+        ],
+    )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2026&meses=5&centro_custo=Obra%20Tarifa")
+
+    assert resp.status_code == 200
+    kpis = resp.json()["kpis"]
+    # A tarifa segue recompondo a Receita Bruta (faturamento chega líquido dela)...
+    assert kpis["receita_bruta"] == pytest.approx(9800.0)
+    # ...mas não é dedução nem imposto: só o ISS reduz a Receita Líquida.
+    assert kpis["deducoes_vendas"] == pytest.approx(500.0)
+    assert kpis["receita_liquida"] == pytest.approx(9300.0)
+    assert kpis["total_impostos"] == pytest.approx(500.0)
+    assert kpis["total_saidas_liquidas"] == pytest.approx(300.0)
+    # Compõe (-) Despesas Financeiras, abaixo do Resultado Operacional.
+    assert kpis["resultado_antes_ir"] == pytest.approx(9300.0 - 300.0)
+    assert kpis["resultado_liquido"] == pytest.approx(9000.0)
+
+
+def test_painel_dre_resultado_liquido_explicito_prevalece_sobre_calculo():
+    db = _novo_db()
+    _inserir_lancamentos_dre(
+        db,
+        "dre-rl-explicito",
+        2026,
+        5,
+        "Obra RL Explicito",
+        [
+            ("Receita", 1000, 0, "(=)Receita Líquida"),
+            ("Resultado líquido informado", 640, 0, "(=)RESULTADO LÍQUIDO"),
+            ("Compra de equipamento", 0, 40, "8.4 - MAQUINAS / EQUIPAMENTOS"),
+        ],
+    )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2026&meses=5&centro_custo=Obra%20RL%20Explicito")
+
+    assert resp.status_code == 200
+    kpis = resp.json()["kpis"]
+    assert kpis["resultado_liquido"] == pytest.approx(640.0)
+    assert kpis["resultado_gerencial"] == pytest.approx(600.0)
 
 
 def test_painel_dre_roi_soma_itens_explicitos_do_investimento_total():
@@ -3927,3 +4021,38 @@ def test_paineis_rejeitam_periodo_invalido():
     assert "Mês deve estar entre 1 e 12" in dre_resp.json()["detail"]
     assert fluxo_resp.status_code == 400
     assert "Ano deve estar entre 2000 e 2100" in fluxo_resp.json()["detail"]
+
+
+def test_componentes_dre_sem_receita_nao_conta_credito_duas_vezes_abaixo_do_operacional(
+    tmp_path,
+):
+    """Sem receita, todo crédito vira receita; IRPJ/CSLL e Investimentos usam só débitos."""
+    db = DatabaseConnection(tmp_path / "painel.db")
+    MigrationManager(db).migrate()
+    service = PainelDREService(db=db)
+    base = {"debito": 0.0, "centro_custo": "OBRA TESTE", "_plano_contas_resolvido": True}
+    rows = [
+        {
+            **base,
+            "credito": 50.0,
+            "natureza_raw": "17.4 - IRPJ",
+            "rubrica": "IRPJ",
+            "conta_filho": "IRPJ/CSLL",
+            "conta_pai": "(-)IRPJ/CSLL",
+        },
+        {
+            **base,
+            "credito": 30.0,
+            "natureza_raw": "8.5 - MATERIAIS / FERRAMENTAS MANUAIS",
+            "rubrica": "MATERIAIS / FERRAMENTAS MANUAIS",
+            "conta_filho": "Investimentos",
+            "conta_pai": "(-)Investimentos",
+        },
+    ]
+
+    componentes = service._componentes_dre(rows, saldo_liquido=80.0, receita_liquida_base=80.0)
+
+    assert componentes["receita_liquida"] == pytest.approx(80.0)
+    assert componentes["resultado_antes_ir"] == pytest.approx(80.0)
+    assert componentes["resultado_liquido"] == pytest.approx(80.0)
+    assert componentes["resultado_gerencial"] == pytest.approx(80.0)

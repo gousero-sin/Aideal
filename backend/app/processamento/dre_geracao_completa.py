@@ -189,6 +189,16 @@ _PLANO_CONTAS_TEXTO_OVERRIDES = {
         "conta_pai": "(-)IRPJ/CSLL",
         "cod": 7,
     },
+    # A tarifa de antecipação é custo financeiro do recebível, não tributo:
+    # sai de Impostos sobre vendas e compõe (-) Despesas Financeiras. Como o
+    # faturamento chega líquido dela, segue em _IMPOSTOS_RECEITA_ROTULOS para
+    # recompor a Receita Bruta.
+    "Tarifa de Antecipação": {
+        "rubrica": "Tarifa de Antecipação",
+        "conta_filho": "(-) Despesas Financeiras",
+        "conta_pai": _FINANCEIRO_ROTULO,
+        "cod": 6,
+    },
 }
 _DRE_COLUNAS_VALOR = (2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34)
 _DRE_COLUNAS_PERCENTUAL = tuple(col + 1 for col in _DRE_COLUNAS_VALOR)
@@ -231,26 +241,6 @@ _DRE_SUBTOTAIS_FILHOS_ARREDONDADOS = {
         "(-) Despesas Financeiras",
     ),
 }
-_RUBRICAS_IMPOSTO_SALDO_PAINEL = frozenset(
-    (
-        "IR",
-        "IR Retido",
-        "ISS",
-        "ISS Retido",
-        "INSS",
-        "INSS Retido",
-        "PIS",
-        "COFINS",
-        "CSLL",
-        "Tarifa de Antecipação",
-        "Impostos sobre vendas",
-        "Deduções sobre vendas",
-        "(-)Deduções sobre vendas",
-        "Descontos sobre vendas",
-        "Simples Nacional",
-    )
-)
-_CODIGOS_IMPOSTO_SALDO_PAINEL = ("17.2", "17.3", "17.4", "17.5", "17.7", "17.8")
 _CODIGOS_DEDUCAO_RECEITA = frozenset(("17.2", "17.3", "17.7", "17.8"))
 _CODIGOS_RECOMPOSICAO_RECEITA_BRUTA = frozenset(("17.2", "17.3", "17.7", "17.8", "17.9"))
 # Usado apenas para recompor Receita Bruta quando bases antigas persistiram
@@ -301,18 +291,6 @@ def _extrair_codigo_gerencial(texto: Any) -> str | None:
 
 def _normalizar_rotulo(texto: Any) -> str:
     return re.sub(r"\s+", " ", str(texto or "").strip()).casefold()
-
-
-def _eh_imposto_saldo_painel(rubrica: Any, natureza_raw: Any) -> bool:
-    rubrica_texto = str(rubrica or "").strip()
-    natureza_texto = str(natureza_raw or "").strip()
-    if rubrica_texto in _RUBRICAS_IMPOSTO_SALDO_PAINEL:
-        return True
-    return any(
-        valor == codigo or valor.startswith(f"{codigo} - ")
-        for valor in (rubrica_texto, natureza_texto)
-        for codigo in _CODIGOS_IMPOSTO_SALDO_PAINEL
-    )
 
 
 def _participa_deducao_receita_por_codigo(*valores: Any) -> bool | None:
@@ -716,23 +694,6 @@ class DREGeracaoCompletaService:
         )
         return any(_normalizar_rotulo(rotulo) in _IMPOSTOS_RECEITA_ROTULOS for rotulo in rotulos)
 
-    @staticmethod
-    def _saldos_painel_por_mes(lancamentos: list[DRELancamentoDB]) -> dict[int, float]:
-        """Calcula o saldo com a mesma regra do Painel DRE.
-
-        Painel: crédito líquido - (débitos - impostos). A classificação de
-        imposto aqui replica a regra do painel web, que usa a rubrica persistida.
-        """
-        saldos: dict[int, float] = defaultdict(float)
-        for lanc in lancamentos:
-            data = _data_lancamento_para_date(lanc.data_lancamento)
-            mes = lanc.competencia_mes or data.month
-            credito = float(lanc.credito or 0)
-            debito = float(lanc.debito or 0)
-            imposto = debito if _eh_imposto_saldo_painel(lanc.rubrica, lanc.natureza_raw) else 0.0
-            saldos[mes] += credito - (debito - imposto)
-        return dict(saldos)
-
     def _escrever_apoio(
         self,
         writer: TemplateWriter,
@@ -972,7 +933,6 @@ class DREGeracaoCompletaService:
     def _materializar_dre(
         self,
         writer: TemplateWriter,
-        saldos_painel_por_mes: dict[int, float] | None = None,
     ) -> dict[str, Any]:
         """Resolve fórmulas do bloco gerencial da DRE para evitar cache antigo no XLSX.
 
@@ -1014,7 +974,6 @@ class DREGeracaoCompletaService:
         linha_receita_liquida = linhas_por_rotulo.get(_RECEITA_LIQUIDA_ROTULO)
         linha_resultado_liquido = linhas_por_rotulo.get(_RESULTADO_LIQUIDO_ROTULO)
         linha_resultado_gerencial = linhas_por_rotulo.get(_RESULTADO_GERENCIAL_ROTULO)
-        saldos_painel = saldos_painel_por_mes or {}
         celulas_materializadas = 0
 
         for linha in range(6, ws_dre.max_row + 1):
@@ -1038,8 +997,6 @@ class DREGeracaoCompletaService:
                     )
                 elif subtotal_arredondado is not None:
                     valor_calculado = subtotal_arredondado
-                elif linha == linha_resultado_liquido and saldos_painel:
-                    valor_calculado = self._valor_periodo_dre(saldos_painel, coluna)
                 elif isinstance(valor_atual, str) and valor_atual.startswith("="):
                     valor_calculado = self._avaliar_formula_dre(
                         ws=ws_dre,
@@ -1701,10 +1658,7 @@ class DREGeracaoCompletaService:
             )
 
             # 4f. Materializar a DRE para evitar cache antigo de fórmulas no XLSX.
-            dre_meta = self._materializar_dre(
-                writer,
-                saldos_painel_por_mes=self._saldos_painel_por_mes(lancamentos),
-            )
+            dre_meta = self._materializar_dre(writer)
 
             # 4g. Aba de detalhamento para uso operacional no workspace/painel.
             detalhe_meta = self._escrever_aba_detalhamento_mensal(

@@ -1,7 +1,16 @@
 """Fixtures compartilhadas para toda a suíte de testes AIDEAL."""
 
+import os
 import shutil
+import tempfile
 from pathlib import Path
+
+# O banco operacional precisa ser isolado ANTES de importar o app: os serviços
+# de app.main são singletons criados no import e guardam settings.db_path.
+# Sem isso, testes de API gravam em data/aideal.db e apagam lançamentos reais.
+os.environ["AIDEAL_DB_PATH"] = str(
+    Path(tempfile.mkdtemp(prefix="aideal-tests-")) / "aideal.db"
+)
 
 import pandas as pd
 import pytest
@@ -9,8 +18,15 @@ from openpyxl import Workbook
 
 from app.access_control import configure_identity_service, configure_orcamento_service
 from app.config import settings
+from app.db.connection import DatabaseConnection
+from app.db.manager import run_migrations
 from app.ingestao.parser import ExcelParser
 from app.processamento.dre import DREProcessamentoService
+
+# Trava contra regressão do isolamento e schema pronto para os singletons do app
+# (o TestClient sem `with` não executa o startup que aplica as migrações).
+assert settings.db_path == Path(os.environ["AIDEAL_DB_PATH"]), settings.db_path
+run_migrations(DatabaseConnection(settings.db_path))
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -62,6 +78,7 @@ def _admin_auth_settings(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "admin_cookie_secure", False)
     monkeypatch.setattr(settings, "identity_db_path", tmp_path / "identity.db")
     monkeypatch.setattr(settings, "orcamento_db_path", tmp_path / "orcamento.db")
+    monkeypatch.setattr(settings, "db_path", tmp_path / "aideal.db")
     yield
     configure_identity_service(None)
     configure_orcamento_service(None)

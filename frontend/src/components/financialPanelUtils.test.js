@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildDREExportRequest, buildDREPanelQuery } from './financialPanelUtils.js';
+import {
+  buildDREExportRequest,
+  buildDREPanelQuery,
+  buildResultadoLiquidoKpi,
+} from './financialPanelUtils.js';
 
 test('monta query do DRE respeitando mes quando obra e centro de custos estao filtrados', () => {
   const query = buildDREPanelQuery({
@@ -55,4 +59,23 @@ test('exportação do DRE usa o último mês disponível quando nenhum mês foi 
 test('exportação do DRE exige uma única obra', () => {
   assert.equal(buildDREExportRequest({ centro_custo: [] }, {}).valid, false);
   assert.equal(buildDREExportRequest({ centro_custo: ['A', 'B'] }, {}).valid, false);
+});
+
+test('card de resultado usa o Resultado Líquido do DRE e detalha antes do IR e gerencial', () => {
+  const kpi = buildResultadoLiquidoKpi({
+    saldo_liquido: -252927.13,
+    resultado_antes_ir: 162349.01,
+    resultado_liquido: -56845.76,
+    resultado_gerencial: -149405.96,
+  });
+
+  assert.equal(kpi.value, -56845.76);
+  assert.match(kpi.detail, /^antes do IR \+R\$\s162\.349 · gerencial -R\$\s149\.406$/);
+});
+
+test('card de resultado cai para o saldo quando a API não envia o Resultado Líquido', () => {
+  const kpi = buildResultadoLiquidoKpi({ saldo_liquido: 1200 });
+
+  assert.equal(kpi.value, 1200);
+  assert.equal(kpi.detail, 'resultado líquido do DRE');
 });

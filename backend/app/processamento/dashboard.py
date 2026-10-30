@@ -17,10 +17,11 @@ logger = logging.getLogger(__name__)
 class DashboardResumoService:
     """Agrega sinais operacionais de DRE, Fluxo de Caixa e logs recentes."""
 
+    # Tarifa de Antecipação é despesa financeira, não imposto: conta como saída.
     DRE_IMPOSTO_DEBITO_EXPR = (
         "CASE WHEN TRIM(rubrica) IN "
         "('IR','IR Retido','ISS','ISS Retido','INSS','INSS Retido','PIS','COFINS','CSLL',"
-        "'Tarifa de Antecipação','Impostos sobre vendas','Deduções sobre vendas',"
+        "'Impostos sobre vendas','Deduções sobre vendas',"
         "'(-)Deduções sobre vendas','Descontos sobre vendas','Simples Nacional') "
         "THEN debito ELSE 0 END"
     )

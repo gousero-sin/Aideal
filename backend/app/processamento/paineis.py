@@ -290,27 +290,11 @@ class PainelDREService(_PainelBaseService):
         "COALESCE(NULLIF(TRIM(natureza_norm), ''), NULLIF(TRIM(natureza_raw), ''), 'Sem natureza')"
     )
     # Rubricas tratadas como impostos/deduções (não compõem a saída operacional).
-    RUBRICAS_IMPOSTO = (
-        "IR",
-        "IR Retido",
-        "ISS",
-        "ISS Retido",
-        "INSS",
-        "INSS Retido",
-        "PIS",
-        "COFINS",
-        "CSLL",
-        "Tarifa de Antecipação",
-        "Impostos sobre vendas",
-        "Deduções sobre vendas",
-        "(-)Deduções sobre vendas",
-        "Descontos sobre vendas",
-        "Simples Nacional",
-    )
+    # Tarifa de Antecipação não entra: é despesa financeira do recebível.
     IMPOSTO_DEBITO_EXPR = (
         "CASE WHEN TRIM(rubrica) IN "
         "('IR','IR Retido','ISS','ISS Retido','INSS','INSS Retido','PIS','COFINS','CSLL',"
-        "'Tarifa de Antecipação','Impostos sobre vendas','Deduções sobre vendas',"
+        "'Impostos sobre vendas','Deduções sobre vendas',"
         "'(-)Deduções sobre vendas','Descontos sobre vendas','Simples Nacional') "
         "OR TRIM(rubrica) IN ('17.2','17.3','17.4','17.5','17.7','17.8') "
         "OR TRIM(natureza_raw) IN ('17.2','17.3','17.4','17.5','17.7','17.8') "
@@ -355,9 +339,26 @@ class PainelDREService(_PainelBaseService):
         "investimentos_gerencial": _alias_set(["(-)Investimentos"]),
         "folha_pagamento": _alias_set(["(-)Gastos Fixos"]),
     }
+    # Linha 176 da DRE gerada: RESULTADO ANTES DO IR = SUM(152, 153, 154, 167).
+    # 154 e 167 são as contas pai abaixo do operacional, somadas com sinal.
+    CONTAS_PAI_ABAIXO_OPERACIONAL = {
+        "resultado_financeiro": _alias_set(["(+/-)Despesas e Receitas Financeiras"]),
+        "resultado_nao_operacional": _alias_set(["(+/-)Despesas e Recebimentos Não Operacionais"]),
+    }
+    # Lançamentos que informam um subtotal da DRE não são movimento abaixo do
+    # operacional, mesmo quando o PLANO_CONTAS os manda para Não Operacionais.
+    COMPONENTES_DRE_TOTALIZADORES = (
+        "receita_liquida",
+        "margem_contribuicao",
+        "resultado_operacional",
+        "resultado_liquido",
+        "resultado_gerencial",
+    )
     COMPONENTES_DRE_CODIGOS_EXPLICITOS = {
         "folha_pagamento": frozenset(("12.100", "12.101")),
     }
+    # O faturamento chega líquido destes descontos, inclusive da Tarifa de
+    # Antecipação, que recompõe a Receita Bruta mesmo sendo despesa financeira.
     RECEITA_BRUTA_RECOMPOSICAO_ALIASES = _alias_set(
         [
             "(-)Deduções sobre vendas",
@@ -393,7 +394,6 @@ class PainelDREService(_PainelBaseService):
                 "ISS Retido",
                 "INSS",
                 "INSS Retido",
-                "Tarifa de Antecipação",
                 "PIS",
                 "COFINS",
                 "CSLL",
@@ -764,7 +764,6 @@ class PainelDREService(_PainelBaseService):
         total_impostos = _float(kpis["total_impostos"])
         total_saidas_liquidas = _float(kpis["total_saidas_liquidas"])
         saldo_liquido = _float(kpis["saldo_liquido"])
-        resultado_liquido = saldo_liquido
         competencias_series = [
             (int(row["ano"]), int(row["mes"])) for row in series if row["ano"] is not None
         ]
@@ -803,6 +802,9 @@ class PainelDREService(_PainelBaseService):
         receita_bruta_dre = _float(componentes_dre["receita_bruta"])
         deducoes_vendas = _float(componentes_dre["deducoes"])
         irpj_csll = _float(componentes_dre["irpj_csll"])
+        resultado_antes_ir = _float(componentes_dre["resultado_antes_ir"])
+        resultado_liquido = _float(componentes_dre["resultado_liquido"])
+        resultado_gerencial = _float(componentes_dre["resultado_gerencial"])
         series_mensais = self._series_rows(series, "lancamentos")
         series_mensais = self._aplicar_componentes_series(
             series_mensais,
@@ -830,7 +832,9 @@ class PainelDREService(_PainelBaseService):
                 "total_debito": total_debito,
                 "total_saidas_liquidas": total_saidas_liquidas,
                 "total_impostos": total_impostos,
+                "resultado_antes_ir": resultado_antes_ir,
                 "resultado_liquido": resultado_liquido,
+                "resultado_gerencial": resultado_gerencial,
                 "saldo_liquido": saldo_liquido,
                 "total_obras": int(kpis["total_obras"] or 0),
                 "total_naturezas": int(kpis["total_naturezas"] or 0),
@@ -838,7 +842,7 @@ class PainelDREService(_PainelBaseService):
                 "media_saida_mensal": media_saida_mensal,
                 "saldo_medio_mensal": saldo_medio_mensal,
                 "folego_caixa_meses": folego_caixa_meses,
-                "margem_resultado_percentual": _percent(saldo_liquido, receita_liquida_dre),
+                "margem_resultado_percentual": _percent(resultado_liquido, receita_liquida_dre),
                 "pressao_saida_percentual": _percent(total_saidas_liquidas, receita_liquida_dre),
                 "meses_analise": meses_analise,
             },
@@ -1285,17 +1289,48 @@ class PainelDREService(_PainelBaseService):
             else resultado_operacional_calculado
         )
         irpj_csll, _ = self._somar_componente(rows, "irpj_csll", absoluto=True)
+        # Sem Receita Bruta nem Receita Líquida, todo crédito já virou receita
+        # (receita_liquida_base); abaixo do operacional entram só os débitos.
+        receita_por_credito_total = (
+            not tem_receita_liquida and not tem_receita_bruta and receita_liquida_base is not None
+        )
+        # Abaixo do operacional a DRE gerada soma as contas pai com sinal
+        # (crédito - débito); o painel espelha as linhas 176, 181 e 189.
+        depreciacao_saldo, _ = self._somar_componente(
+            rows, "depreciacao", somente_debitos=receita_por_credito_total
+        )
+        irpj_csll_saldo, _ = self._somar_componente(
+            rows, "irpj_csll", somente_debitos=receita_por_credito_total
+        )
+        resultado_financeiro = self._somar_conta_pai(
+            rows, "resultado_financeiro", somente_debitos=receita_por_credito_total
+        )
+        resultado_nao_operacional = self._somar_conta_pai(
+            rows, "resultado_nao_operacional", somente_debitos=receita_por_credito_total
+        )
+        resultado_antes_ir = (
+            resultado_operacional
+            + depreciacao_saldo
+            + resultado_financeiro
+            + resultado_nao_operacional
+        )
         resultado_liquido_explicito, tem_resultado_liquido = self._somar_componente(
             rows, "resultado_liquido"
         )
+        # O saldo de caixa (crédito - saídas sem impostos) não é Resultado Líquido:
+        # soma IRPJ/CSLL de volta e já desconta Investimentos.
         resultado_liquido = (
-            resultado_liquido_explicito if tem_resultado_liquido else _float(saldo_liquido)
+            resultado_liquido_explicito
+            if tem_resultado_liquido
+            else resultado_antes_ir + irpj_csll_saldo
         )
         tem_resultado_liquido_calculado = tem_resultado_liquido or bool(rows)
         investimentos, tem_investimentos = self._somar_componente(
             rows, "investimentos", absoluto=True
         )
-        investimentos_gerencial, _ = self._somar_componente(rows, "investimentos_gerencial")
+        investimentos_gerencial, _ = self._somar_componente(
+            rows, "investimentos_gerencial", somente_debitos=receita_por_credito_total
+        )
         resultado_gerencial_explicito, tem_resultado_gerencial = self._somar_componente(
             rows, "resultado_gerencial"
         )
@@ -1331,6 +1366,9 @@ class PainelDREService(_PainelBaseService):
             "gastos_fixos": gastos_fixos,
             "depreciacao": depreciacao,
             "resultado_operacional": resultado_operacional,
+            "resultado_financeiro": resultado_financeiro,
+            "resultado_nao_operacional": resultado_nao_operacional,
+            "resultado_antes_ir": resultado_antes_ir,
             "irpj_csll": irpj_csll,
             "resultado_gerencial": resultado_gerencial,
             "resultado_liquido": resultado_liquido,
@@ -1362,6 +1400,7 @@ class PainelDREService(_PainelBaseService):
         rows: list[Any],
         componente: str,
         absoluto: bool = False,
+        somente_debitos: bool = False,
     ) -> tuple[float, bool]:
         aliases = self.COMPONENTES_DRE[componente]
         # Receita Bruta = faturamento bruto: soma o crédito, sem abater débitos.
@@ -1373,13 +1412,36 @@ class PainelDREService(_PainelBaseService):
             if not self._row_dre_matches(row, aliases, componente):
                 continue
             encontrado = True
-            valor = (
-                _float(row["credito"])
-                if usar_bruto
-                else _float(row["credito"]) - _float(row["debito"])
-            )
+            credito = 0.0 if somente_debitos else _float(row["credito"])
+            valor = credito if usar_bruto else credito - _float(row["debito"])
             total += abs(valor) if absoluto else valor
         return total, encontrado
+
+    def _somar_conta_pai(
+        self,
+        rows: list[Any],
+        grupo: str,
+        somente_debitos: bool = False,
+    ) -> float:
+        """Soma crédito - débito das linhas cuja conta pai resolvida pertence ao grupo.
+
+        Respeita a mesma exclusão do APOIO: 12.9/12.11 não sobem para a conta pai.
+        """
+        contas_pai = self.CONTAS_PAI_ABAIXO_OPERACIONAL[grupo]
+        total = 0.0
+        for row in rows:
+            if _normalizar_chave_conta(self._row_get(row, "conta_pai")) not in contas_pai:
+                continue
+            if self._codigo_conta_row(row) in _CODIGOS_EXCLUSIVOS_PESSOAL:
+                continue
+            if any(
+                self._row_dre_matches(row, self.COMPONENTES_DRE[componente], componente)
+                for componente in self.COMPONENTES_DRE_TOTALIZADORES
+            ):
+                continue
+            credito = 0.0 if somente_debitos else _float(self._row_get(row, "credito"))
+            total += credito - _float(self._row_get(row, "debito"))
+        return total
 
     def _somar_receita_bruta(self, rows: list[Any]) -> tuple[float, bool]:
         receita_bruta_informada = 0.0
