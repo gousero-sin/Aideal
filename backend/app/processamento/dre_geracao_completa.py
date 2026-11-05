@@ -76,6 +76,21 @@ _PLANO_CONTAS_CODIGO_OVERRIDES = {
         "conta_pai": "(-)Investimentos",
         "cod": 8,
     },
+    # A guia de ISS (17.8) soma com o ISS retido na nota; a linha "ISS" saiu do DRE.
+    "17.8": {
+        "rubrica": "ISS Retido",
+        "conta_filho": "Impostos sobre Vendas",
+        "conta_pai": "(-)Deduções sobre vendas",
+        "cod": 2,
+    },
+    # ICMS (17.9) é o diferencial de alíquota das compras: custo de material,
+    # não dedução da venda. Compõe Fornecedores na linha DIFAL ICMS.
+    "17.9": {
+        "rubrica": "DIFAL ICMS",
+        "conta_filho": "Fornecedores",
+        "conta_pai": "(-)Custos Variavéis",
+        "cod": 3,
+    },
     "11.7": {
         "rubrica": "Financiamento",
         "conta_filho": "(-) Despesas Financeiras",
@@ -190,9 +205,13 @@ _PLANO_CONTAS_TEXTO_OVERRIDES = {
         "cod": 7,
     },
     # A tarifa de antecipação é custo financeiro do recebível, não tributo:
-    # sai de Impostos sobre vendas e compõe (-) Despesas Financeiras. Como o
-    # faturamento chega líquido dela, segue em _IMPOSTOS_RECEITA_ROTULOS para
-    # recompor a Receita Bruta.
+    # sai de Impostos sobre vendas e compõe (-) Despesas Financeiras.
+    "ICMS": {
+        "rubrica": "DIFAL ICMS",
+        "conta_filho": "Fornecedores",
+        "conta_pai": "(-)Custos Variavéis",
+        "cod": 3,
+    },
     "Tarifa de Antecipação": {
         "rubrica": "Tarifa de Antecipação",
         "conta_filho": "(-) Despesas Financeiras",
@@ -242,33 +261,6 @@ _DRE_SUBTOTAIS_FILHOS_ARREDONDADOS = {
     ),
 }
 _CODIGOS_DEDUCAO_RECEITA = frozenset(("17.2", "17.3", "17.7", "17.8"))
-# As contas 17.x são guias pagas à parte (PIS, COFINS, Simples, ISS, ICMS), não
-# retenções descontadas da nota; por isso nenhuma delas recompõe a Receita Bruta.
-_CODIGOS_RECOMPOSICAO_RECEITA_BRUTA: frozenset[str] = frozenset()
-# Retenções na nota (IR, ISS, INSS, PIS, COFINS, CSLL) e Tarifa de Antecipação.
-# Usado apenas para recompor Receita Bruta quando a base não traz o valor da
-# nota; a linha do DRE é definida pelo PLANO_CONTAS resolvido.
-_IMPOSTOS_RECEITA_ROTULOS = frozenset(
-    valor.casefold()
-    for valor in (
-        "IR",
-        "IR Retido",
-        "ISS",
-        "ISS Retido",
-        "INSS",
-        "INSS Retido",
-        "PIS",
-        "COFINS",
-        "CSLL",
-        "Tarifa de Antecipação",
-        "Impostos sobre Vendas",
-        "(-)Deduções sobre vendas",
-        "Deduções sobre vendas",
-        "Descontos sobre vendas",
-        "Simples Nacional",
-    )
-)
-
 # Código gerencial no padrão "N.N[.N...]" no início do rótulo (ex.: "1.1.1 - ...").
 _CODIGO_GERENCIAL_RE = re.compile(r"^\s*(\d+(?:\.\d+)+)")
 _FORMULA_SUM_RE = re.compile(r"^=SUM\((?P<args>.+)\)$", re.IGNORECASE)
@@ -303,33 +295,6 @@ def _participa_deducao_receita_por_codigo(*valores: Any) -> bool | None:
         if codigo:
             return codigo in _CODIGOS_DEDUCAO_RECEITA
     return None
-
-
-def _participa_recomposicao_receita_bruta_por_codigo(*valores: Any) -> bool | None:
-    """Resolve pelo código se o débito recompõe o bruto; guias 17.x não recompõem."""
-    for valor in valores:
-        codigo = _extrair_codigo_gerencial(valor)
-        if codigo:
-            return codigo in _CODIGOS_RECOMPOSICAO_RECEITA_BRUTA
-    return None
-
-
-def _consolidar_receita_bruta(
-    valor_notas: float,
-    liquido: float,
-    retencoes: float,
-    tem_valor_nota: bool,
-) -> float:
-    """Receita Bruta de uma competência = valor das notas faturadas.
-
-    Quando o relatório destaca o valor da nota (valor_bruto > crédito), ele é a
-    fonte de verdade: os impostos lançados podem superar a retenção efetiva e
-    não servem para recompor. Só bases sem valor da nota recompõem o bruto como
-    líquido recebido + retenções.
-    """
-    if tem_valor_nota:
-        return valor_notas
-    return max(valor_notas, liquido + retencoes)
 
 
 def _arredondar_inteiro_dre(valor: float) -> int:
@@ -595,9 +560,6 @@ class DREGeracaoCompletaService:
         )
         receita_bruta_keys: set[tuple[int | None, str]] = set()
         receita_bruta_informada: dict[int, float] = defaultdict(float)
-        faturamento_liquido: dict[int, float] = defaultdict(float)
-        retencoes_receita: dict[int, float] = defaultdict(float)
-        meses_com_valor_nota: set[int] = set()
         meses_encontrados: set[int] = set()
 
         for lanc in lancamentos:
@@ -635,13 +597,13 @@ class DREGeracaoCompletaService:
                 incluir_conta_filho = participa_deducoes
                 incluir_conta_pai = participa_deducoes
 
+            # Receita Bruta = soma do valor das notas das contas 1.1.x (1.1.1
+            # Recebimento de Clientes, 1.1.2 Venda Material, 1.1.3 Locação de
+            # Equipamentos). Não é recomposta com impostos nem tarifas.
             eh_receita_bruta = conta_pai == _RECEITA_BRUTA_CONTA_PAI
             if eh_receita_bruta:
                 valor_receita_bruta = max(valor_bruto, credito, valor)
                 receita_bruta_informada[mes] += valor_receita_bruta
-                faturamento_liquido[mes] += valor
-                if valor_bruto > credito:
-                    meses_com_valor_nota.add(mes)
 
                 if conta_filho:
                     receita_bruta_keys.add((cod, conta_filho))
@@ -656,9 +618,6 @@ class DREGeracaoCompletaService:
                     agregado[(cod, conta_pai)][mes] += valor_receita_bruta
                 continue
 
-            if debito > 0 and self._eh_deducao_receita(lanc, rubrica, conta_filho, conta_pai):
-                retencoes_receita[mes] += debito
-
             if rubrica:
                 agregado[(cod, rubrica)][mes] += valor
             if conta_filho and incluir_conta_filho:
@@ -667,14 +626,8 @@ class DREGeracaoCompletaService:
                 agregado[(cod, conta_pai)][mes] += valor
 
         for mes in meses_encontrados:
-            receita_bruta = _consolidar_receita_bruta(
-                receita_bruta_informada[mes],
-                faturamento_liquido[mes],
-                retencoes_receita[mes],
-                tem_valor_nota=mes in meses_com_valor_nota,
-            )
             for key in receita_bruta_keys:
-                agregado[key][mes] = receita_bruta
+                agregado[key][mes] = receita_bruta_informada[mes]
 
         meses_ordenados = sorted(meses_encontrados)
         linhas: list[list] = []
@@ -695,30 +648,6 @@ class DREGeracaoCompletaService:
             linhas.append(row)
 
         return linhas, meses_ordenados
-
-    @staticmethod
-    def _eh_deducao_receita(
-        lanc: DRELancamentoDB,
-        rubrica: str,
-        conta_filho: str,
-        conta_pai: str,
-    ) -> bool:
-        participa_por_codigo = _participa_recomposicao_receita_bruta_por_codigo(
-            lanc.rubrica,
-            lanc.natureza_raw,
-        )
-        if participa_por_codigo is not None:
-            return participa_por_codigo
-
-        rotulos = (
-            lanc.natureza_raw,
-            lanc.rubrica,
-            lanc.conta_pai,
-            rubrica,
-            conta_filho,
-            conta_pai,
-        )
-        return any(_normalizar_rotulo(rotulo) in _IMPOSTOS_RECEITA_ROTULOS for rotulo in rotulos)
 
     def _escrever_apoio(
         self,

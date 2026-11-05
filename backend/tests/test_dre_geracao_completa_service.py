@@ -388,8 +388,8 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
         output_path=output_path,
     )
 
-    # Receita Bruta = valor da nota (1.300); IR/CSLL retidos e a guia de ICMS
-    # não recompõem o bruto quando a nota está destacada.
+    # Receita Bruta = soma das notas 1.1.x (1.300), sem recompor impostos.
+    # O ICMS (17.9) entra como DIFAL ICMS em Fornecedores: Margem 1.300 - 20.
     assert resultado["success"] is True
     assert resultado["celulas_dre_materializadas"] > 0
 
@@ -400,43 +400,43 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     assert ws_apoio_valores["C6"].value == 1300
     assert ws_apoio_valores["C7"].value == 1300
     assert ws_apoio_valores["C8"].value == 1000
-    assert _celula_apoio_por_rotulo(ws_apoio_valores, "ICMS", "C") == -20
+    assert _celula_apoio_por_rotulo(ws_apoio_valores, "DIFAL ICMS", "C") == -20
     assert ws_dre_valores["B6"].value == 1300
-    assert ws_dre_valores["B7"].value == 1000
-    assert ws_dre_valores["B8"].value == 0
-    assert ws_dre_valores["B12"].value == 0
-    assert ws_dre_valores["B19"].value == 1300
-    assert ws_dre_valores["B34"].value == 1300
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "B") == 1300
+    assert ws_dre_valores["B7"].value == 0
+    assert ws_dre_valores["B11"].value == 0
+    assert ws_dre_valores["B16"].value == 1300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "DIFAL ICMS", "B") == -20
+    assert _celula_dre_por_rotulo(ws_dre_valores, "Fornecedores", "B") == -20
+    assert ws_dre_valores["B31"].value == 1280
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "B") == 1280
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "B") == -300
     assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "B") == -100
     assert _celula_dre_por_rotulo(ws_dre_valores, "IRPJ", "B") == -200
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "B") == 1100
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "B") == 1080
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Investimentos", "B") == -50
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "B") == 1050
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "B") == 1030
     assert ws_dre_valores["AH6"].value == 1300
-    assert ws_dre_valores["AH7"].value == 1000
-    assert ws_dre_valores["AH8"].value == 0
-    assert ws_dre_valores["AH12"].value == 0
-    assert ws_dre_valores["AH19"].value == 1300
-    assert ws_dre_valores["AH34"].value == 1300
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "AH") == 1300
+    assert ws_dre_valores["AH7"].value == 0
+    assert ws_dre_valores["AH11"].value == 0
+    assert ws_dre_valores["AH16"].value == 1300
+    assert ws_dre_valores["AH31"].value == 1280
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "AH") == 1280
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "AH") == -300
     assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "AH") == -100
     assert _celula_dre_por_rotulo(ws_dre_valores, "IRPJ", "AH") == -200
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "AH") == 1100
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "AH") == 1080
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Investimentos", "AH") == -50
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "AH") == 1050
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "AH") == 1030
 
     wb_formulas = load_workbook(output_path, data_only=False)
     ws_dre_formulas = wb_formulas["DRE"]
-    assert not isinstance(ws_dre_formulas["B19"].value, str)
-    assert ws_dre_formulas["B19"].value == 1300
-    assert ws_dre_formulas["B34"].value == 1300
-    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO OPERACIONAL", "B") == 1300
+    assert not isinstance(ws_dre_formulas["B16"].value, str)
+    assert ws_dre_formulas["B16"].value == 1300
+    assert ws_dre_formulas["B31"].value == 1280
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO OPERACIONAL", "B") == 1280
     assert _celula_dre_por_rotulo(ws_dre_formulas, "(-)IRPJ/CSLL", "B") == -300
-    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO LÍQUIDO", "B") == 1100
-    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO GERENCIAL", "B") == 1050
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO LÍQUIDO", "B") == 1080
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO GERENCIAL", "B") == 1030
 
 
 def _linha_dre_por_rotulo(ws, rotulo: str) -> int:
@@ -474,16 +474,16 @@ def test_gerar_arquivo_resultados_finais_seguem_a_estrutura_da_dre(tmp_path):
             f"coluna {coluna}: RG {rg} != RL {rl} + Investimentos {investimentos}"
         )
 
-    assert ws.cell(linha_rai, 2).value == 1400
-    assert ws.cell(linha_rl, 2).value == 1100
-    assert ws.cell(linha_rg, 2).value == 1050
+    assert ws.cell(linha_rai, 2).value == 1380
+    assert ws.cell(linha_rl, 2).value == 1080
+    assert ws.cell(linha_rg, 2).value == 1030
 
 
 def test_gerar_arquivo_tarifa_antecipacao_e_despesa_financeira_e_recompoe_bruto(tmp_path):
     """Tarifa de Antecipação sai das deduções e passa a compor Despesas Financeiras.
 
-    Com o valor da nota destacado, a Receita Bruta é a própria nota: a tarifa
-    não a recompõe e passa a reduzir o resultado nas Despesas Financeiras.
+    A Receita Bruta é a soma das notas: a tarifa não a recompõe e passa a
+    reduzir o resultado nas Despesas Financeiras.
     """
     service = _build_service_com_receita_liquida_e_impostos()
     upload_id = service.repository.uploads.list_all()[0].id
@@ -516,7 +516,7 @@ def test_gerar_arquivo_tarifa_antecipacao_e_despesa_financeira_e_recompoe_bruto(
 
     for coluna in ("B", "AH"):
         assert ws[f"{coluna}{linha_tarifa}"].value == -40
-        # Receita Bruta = valor da nota (1.300), sem recompor impostos nem tarifa.
+        # Receita Bruta = soma das notas (1.300), sem recompor impostos nem tarifa.
         assert _celula_dre_por_rotulo(ws, "(=)Receita Bruta", coluna) == 1300
         assert _celula_dre_por_rotulo(ws, "(-)Deduções sobre vendas", coluna) == 0
         assert _celula_dre_por_rotulo(ws, "Impostos sobre vendas", coluna) == 0
@@ -524,9 +524,9 @@ def test_gerar_arquivo_tarifa_antecipacao_e_despesa_financeira_e_recompoe_bruto(
         assert _celula_dre_por_rotulo(ws, "(-) Despesas Financeiras", coluna) == -40
         # Receitas financeiras: recebimento de empréstimo 100; despesas: tarifa -40.
         assert _celula_dre_por_rotulo(ws, "(+/-)Despesas e Receitas Financeiras", coluna) == 60
-        # Cenário sem a tarifa (1.400) menos a tarifa de 40.
-        assert _celula_dre_por_rotulo(ws, "(=)RESULTADO ANTES DO IR", coluna) == 1360
-        assert _celula_dre_por_rotulo(ws, "(=)RESULTADO LÍQUIDO", coluna) == 1060
+        # Cenário sem a tarifa (1.380) menos a tarifa de 40.
+        assert _celula_dre_por_rotulo(ws, "(=)RESULTADO ANTES DO IR", coluna) == 1340
+        assert _celula_dre_por_rotulo(ws, "(=)RESULTADO LÍQUIDO", coluna) == 1040
 
 
 def test_gerar_arquivo_protege_formulas_auxiliares_da_apoio(tmp_path):
@@ -811,15 +811,15 @@ def test_materializar_gastos_fixos_soma_subtotais_filhos_arredondados(tmp_path):
         service._materializar_dre(writer)
         ws_dre = writer._wb["DRE"]
 
-        assert ws_dre["B36"].value == -10.60
-        assert ws_dre["B64"].value == -20.60
-        assert ws_dre["B35"].value == _arredondar_inteiro(
-            ws_dre["B36"].value
-        ) + _arredondar_inteiro(ws_dre["B64"].value)
-        assert ws_dre["B35"].value == -32
+        assert ws_dre["B33"].value == -10.60
+        assert ws_dre["B61"].value == -20.60
+        assert ws_dre["B32"].value == _arredondar_inteiro(
+            ws_dre["B33"].value
+        ) + _arredondar_inteiro(ws_dre["B61"].value)
+        assert ws_dre["B32"].value == -32
 
 
-def test_agregar_apoio_deducoes_usa_whitelist_17_8_e_preserva_folha_17_9():
+def test_agregar_apoio_deducoes_usa_whitelist_17_8_e_icms_17_9_vira_difal_em_fornecedores():
     service = _build_service_com_dados([6])
     with TemplateWriter(settings.template_dre_path) as writer:
         plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
@@ -873,12 +873,18 @@ def test_agregar_apoio_deducoes_usa_whitelist_17_8_e_preserva_folha_17_9():
         "receita_bruta": por_label["(=)Receita Bruta"][2],
         "deducoes": por_label["(-)Deduções sobre vendas"][2],
         "impostos_sobre_vendas": por_label["Impostos sobre Vendas"][2],
-        "icms_folha": por_label["ICMS"][2],
+        "iss_retido": por_label["ISS Retido"][2],
+        "difal_icms": por_label["DIFAL ICMS"][2],
+        "fornecedores": por_label["Fornecedores"][2],
+        "custos_variaveis": por_label["(-)Custos Variavéis"][2],
     } == {
         "receita_bruta": 1100.0,
         "deducoes": -100.0,
         "impostos_sobre_vendas": -100.0,
-        "icms_folha": -20.0,
+        "iss_retido": -100.0,
+        "difal_icms": -20.0,
+        "fornecedores": -20.0,
+        "custos_variaveis": -20.0,
     }
 
 
@@ -929,12 +935,12 @@ def test_materializar_financeiro_soma_subtotais_filhos_arredondados(tmp_path):
         service._materializar_dre(writer)
         ws_dre = writer._wb["DRE"]
 
-        assert ws_dre["J155"].value == 1.19
-        assert round(ws_dre["J159"].value, 2) == -44942.61
-        assert ws_dre["J154"].value == _arredondar_inteiro(
-            ws_dre["J155"].value
-        ) + _arredondar_inteiro(ws_dre["J159"].value)
-        assert ws_dre["J154"].value == -44942
+        assert ws_dre["J152"].value == 1.19
+        assert round(ws_dre["J156"].value, 2) == -44942.61
+        assert ws_dre["J151"].value == _arredondar_inteiro(
+            ws_dre["J152"].value
+        ) + _arredondar_inteiro(ws_dre["J156"].value)
+        assert ws_dre["J151"].value == -44942
 
 
 def test_materializar_receita_liquida_parte_da_receita_bruta_exibida_em_reais(tmp_path):
@@ -978,8 +984,8 @@ def test_materializar_receita_liquida_parte_da_receita_bruta_exibida_em_reais(tm
         ws_dre = writer._wb["DRE"]
 
         assert ws_dre["B6"].value == 1000
-        assert ws_dre["B8"].value == -100
-        assert ws_dre["B19"].value == 900
+        assert ws_dre["B7"].value == -100
+        assert ws_dre["B16"].value == 900
 
 
 def test_subtotais_trimestrais_somam_os_meses_ja_arredondados():
@@ -1010,7 +1016,7 @@ def test_subtotais_trimestrais_somam_os_meses_ja_arredondados():
     )
 
 
-def test_agregar_apoio_receita_bruta_recompoe_bruto_sem_abater_ir_na_receita_liquida():
+def test_agregar_apoio_receita_bruta_nao_recompoe_ir_e_ir_vai_para_irpj_csll():
     service = _build_service_com_dados([6])
     with TemplateWriter(settings.template_dre_path) as writer:
         plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
@@ -1048,8 +1054,8 @@ def test_agregar_apoio_receita_bruta_recompoe_bruto_sem_abater_ir_na_receita_liq
     linhas, _ = service._agregar_para_apoio(lancamentos, plano)
     por_label = {row[1]: row for row in linhas}
 
-    assert por_label["(=)Receita Bruta"][7] == 1300.0
-    assert por_label["(+)Receita Bruta"][7] == 1300.0
+    assert por_label["(=)Receita Bruta"][7] == 1000.0
+    assert por_label["(+)Receita Bruta"][7] == 1000.0
     assert por_label["Faturamento"][7] == 1000.0
     assert "IR Retido" not in por_label
     assert "(-)Deduções sobre vendas" not in por_label
@@ -1390,8 +1396,8 @@ def test_receita_bruta_usa_valor_da_nota_sem_somar_guias_nem_impostos_excedentes
     assert por_label["(=)Receita Bruta"][5] == 1100.0
 
 
-def test_receita_bruta_sem_valor_da_nota_recompoe_so_com_retencoes():
-    """Base sem valor bruto destacado recompõe líquido + retenções, sem guias 17.x."""
+def test_receita_bruta_sem_valor_da_nota_nao_recompoe_com_impostos():
+    """Receita Bruta é só a soma das contas 1.1.x, mesmo sem valor da nota destacado."""
     service = _build_service_com_dados([6])
     with TemplateWriter(settings.template_dre_path) as writer:
         plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
@@ -1410,4 +1416,4 @@ def test_receita_bruta_sem_valor_da_nota_recompoe_so_com_retencoes():
     linhas, _ = service._agregar_para_apoio(lancamentos, plano)
     por_label = {row[1]: row for row in linhas}
 
-    assert por_label["(=)Receita Bruta"][2] == 1140.0
+    assert por_label["(=)Receita Bruta"][2] == 1000.0

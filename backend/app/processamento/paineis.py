@@ -21,10 +21,8 @@ from ..templates.writer import TemplateWriter
 from .dre_geracao_completa import (
     _CODIGOS_EXCLUSIVOS_PESSOAL,
     DREGeracaoCompletaService,
-    _consolidar_receita_bruta,
     _extrair_codigo_gerencial,
     _participa_deducao_receita_por_codigo,
-    _participa_recomposicao_receita_bruta_por_codigo,
 )
 from .fluxo_caixa import FluxoCaixaProcessamentoService
 
@@ -358,27 +356,6 @@ class PainelDREService(_PainelBaseService):
     COMPONENTES_DRE_CODIGOS_EXPLICITOS = {
         "folha_pagamento": frozenset(("12.100", "12.101")),
     }
-    # O faturamento chega líquido destes descontos, inclusive da Tarifa de
-    # Antecipação, que recompõe a Receita Bruta mesmo sendo despesa financeira.
-    RECEITA_BRUTA_RECOMPOSICAO_ALIASES = _alias_set(
-        [
-            "(-)Deduções sobre vendas",
-            "Impostos sobre vendas",
-            "Descontos sobre vendas",
-            "Simples Nacional",
-            "IR",
-            "IR Retido",
-            "ISS",
-            "ISS Retido",
-            "INSS",
-            "INSS Retido",
-            "Tarifa de Antecipação",
-            "PIS",
-            "COFINS",
-            "CSLL",
-            "ICMS",
-        ]
-    )
     COMPONENTES_DRE = {
         "receita_bruta": _alias_set(
             ["(=)Receita Bruta", "Faturamento", "Recebimento de Clientes", "Receita Bruta"]
@@ -1445,57 +1422,22 @@ class PainelDREService(_PainelBaseService):
         return total
 
     def _somar_receita_bruta(self, rows: list[Any]) -> tuple[float, bool]:
-        """Soma a Receita Bruta decidindo a regra de cada competência (ver APOIO)."""
-        por_competencia: dict[tuple[Any, Any], dict[str, Any]] = {}
+        """Receita Bruta = soma do valor das notas das contas 1.1.x (mesma regra do APOIO).
+
+        Não é recomposta com impostos nem tarifas.
+        """
+        aliases = self.COMPONENTES_DRE["receita_bruta"]
+        receita_bruta = 0.0
         encontrado = False
-
         for row in rows:
-            credito = _float(self._row_get(row, "credito"))
-            debito = _float(self._row_get(row, "debito"))
-            valor = credito - debito
-            competencia = (self._row_get(row, "ano"), self._row_get(row, "mes"))
-            acumulado = por_competencia.setdefault(
-                competencia,
-                {"valor_notas": 0.0, "liquido": 0.0, "retencoes": 0.0, "tem_valor_nota": False},
-            )
-
-            if self._row_dre_matches(row, self.COMPONENTES_DRE["receita_bruta"], "receita_bruta"):
-                encontrado = True
-                valor_bruto = _float(self._row_get(row, "valor_bruto"))
-                acumulado["valor_notas"] += max(valor_bruto, credito, valor)
-                acumulado["liquido"] += valor
-                acumulado["tem_valor_nota"] = acumulado["tem_valor_nota"] or valor_bruto > credito
+            if not self._row_dre_matches(row, aliases, "receita_bruta"):
                 continue
-
-            if debito > 0 and self._row_recompoe_receita_bruta(row):
-                acumulado["retencoes"] += debito
-
-        receita_bruta = sum(
-            _consolidar_receita_bruta(**acumulado) for acumulado in por_competencia.values()
-        )
+            encontrado = True
+            credito = _float(self._row_get(row, "credito"))
+            valor = credito - _float(self._row_get(row, "debito"))
+            valor_bruto = _float(self._row_get(row, "valor_bruto"))
+            receita_bruta += max(valor_bruto, credito, valor)
         return receita_bruta, encontrado
-
-    @staticmethod
-    def _row_recompoe_receita_bruta(row: Any) -> bool:
-        participa_por_codigo = _participa_recomposicao_receita_bruta_por_codigo(
-            PainelDREService._row_get(row, "codigo_conta"),
-            PainelDREService._row_get(row, "natureza_raw"),
-            PainelDREService._row_get(row, "rubrica"),
-        )
-        if participa_por_codigo is not None:
-            return participa_por_codigo
-
-        valores = [
-            PainelDREService._row_get(row, "conta_pai"),
-            PainelDREService._row_get(row, "conta_filho"),
-            PainelDREService._row_get(row, "rubrica"),
-            PainelDREService._row_get(row, "natureza_raw"),
-            PainelDREService._row_get(row, "natureza_norm"),
-        ]
-        return any(
-            _normalizar_chave_conta(valor) in PainelDREService.RECEITA_BRUTA_RECOMPOSICAO_ALIASES
-            for valor in valores
-        )
 
     @staticmethod
     def _row_dre_matches(row: Any, aliases: set[str], componente: str) -> bool:
