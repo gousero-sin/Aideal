@@ -388,6 +388,8 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
         output_path=output_path,
     )
 
+    # Receita Bruta = valor da nota (1.300); IR/CSLL retidos e a guia de ICMS
+    # não recompõem o bruto quando a nota está destacada.
     assert resultado["success"] is True
     assert resultado["celulas_dre_materializadas"] > 0
 
@@ -395,46 +397,46 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     ws_dre_valores = wb_valores["DRE"]
     ws_apoio_valores = wb_valores["APOIO"]
 
-    assert ws_apoio_valores["C6"].value == 1320
-    assert ws_apoio_valores["C7"].value == 1320
+    assert ws_apoio_valores["C6"].value == 1300
+    assert ws_apoio_valores["C7"].value == 1300
     assert ws_apoio_valores["C8"].value == 1000
     assert _celula_apoio_por_rotulo(ws_apoio_valores, "ICMS", "C") == -20
-    assert ws_dre_valores["B6"].value == 1320
+    assert ws_dre_valores["B6"].value == 1300
     assert ws_dre_valores["B7"].value == 1000
     assert ws_dre_valores["B8"].value == 0
     assert ws_dre_valores["B12"].value == 0
-    assert ws_dre_valores["B19"].value == 1320
-    assert ws_dre_valores["B34"].value == 1320
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "B") == 1320
+    assert ws_dre_valores["B19"].value == 1300
+    assert ws_dre_valores["B34"].value == 1300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "B") == 1300
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "B") == -300
     assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "B") == -100
     assert _celula_dre_por_rotulo(ws_dre_valores, "IRPJ", "B") == -200
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "B") == 1120
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "B") == 1100
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Investimentos", "B") == -50
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "B") == 1070
-    assert ws_dre_valores["AH6"].value == 1320
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "B") == 1050
+    assert ws_dre_valores["AH6"].value == 1300
     assert ws_dre_valores["AH7"].value == 1000
     assert ws_dre_valores["AH8"].value == 0
     assert ws_dre_valores["AH12"].value == 0
-    assert ws_dre_valores["AH19"].value == 1320
-    assert ws_dre_valores["AH34"].value == 1320
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "AH") == 1320
+    assert ws_dre_valores["AH19"].value == 1300
+    assert ws_dre_valores["AH34"].value == 1300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "AH") == 1300
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "AH") == -300
     assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "AH") == -100
     assert _celula_dre_por_rotulo(ws_dre_valores, "IRPJ", "AH") == -200
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "AH") == 1120
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "AH") == 1100
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Investimentos", "AH") == -50
-    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "AH") == 1070
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "AH") == 1050
 
     wb_formulas = load_workbook(output_path, data_only=False)
     ws_dre_formulas = wb_formulas["DRE"]
     assert not isinstance(ws_dre_formulas["B19"].value, str)
-    assert ws_dre_formulas["B19"].value == 1320
-    assert ws_dre_formulas["B34"].value == 1320
-    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO OPERACIONAL", "B") == 1320
+    assert ws_dre_formulas["B19"].value == 1300
+    assert ws_dre_formulas["B34"].value == 1300
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO OPERACIONAL", "B") == 1300
     assert _celula_dre_por_rotulo(ws_dre_formulas, "(-)IRPJ/CSLL", "B") == -300
-    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO LÍQUIDO", "B") == 1120
-    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO GERENCIAL", "B") == 1070
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO LÍQUIDO", "B") == 1100
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO GERENCIAL", "B") == 1050
 
 
 def _linha_dre_por_rotulo(ws, rotulo: str) -> int:
@@ -472,16 +474,16 @@ def test_gerar_arquivo_resultados_finais_seguem_a_estrutura_da_dre(tmp_path):
             f"coluna {coluna}: RG {rg} != RL {rl} + Investimentos {investimentos}"
         )
 
-    assert ws.cell(linha_rai, 2).value == 1420
-    assert ws.cell(linha_rl, 2).value == 1120
-    assert ws.cell(linha_rg, 2).value == 1070
+    assert ws.cell(linha_rai, 2).value == 1400
+    assert ws.cell(linha_rl, 2).value == 1100
+    assert ws.cell(linha_rg, 2).value == 1050
 
 
 def test_gerar_arquivo_tarifa_antecipacao_e_despesa_financeira_e_recompoe_bruto(tmp_path):
     """Tarifa de Antecipação sai das deduções e passa a compor Despesas Financeiras.
 
-    O faturamento chega líquido da tarifa, então ela continua recompondo a
-    Receita Bruta; o Resultado antes do IR não muda, só a linha onde a tarifa cai.
+    Com o valor da nota destacado, a Receita Bruta é a própria nota: a tarifa
+    não a recompõe e passa a reduzir o resultado nas Despesas Financeiras.
     """
     service = _build_service_com_receita_liquida_e_impostos()
     upload_id = service.repository.uploads.list_all()[0].id
@@ -514,17 +516,17 @@ def test_gerar_arquivo_tarifa_antecipacao_e_despesa_financeira_e_recompoe_bruto(
 
     for coluna in ("B", "AH"):
         assert ws[f"{coluna}{linha_tarifa}"].value == -40
-        # Receita Bruta recomposta: 1000 líquido + IR 200 + CSLL 100 + ICMS 20 + tarifa 40.
-        assert _celula_dre_por_rotulo(ws, "(=)Receita Bruta", coluna) == 1360
+        # Receita Bruta = valor da nota (1.300), sem recompor impostos nem tarifa.
+        assert _celula_dre_por_rotulo(ws, "(=)Receita Bruta", coluna) == 1300
         assert _celula_dre_por_rotulo(ws, "(-)Deduções sobre vendas", coluna) == 0
         assert _celula_dre_por_rotulo(ws, "Impostos sobre vendas", coluna) == 0
-        assert _celula_dre_por_rotulo(ws, "(=)Receita Líquida", coluna) == 1360
+        assert _celula_dre_por_rotulo(ws, "(=)Receita Líquida", coluna) == 1300
         assert _celula_dre_por_rotulo(ws, "(-) Despesas Financeiras", coluna) == -40
         # Receitas financeiras: recebimento de empréstimo 100; despesas: tarifa -40.
         assert _celula_dre_por_rotulo(ws, "(+/-)Despesas e Receitas Financeiras", coluna) == 60
-        # Igual ao cenário sem a tarifa: o bruto sobe 40 e a financeira desce 40.
-        assert _celula_dre_por_rotulo(ws, "(=)RESULTADO ANTES DO IR", coluna) == 1420
-        assert _celula_dre_por_rotulo(ws, "(=)RESULTADO LÍQUIDO", coluna) == 1120
+        # Cenário sem a tarifa (1.400) menos a tarifa de 40.
+        assert _celula_dre_por_rotulo(ws, "(=)RESULTADO ANTES DO IR", coluna) == 1360
+        assert _celula_dre_por_rotulo(ws, "(=)RESULTADO LÍQUIDO", coluna) == 1060
 
 
 def test_gerar_arquivo_protege_formulas_auxiliares_da_apoio(tmp_path):
@@ -873,7 +875,7 @@ def test_agregar_apoio_deducoes_usa_whitelist_17_8_e_preserva_folha_17_9():
         "impostos_sobre_vendas": por_label["Impostos sobre Vendas"][2],
         "icms_folha": por_label["ICMS"][2],
     } == {
-        "receita_bruta": 1120.0,
+        "receita_bruta": 1100.0,
         "deducoes": -100.0,
         "impostos_sobre_vendas": -100.0,
         "icms_folha": -20.0,
@@ -912,9 +914,7 @@ def test_materializar_financeiro_soma_subtotais_filhos_arredondados(tmp_path):
     assert {
         "despesas_financeiras": round(por_label["(-) Despesas Financeiras"][5], 2),
         "receitas_financeiras": por_label["(+) Receitas Financeiras"][5],
-        "parent_financeiro_exato": round(
-            por_label["(+/-)Despesas e Receitas Financeiras"][5], 2
-        ),
+        "parent_financeiro_exato": round(por_label["(+/-)Despesas e Receitas Financeiras"][5], 2),
         "juros_recebidos_folha": por_label["Juros Recebidos"][5],
     } == {
         "despesas_financeiras": -44942.61,
@@ -990,18 +990,24 @@ def test_subtotais_trimestrais_somam_os_meses_ja_arredondados():
         "(-) Despesas Financeiras": {1: 0.0, 2: 0.0, 3: 0.0},
     }
 
-    assert DREGeracaoCompletaService._subtotal_filhos_arredondados(
-        "(-)Gastos Fixos",
-        8,
-        apoio,
-        {},
-    ) == -30
-    assert DREGeracaoCompletaService._subtotal_filhos_arredondados(
-        "(+/-)Despesas e Receitas Financeiras",
-        8,
-        apoio,
-        {},
-    ) == 30
+    assert (
+        DREGeracaoCompletaService._subtotal_filhos_arredondados(
+            "(-)Gastos Fixos",
+            8,
+            apoio,
+            {},
+        )
+        == -30
+    )
+    assert (
+        DREGeracaoCompletaService._subtotal_filhos_arredondados(
+            "(+/-)Despesas e Receitas Financeiras",
+            8,
+            apoio,
+            {},
+        )
+        == 30
+    )
 
 
 def test_agregar_apoio_receita_bruta_recompoe_bruto_sem_abater_ir_na_receita_liquida():
@@ -1255,8 +1261,7 @@ def test_template_dre_exibe_novas_rubricas_somente_no_nivel_expandido():
         assert ws_dre.row_dimensions[linha].outlineLevel == 1
         assert ws_dre.row_dimensions[linha].hidden is True
         formula_esperada = (
-            f"=IFERROR(VLOOKUP($A{linha},APOIO!$B:$N,"
-            "MATCH(B$5,APOIO!$B$5:$N$5,0),FALSE),0)"
+            f"=IFERROR(VLOOKUP($A{linha},APOIO!$B:$N,MATCH(B$5,APOIO!$B$5:$N$5,0),FALSE),0)"
         )
         assert ws_dre.cell(linha, 2).value == formula_esperada
     assert next(iter(ws_dre.tables.values())).ref == f"A5:AI{ws_dre.max_row}"
@@ -1307,8 +1312,7 @@ def test_template_dre_posiciona_tarifa_antecipacao_em_despesas_financeiras():
     assert ws_dre.row_dimensions[linha_tarifa].outlineLevel == 1
     assert ws_dre.row_dimensions[linha_tarifa].hidden is True
     assert ws_dre.cell(linha_tarifa, 2).value == (
-        f"=IFERROR(VLOOKUP($A{linha_tarifa},APOIO!$B:$N,"
-        "MATCH(B$5,APOIO!$B$5:$N$5,0),FALSE),0)"
+        f"=IFERROR(VLOOKUP($A{linha_tarifa},APOIO!$B:$N,MATCH(B$5,APOIO!$B$5:$N$5,0),FALSE),0)"
     )
     # A antiga posição dentro de Impostos sobre vendas fica sem rótulo.
     linha_impostos = _linha_dre_por_rotulo(ws_dre, "Impostos sobre vendas")
@@ -1328,3 +1332,82 @@ def test_template_dre_posiciona_tarifa_antecipacao_em_despesas_financeiras():
             6,
         )
     ]
+
+
+def _lancamento_receita_bruta(
+    mes: int,
+    historico: str,
+    natureza: str,
+    *,
+    credito: str = "0",
+    debito: str = "0",
+    valor_bruto: str | None = None,
+) -> DRELancamentoDB:
+    return DRELancamentoDB(
+        upload_id="u-receita-bruta",
+        competencia_ano=2026,
+        competencia_mes=mes,
+        data_lancamento=f"2026-{mes:02d}-10",
+        historico=historico,
+        valor_bruto=Decimal(valor_bruto or credito or debito),
+        credito=Decimal(credito),
+        debito=Decimal(debito),
+        natureza_raw=natureza,
+        rubrica=natureza,
+        centro_custo="OBRA A",
+        hash_linha=f"h-rb-{mes}-{historico}",
+    )
+
+
+def test_receita_bruta_usa_valor_da_nota_sem_somar_guias_nem_impostos_excedentes():
+    """Com valor da nota destacado, Receita Bruta = Σ valor_bruto (Base Eduardo).
+
+    Impostos lançados acima da retenção embutida e guias 17.8/17.9, pagas à
+    parte, não inflam o faturamento.
+    """
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    lancamentos = [
+        _lancamento_receita_bruta(
+            4,
+            "NF 174",
+            "1.1.1 - Recebimento de Clientes",
+            credito="1000.00",
+            valor_bruto="1100.00",
+        ),
+        _lancamento_receita_bruta(4, "IR NF 174", "IR", debito="50.00"),
+        _lancamento_receita_bruta(4, "ISS NF 174", "ISS", debito="80.00"),
+        _lancamento_receita_bruta(4, "Tarifa", "Tarifa de Antecipação", debito="10.00"),
+        _lancamento_receita_bruta(4, "Guia ISS", "17.8 - ISS", debito="7.00"),
+        _lancamento_receita_bruta(4, "Guia ICMS", "17.9 - ICMS", debito="20.00"),
+    ]
+
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    por_label = {row[1]: row for row in linhas}
+
+    assert por_label["(=)Receita Bruta"][5] == 1100.0
+
+
+def test_receita_bruta_sem_valor_da_nota_recompoe_so_com_retencoes():
+    """Base sem valor bruto destacado recompõe líquido + retenções, sem guias 17.x."""
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    lancamentos = [
+        _lancamento_receita_bruta(
+            1, "Recebimento", "1.1.1 - Recebimento de Clientes", credito="1000.00"
+        ),
+        _lancamento_receita_bruta(1, "IR retido", "IR", debito="50.00"),
+        _lancamento_receita_bruta(1, "ISS retido", "ISS", debito="80.00"),
+        _lancamento_receita_bruta(1, "Tarifa", "Tarifa de Antecipação", debito="10.00"),
+        _lancamento_receita_bruta(1, "Guia ISS", "17.8 - ISS", debito="7.00"),
+        _lancamento_receita_bruta(1, "Guia ICMS", "17.9 - ICMS", debito="20.00"),
+    ]
+
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    por_label = {row[1]: row for row in linhas}
+
+    assert por_label["(=)Receita Bruta"][2] == 1140.0

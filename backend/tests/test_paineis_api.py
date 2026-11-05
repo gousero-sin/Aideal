@@ -713,8 +713,8 @@ def test_painel_dre_exclui_icms_17_9_das_deducoes_sem_descartar_movimento():
     assert resp.status_code == 200
     body = resp.json()
     assert body["kpis"]["total_debito"] == pytest.approx(180.0)
-    assert body["kpis"]["receita_bruta"] == pytest.approx(1080.0)
-    assert body["kpis"]["receita_liquida"] == pytest.approx(1080.0)
+    assert body["kpis"]["receita_bruta"] == pytest.approx(1000.0)
+    assert body["kpis"]["receita_liquida"] == pytest.approx(1000.0)
     assert body["kpis"]["total_impostos"] == pytest.approx(100.0)
     assert body["kpis"]["deducoes_vendas"] == pytest.approx(0.0)
     assert body["kpis"]["irpj_csll"] == pytest.approx(100.0)
@@ -1201,8 +1201,9 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
             "credito": 2000.0,
             "debito": 1350.0,
             "impostos": 200.0,
-            "receita_bruta": 2200.0,
-            "receita_liquida": 2000.0,
+            # Simples 17.7 é guia paga à parte: não recompõe o faturamento.
+            "receita_bruta": 2000.0,
+            "receita_liquida": 1800.0,
             "deducoes_vendas": 200.0,
             "saidas_liquidas": 1150.0,
             "saldo": 850.0,
@@ -1215,15 +1216,16 @@ def test_painel_dre_obra_usa_ciclo_completo_do_projeto_e_indicadores():
 
     indicadores = {item["id"]: item for item in body["indicadores_viabilidade"]}
     assert set(indicadores) == {"mcl", "pel", "ebitda", "fcl", "roi", "ncg"}
-    assert indicadores["mcl"]["valor"] == pytest.approx(2000.0)
-    assert indicadores["mcl"]["percentual"] == pytest.approx(66.6666666667)
+    assert indicadores["mcl"]["valor"] == pytest.approx(1800.0)
+    assert indicadores["mcl"]["percentual"] == pytest.approx(1800 / 2800 * 100)
     assert indicadores["mcl"]["ideal"] is None
     assert "meta" not in indicadores["mcl"]
     assert "meta_status" not in indicadores["mcl"]
-    assert indicadores["pel"]["valor"] == pytest.approx(600.0)
+    # Gastos fixos 400 / margem de contribuição 1.800 / 2.800.
+    assert indicadores["pel"]["valor"] == pytest.approx(400 / (1800 / 2800))
     assert indicadores["pel"]["ideal"] is None
-    assert indicadores["ebitda"]["valor"] == pytest.approx(1600.0)
-    assert indicadores["ebitda"]["percentual"] == pytest.approx(53.3333333333)
+    assert indicadores["ebitda"]["valor"] == pytest.approx(1400.0)
+    assert indicadores["ebitda"]["percentual"] == pytest.approx(1400 / 2800 * 100)
     assert indicadores["ebitda"]["ideal"] is None
     assert indicadores["fcl"]["ideal"] is None
     assert indicadores["roi"]["ideal"] is None
@@ -1461,28 +1463,29 @@ def test_painel_dre_resultado_liquido_segue_dre_gerado_sem_somar_irpj_ao_saldo()
     assert resp.status_code == 200
     body = resp.json()
     kpis = body["kpis"]
-    # Receita Bruta 9.800 (9.000 + ISS 500 + tarifa 300); Receita Líquida 9.300;
-    # Resultado Operacional 9.300 - 1.000 - 2.000 = 6.300.
+    # Base sem valor da nota: Receita Bruta 9.300 (9.000 + tarifa 300; a guia
+    # 17.8 de ISS não recompõe); Receita Líquida 8.800 (- ISS 500);
+    # Resultado Operacional 8.800 - 1.000 - 2.000 = 5.800.
     # Financeiras: -300 - 100 + 50 = -350; Não Operacionais: -400.
-    assert kpis["resultado_antes_ir"] == pytest.approx(5550.0)
-    assert kpis["resultado_liquido"] == pytest.approx(4950.0)
-    assert kpis["resultado_gerencial"] == pytest.approx(4250.0)
+    assert kpis["resultado_antes_ir"] == pytest.approx(5050.0)
+    assert kpis["resultado_liquido"] == pytest.approx(4450.0)
+    assert kpis["resultado_gerencial"] == pytest.approx(3750.0)
     # Identidades da DRE gerada: linha 181 = 176 + 177 e linha 189 = 181 + 182.
     assert kpis["resultado_liquido"] == pytest.approx(kpis["resultado_antes_ir"] - 600.0)
     assert kpis["resultado_gerencial"] == pytest.approx(kpis["resultado_liquido"] - 700.0)
     assert kpis["irpj_csll"] == pytest.approx(600.0)
-    assert kpis["margem_resultado_percentual"] == pytest.approx(4950 / 9300 * 100)
+    assert kpis["margem_resultado_percentual"] == pytest.approx(4450 / 8800 * 100)
     # O saldo de caixa continua sendo crédito - (débito - impostos), sem a tarifa.
     assert kpis["total_impostos"] == pytest.approx(1100.0)
     assert kpis["saldo_liquido"] == pytest.approx(9050.0 - (5600.0 - 1100.0))
 
     indicadores = {item["id"]: item for item in body["indicadores_viabilidade"]}
-    assert indicadores["ebitda"]["valor"] == pytest.approx(6300.0)
-    assert indicadores["fcl"]["valor"] == pytest.approx(4250.0)
+    assert indicadores["ebitda"]["valor"] == pytest.approx(5800.0)
+    assert indicadores["fcl"]["valor"] == pytest.approx(3750.0)
     assert indicadores["roi"]["status"] == "calculado"
-    assert indicadores["roi"]["componentes"]["lucro_liquido"] == pytest.approx(4950.0)
+    assert indicadores["roi"]["componentes"]["lucro_liquido"] == pytest.approx(4450.0)
     investimento_total = indicadores["roi"]["componentes"]["investimento_total"]
-    assert indicadores["roi"]["valor"] == pytest.approx(4950 / investimento_total * 100)
+    assert indicadores["roi"]["valor"] == pytest.approx(4450 / investimento_total * 100)
 
 
 def test_painel_dre_tarifa_antecipacao_sai_das_deducoes_e_compoe_despesas_financeiras():
@@ -1505,16 +1508,16 @@ def test_painel_dre_tarifa_antecipacao_sai_das_deducoes_e_compoe_despesas_financ
 
     assert resp.status_code == 200
     kpis = resp.json()["kpis"]
-    # A tarifa segue recompondo a Receita Bruta (faturamento chega líquido dela)...
-    assert kpis["receita_bruta"] == pytest.approx(9800.0)
-    # ...mas não é dedução nem imposto: só o ISS reduz a Receita Líquida.
+    # Sem valor da nota, a tarifa recompõe a Receita Bruta; a guia 17.8 não...
+    assert kpis["receita_bruta"] == pytest.approx(9300.0)
+    # ...e a tarifa não é dedução nem imposto: só o ISS reduz a Receita Líquida.
     assert kpis["deducoes_vendas"] == pytest.approx(500.0)
-    assert kpis["receita_liquida"] == pytest.approx(9300.0)
+    assert kpis["receita_liquida"] == pytest.approx(8800.0)
     assert kpis["total_impostos"] == pytest.approx(500.0)
     assert kpis["total_saidas_liquidas"] == pytest.approx(300.0)
     # Compõe (-) Despesas Financeiras, abaixo do Resultado Operacional.
-    assert kpis["resultado_antes_ir"] == pytest.approx(9300.0 - 300.0)
-    assert kpis["resultado_liquido"] == pytest.approx(9000.0)
+    assert kpis["resultado_antes_ir"] == pytest.approx(8800.0 - 300.0)
+    assert kpis["resultado_liquido"] == pytest.approx(8500.0)
 
 
 def test_painel_dre_resultado_liquido_explicito_prevalece_sobre_calculo():
@@ -4056,3 +4059,73 @@ def test_componentes_dre_sem_receita_nao_conta_credito_duas_vezes_abaixo_do_oper
     assert componentes["resultado_antes_ir"] == pytest.approx(80.0)
     assert componentes["resultado_liquido"] == pytest.approx(80.0)
     assert componentes["resultado_gerencial"] == pytest.approx(80.0)
+
+
+def test_componentes_dre_receita_bruta_decide_valor_da_nota_por_competencia(tmp_path):
+    """Cada mês decide sozinho: com valor da nota usa a nota; sem, recompõe retenções."""
+    db = DatabaseConnection(tmp_path / "painel.db")
+    MigrationManager(db).migrate()
+    service = PainelDREService(db=db)
+    base = {"centro_custo": "OBRA TESTE", "ano": 2026}
+    receita = {
+        "natureza_raw": "1.1.1 - Recebimento de Clientes",
+        "rubrica": "1.1.1 - Recebimento de Clientes",
+        "debito": 0.0,
+    }
+    rows = [
+        # Abril: nota de 1100 recebida por 1000; impostos lançados (130) e guias
+        # 17.8/17.9 não podem inflar o faturamento.
+        {**base, **receita, "mes": 4, "credito": 1000.0, "valor_bruto": 1100.0},
+        {
+            **base,
+            "mes": 4,
+            "natureza_raw": "IR",
+            "rubrica": "IR",
+            "credito": 0.0,
+            "debito": 50.0,
+            "valor_bruto": 50.0,
+        },
+        {
+            **base,
+            "mes": 4,
+            "natureza_raw": "ISS",
+            "rubrica": "ISS",
+            "credito": 0.0,
+            "debito": 80.0,
+            "valor_bruto": 80.0,
+        },
+        {
+            **base,
+            "mes": 4,
+            "natureza_raw": "17.9 - ICMS",
+            "rubrica": "17.9 - ICMS",
+            "credito": 0.0,
+            "debito": 20.0,
+            "valor_bruto": 20.0,
+        },
+        # Janeiro: base sem valor da nota; recompõe só as retenções.
+        {**base, **receita, "mes": 1, "credito": 500.0, "valor_bruto": 500.0},
+        {
+            **base,
+            "mes": 1,
+            "natureza_raw": "IR",
+            "rubrica": "IR",
+            "credito": 0.0,
+            "debito": 30.0,
+            "valor_bruto": 30.0,
+        },
+        {
+            **base,
+            "mes": 1,
+            "natureza_raw": "17.8 - ISS",
+            "rubrica": "17.8 - ISS",
+            "credito": 0.0,
+            "debito": 5.0,
+            "valor_bruto": 5.0,
+        },
+    ]
+
+    receita_bruta, encontrado = service._somar_receita_bruta(rows)
+
+    assert encontrado is True
+    assert receita_bruta == pytest.approx(1100.0 + 530.0)

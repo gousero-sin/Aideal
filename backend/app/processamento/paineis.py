@@ -21,6 +21,7 @@ from ..templates.writer import TemplateWriter
 from .dre_geracao_completa import (
     _CODIGOS_EXCLUSIVOS_PESSOAL,
     DREGeracaoCompletaService,
+    _consolidar_receita_bruta,
     _extrair_codigo_gerencial,
     _participa_deducao_receita_por_codigo,
     _participa_recomposicao_receita_bruta_por_codigo,
@@ -1444,28 +1445,35 @@ class PainelDREService(_PainelBaseService):
         return total
 
     def _somar_receita_bruta(self, rows: list[Any]) -> tuple[float, bool]:
-        receita_bruta_informada = 0.0
-        faturamento_liquido = 0.0
-        deducoes_receita = 0.0
+        """Soma a Receita Bruta decidindo a regra de cada competência (ver APOIO)."""
+        por_competencia: dict[tuple[Any, Any], dict[str, Any]] = {}
         encontrado = False
 
         for row in rows:
             credito = _float(self._row_get(row, "credito"))
             debito = _float(self._row_get(row, "debito"))
             valor = credito - debito
+            competencia = (self._row_get(row, "ano"), self._row_get(row, "mes"))
+            acumulado = por_competencia.setdefault(
+                competencia,
+                {"valor_notas": 0.0, "liquido": 0.0, "retencoes": 0.0, "tem_valor_nota": False},
+            )
 
             if self._row_dre_matches(row, self.COMPONENTES_DRE["receita_bruta"], "receita_bruta"):
                 encontrado = True
                 valor_bruto = _float(self._row_get(row, "valor_bruto"))
-                receita_bruta_informada += max(valor_bruto, credito, valor)
-                faturamento_liquido += valor
+                acumulado["valor_notas"] += max(valor_bruto, credito, valor)
+                acumulado["liquido"] += valor
+                acumulado["tem_valor_nota"] = acumulado["tem_valor_nota"] or valor_bruto > credito
                 continue
 
             if debito > 0 and self._row_recompoe_receita_bruta(row):
-                deducoes_receita += debito
+                acumulado["retencoes"] += debito
 
-        receita_bruta_recomposta = faturamento_liquido + deducoes_receita
-        return max(receita_bruta_informada, receita_bruta_recomposta), encontrado
+        receita_bruta = sum(
+            _consolidar_receita_bruta(**acumulado) for acumulado in por_competencia.values()
+        )
+        return receita_bruta, encontrado
 
     @staticmethod
     def _row_recompoe_receita_bruta(row: Any) -> bool:
