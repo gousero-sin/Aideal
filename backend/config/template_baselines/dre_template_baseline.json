@@ -1,8 +1,8 @@
 {
   "workbook_name": "DRE AIDEAL - 05 2025  - obra.xlsx",
-  "captured_at_utc": "2026-10-30T20:35:57.949840+00:00",
-  "file_size_bytes": 1000957,
-  "file_sha256": "64105a095152af0d7b64a91cbd3464706475da0010b7cc5fb488be95d3db3e4e",
+  "captured_at_utc": "2026-11-06T15:00:23.217007+00:00",
+  "file_size_bytes": 992706,
+  "file_sha256": "00ab49a3d15fe5cce36a1ce77a731251c6b71c5cd688d32e3774b7c6f6e1605a",
   "entries": [
     {
       "name": "[Content_Types].xml",
@@ -440,10 +440,10 @@
     },
     {
       "name": "xl/calcChain.xml",
-      "file_size": 1072902,
-      "compress_size": 138142,
-      "crc": 2380445122,
-      "sha256": "39263ac4da4bb5b236b78d0ec43ad44df916cea9bc5923b8a58519175eaaab09"
+      "file_size": 1071518,
+      "compress_size": 137913,
+      "crc": 1940072097,
+      "sha256": "0237ccae812d9cb90b3d3bea923ae771e087babf74cdf9e7a7c8efc5ba40d342"
     },
     {
       "name": "xl/charts/_rels/chart1.xml.rels",
@@ -776,10 +776,10 @@
     },
     {
       "name": "xl/sharedStrings.xml",
-      "file_size": 163050,
-      "compress_size": 25594,
-      "crc": 3405236728,
-      "sha256": "555e9ae76d6abcbc3bc6f14f3783a99d9343a106a825eed293c398d2e365db07"
+      "file_size": 163076,
+      "compress_size": 25603,
+      "crc": 3080771046,
+      "sha256": "40191e8bdefe9cb3cc11a178d950c0e6f4bd88f13884a43d862559bea28315ee"
     },
     {
       "name": "xl/slicerCaches/slicerCache1.xml",
@@ -840,9 +840,9 @@
     {
       "name": "xl/tables/table1.xml",
       "file_size": 5642,
-      "compress_size": 1844,
-      "crc": 1968713611,
-      "sha256": "7511d19d896deef50e869ad8920da593e7c3b8952d3ae0d7805c1dc9ec3bf193"
+      "compress_size": 1845,
+      "crc": 1984323416,
+      "sha256": "2185a18e40025b2845db3760ee40615a113a1ad86e0cb5ee3bd969f1342fa8d2"
     },
     {
       "name": "xl/tables/table2.xml",
@@ -918,8 +918,8 @@
       "name": "xl/workbook.xml",
       "file_size": 3676,
       "compress_size": 1256,
-      "crc": 802943643,
-      "sha256": "45821b404bfdae295f223aed21e4e84b361a538b2b8eeb1b69cc14571c5efd48"
+      "crc": 1715941071,
+      "sha256": "55b434a0dd0d358edc6fcc89be4b6764deb37759fe1df49a96c108af5ad39b7c"
     },
     {
       "name": "xl/worksheets/_rels/sheet1.xml.rels",
@@ -965,10 +965,10 @@
     },
     {
       "name": "xl/worksheets/sheet2.xml",
-      "file_size": 583973,
-      "compress_size": 60354,
-      "crc": 1861542971,
-      "sha256": "f04496e48e2cfc70a2a09d56973bbad33332b0a97ac86830b6ecce3a6dc402a1"
+      "file_size": 513249,
+      "compress_size": 52326,
+      "crc": 2359954178,
+      "sha256": "9a54c1ebdeac0cbaa9b055ef2cffdd349d436781e4c4552e63a3bc64b388f38d"
     },
     {
       "name": "xl/worksheets/sheet3.xml",
@@ -987,9 +987,9 @@
     {
       "name": "xl/worksheets/sheet5.xml",
       "file_size": 72961,
-      "compress_size": 11550,
-      "crc": 71223317,
-      "sha256": "a82e6926823af85da703085ca37f472508f5f13ea6485987c0498c79a4361d79"
+      "compress_size": 11546,
+      "crc": 158828510,
+      "sha256": "905f0b685ffc6917ff7556e6c3aac962fc7d53d2f0f39f1791b1da8db5397bc9"
     }
   ]
 }

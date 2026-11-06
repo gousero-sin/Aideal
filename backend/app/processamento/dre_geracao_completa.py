@@ -42,7 +42,6 @@ _RESULTADO_GERENCIAL_ROTULO = "(=)RESULTADO GERENCIAL"
 _DEDUCOES_RECEITA_ROTULO = "(-)Deduções sobre vendas"
 _GASTOS_FIXOS_ROTULO = "(-)Gastos Fixos"
 _FINANCEIRO_ROTULO = "(+/-)Despesas e Receitas Financeiras"
-_CODIGOS_EXCLUSIVOS_PESSOAL = frozenset(("12.9", "12.11"))
 _PLANO_CONTAS_CODIGO_OVERRIDES = {
     # Correções aprovadas para o painel DRE. O código gerencial é a chave
     # canônica; descrições dos relatórios podem mudar sem alterar a regra.
@@ -76,12 +75,21 @@ _PLANO_CONTAS_CODIGO_OVERRIDES = {
         "conta_pai": "(-)Investimentos",
         "cod": 8,
     },
-    # A guia de ISS (17.8) soma com o ISS retido na nota; a linha "ISS" saiu do DRE.
+    # A guia de ISS (17.8) é despesa administrativa, em linha própria; não soma
+    # com o ISS retido na nota, que segue nas deduções sobre vendas.
     "17.8": {
-        "rubrica": "ISS Retido",
-        "conta_filho": "Impostos sobre Vendas",
-        "conta_pai": "(-)Deduções sobre vendas",
-        "cod": 2,
+        "rubrica": "ISS",
+        "conta_filho": "Despesas Administrativas",
+        "conta_pai": _GASTOS_FIXOS_ROTULO,
+        "cod": 4,
+    },
+    # A linha "Consorcios" fica no bloco financeiro; o plano legado a somava em
+    # Gastos Fixos, e o valor aparecia em um bloco e entrava no total de outro.
+    "11.12": {
+        "rubrica": "Consorcios",
+        "conta_filho": "(-) Despesas Financeiras",
+        "conta_pai": _FINANCEIRO_ROTULO,
+        "cod": 6,
     },
     # ICMS (17.9) é o diferencial de alíquota das compras: custo de material,
     # não dedução da venda. Compõe Fornecedores na linha DIFAL ICMS.
@@ -244,23 +252,12 @@ _DRE_MESES_POR_COLUNA_TRIMESTRE = {
     32: (10, 11, 12),
 }
 _DRE_SUBTOTAIS_FILHOS_ARREDONDADOS = {
-    _GASTOS_FIXOS_ROTULO: (
-        "Despesas com Pessoal",
-        "Serviços de Terceiros",
-        "Despesas Administrativas",
-        "Despesas com Veículos e Equipamentos",
-        "Despesas com Locações",
-        "Despesas com Máquinas e Equipamentos",
-        "Despesas com Viagens e Hospedagens",
-        "Despesas Financeiras",
-        "Despesas com Infraestrutura",
-    ),
     _FINANCEIRO_ROTULO: (
         "(+) Receitas Financeiras",
         "(-) Despesas Financeiras",
     ),
 }
-_CODIGOS_DEDUCAO_RECEITA = frozenset(("17.2", "17.3", "17.7", "17.8"))
+_CODIGOS_DEDUCAO_RECEITA = frozenset(("17.2", "17.3", "17.7"))
 # Código gerencial no padrão "N.N[.N...]" no início do rótulo (ex.: "1.1.1 - ...").
 _CODIGO_GERENCIAL_RE = re.compile(r"^\s*(\d+(?:\.\d+)+)")
 _FORMULA_SUM_RE = re.compile(r"^=SUM\((?P<args>.+)\)$", re.IGNORECASE)
@@ -591,7 +588,7 @@ class DREGeracaoCompletaService:
             )
 
             incluir_conta_filho = True
-            incluir_conta_pai = codigo_gerencial not in _CODIGOS_EXCLUSIVOS_PESSOAL
+            incluir_conta_pai = True
             if conta_pai == _DEDUCOES_RECEITA_ROTULO and codigo_gerencial:
                 participa_deducoes = codigo_gerencial in _CODIGOS_DEDUCAO_RECEITA
                 incluir_conta_filho = participa_deducoes
@@ -838,30 +835,17 @@ class DREGeracaoCompletaService:
         total = 0
         for mes in meses:
             coluna_mes = _DRE_COLUNA_VALOR_POR_MES[mes]
-            valores_filhos = {
-                filho: cls._valor_apoio_periodo(
-                    filho,
-                    coluna_mes,
-                    apoio_por_rotulo,
-                    apoio_por_rotulo_normalizado,
+            total += sum(
+                _arredondar_inteiro_dre(
+                    cls._valor_apoio_periodo(
+                        filho,
+                        coluna_mes,
+                        apoio_por_rotulo,
+                        apoio_por_rotulo_normalizado,
+                    )
                 )
                 for filho in filhos
-            }
-
-            if rotulo_pai == _GASTOS_FIXOS_ROTULO:
-                # 12.9 e 12.11 compõem a linha pública de Pessoal, mas não o
-                # subtotal de Fixos. A diferença para o pai, calculado por código,
-                # identifica essa participação exclusiva sem depender da descrição.
-                valor_pai = cls._valor_apoio_periodo(
-                    rotulo_pai,
-                    coluna_mes,
-                    apoio_por_rotulo,
-                    apoio_por_rotulo_normalizado,
-                )
-                diferenca_exclusiva = sum(valores_filhos.values()) - valor_pai
-                valores_filhos["Despesas com Pessoal"] -= diferenca_exclusiva
-
-            total += sum(_arredondar_inteiro_dre(valor) for valor in valores_filhos.values())
+            )
 
         return float(total)
 

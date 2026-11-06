@@ -7,8 +7,8 @@ Alterações aprovadas para o DRE gerado:
   APLICAÇÃO", no bloco Fornecedores; o ICMS (17.9) passa a compor os Custos
   Variáveis por essa linha;
 - remove "Faturamento"; a Receita Bruta já é a soma das notas 1.1.x;
-- remove a linha "ISS" do bloco de impostos; o 17.8 ISS passa a compor
-  "ISS Retido";
+- remove a linha "ISS" do bloco de impostos (a guia 17.8 ISS tem hoje linha
+  própria em Despesas Administrativas: ver update_dre_template_iss.py);
 - remove as linhas em branco do bloco de impostos (entre a Receita Bruta e a
   Receita Líquida), como a que sobrou da Tarifa de Antecipação.
 

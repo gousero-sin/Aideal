@@ -713,7 +713,7 @@ def test_resolver_conta_pai_prioriza_codigo_12_9_e_12_11_sobre_texto_legado():
     ]
 
 
-def test_agregar_apoio_12_9_e_12_11_participam_somente_de_despesas_com_pessoal():
+def test_agregar_apoio_12_9_e_12_11_compoem_pessoal_e_gastos_fixos():
     service = _build_service_com_dados([6])
     with TemplateWriter(settings.template_dre_path) as writer:
         plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
@@ -761,11 +761,12 @@ def test_agregar_apoio_12_9_e_12_11_participam_somente_de_despesas_com_pessoal()
     } == {
         "despesas_com_pessoal": -101.0,
         "rotulo_legado": None,
-        "gastos_fixos": None,
+        "gastos_fixos": -101.0,
     }
 
 
-def test_materializar_gastos_fixos_soma_subtotais_filhos_arredondados(tmp_path):
+def test_materializar_gastos_fixos_e_a_soma_exata_dos_filhos(tmp_path):
+    """Soma os valores exatos: -10,60 + -20,60 = -31,20, exibido como -31."""
     service = _build_service_com_dados([6])
     with TemplateWriter(settings.template_dre_path) as writer:
         plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
@@ -813,13 +814,193 @@ def test_materializar_gastos_fixos_soma_subtotais_filhos_arredondados(tmp_path):
 
         assert ws_dre["B33"].value == -10.60
         assert ws_dre["B61"].value == -20.60
-        assert ws_dre["B32"].value == _arredondar_inteiro(
-            ws_dre["B33"].value
-        ) + _arredondar_inteiro(ws_dre["B61"].value)
-        assert ws_dre["B32"].value == -32
+        assert round(ws_dre["B32"].value, 2) == -31.20
+        assert _arredondar_inteiro(ws_dre["B32"].value) == -31
 
 
-def test_agregar_apoio_deducoes_usa_whitelist_17_8_e_icms_17_9_vira_difal_em_fornecedores():
+def test_materializar_gastos_fixos_e_a_soma_dos_nove_subtotais_filhos(tmp_path):
+    """Gastos Fixos soma todos os filhos, sem exceção por código (12.9, 12.11, 17.8)."""
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    def despesa(codigo: str, descricao: str, valor: str) -> DRELancamentoDB:
+        natureza = f"{codigo} - {descricao}"
+        return DRELancamentoDB(
+            upload_id="u-fixos-nove",
+            competencia_ano=2026,
+            competencia_mes=2,
+            data_lancamento="2026-02-10",
+            historico=natureza,
+            credito=Decimal("0"),
+            debito=Decimal(valor),
+            natureza_raw=natureza,
+            rubrica=natureza,
+            centro_custo="OBRA A",
+            hash_linha=f"h-fixos-nove-{codigo}",
+        )
+
+    lancamentos = [
+        despesa("12.1", "SALARIO", "1000.00"),
+        despesa("12.9", "PASSAGENS COLABORADORES", "90.00"),
+        despesa("12.11", "ASSISTENCIA MEDICA ADM", "11.00"),
+        despesa("3.20", "MÃO DE OBRA TERCEIRIZADA", "200.00"),
+        despesa("17.8", "ISS", "30.00"),
+        despesa("18.2", "TARIFAS BANCARIAS", "5.00"),
+    ]
+
+    template_path = _copiar_template(tmp_path)
+    with TemplateWriter(template_path) as writer:
+        service._escrever_apoio(writer, lancamentos, plano)
+        service._materializar_dre(writer)
+        ws_dre = writer._wb["DRE"]
+        linha = {
+            str(ws_dre.cell(row=r, column=1).value).strip(): r
+            for r in range(ws_dre.max_row, 5, -1)
+            if ws_dre.cell(row=r, column=1).value
+        }
+        filhos = (
+            "Despesas com Pessoal",
+            "Serviços de Terceiros",
+            "Despesas Administrativas",
+            "Despesas com Veículos e Equipamentos",
+            "Despesas com Locações",
+            "Despesas com Máquinas e Equipamentos",
+            "Despesas com Viagens e Hospedagens",
+            "Despesas Financeiras",
+            "Despesas com Infraestrutura",
+        )
+        valor = {r: ws_dre.cell(row=linha[r], column=4).value for r in filhos}
+
+        assert valor["Despesas com Pessoal"] == -1101.0
+        assert valor["Serviços de Terceiros"] == -200.0
+        assert valor["Despesas Administrativas"] == -30.0
+        assert valor["Despesas Financeiras"] == -5.0
+        assert ws_dre.cell(row=linha["(-)Gastos Fixos"], column=4).value == sum(valor.values())
+        assert ws_dre.cell(row=linha["(-)Gastos Fixos"], column=4).value == -1336.0
+
+
+def test_agregar_apoio_17_8_iss_e_despesa_administrativa_e_nao_soma_iss_retido():
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    lancamentos = [
+        _lancamento_receita_bruta(
+            2, "NF 10", "1.1.1 - Recebimento de Clientes", credito="1000.00"
+        ),
+        _lancamento_receita_bruta(2, "ISS NF 10", "ISS", debito="80.00"),
+        _lancamento_receita_bruta(2, "Guia ISS", "17.8 - ISS", debito="7.00"),
+    ]
+
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    fevereiro = {row[1]: row[3] for row in linhas}
+
+    assert {
+        "iss_retido_na_nota": fevereiro["ISS Retido"],
+        "deducoes": fevereiro["(-)Deduções sobre vendas"],
+        "linha_iss": fevereiro["ISS"],
+        "despesas_administrativas": fevereiro["Despesas Administrativas"],
+        "gastos_fixos": fevereiro["(-)Gastos Fixos"],
+    } == {
+        "iss_retido_na_nota": -80.0,
+        "deducoes": -80.0,
+        "linha_iss": -7.0,
+        "despesas_administrativas": -7.0,
+        "gastos_fixos": -7.0,
+    }
+
+
+def test_materializar_iss_aparece_na_linha_do_bloco_despesas_administrativas(tmp_path):
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    lancamentos = [_lancamento_receita_bruta(2, "Guia ISS", "17.8 - ISS", debito="7.00")]
+
+    template_path = _copiar_template(tmp_path)
+    with TemplateWriter(template_path) as writer:
+        service._escrever_apoio(writer, lancamentos, plano)
+        service._materializar_dre(writer)
+        ws_dre = writer._wb["DRE"]
+        rotulos = [str(ws_dre.cell(row=r, column=1).value or "").strip() for r in range(1, 200)]
+        linha_iss = rotulos.index("ISS") + 1
+
+        assert rotulos.count("ISS") == 1
+        assert rotulos.index("Despesas Administrativas") < rotulos.index("ISS")
+        assert rotulos.index("ISS") < rotulos.index("Despesas com Veículos e Equipamentos")
+        assert ws_dre.cell(row=linha_iss, column=4).value == -7.0
+
+
+def test_consorcio_11_12_compoe_despesas_financeiras_e_nao_gastos_fixos(tmp_path):
+    """A linha Consorcios fica no bloco financeiro: o subtotal tem de somá-la."""
+    service = _build_service_com_dados([6])
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
+
+    lancamentos = [
+        _lancamento_receita_bruta(9, "Consórcio", "11.12 - CONSÓRCIO", debito="1141.65"),
+        _lancamento_receita_bruta(9, "Juros", "18.1 - JUROS BANCARIOS", debito="100.00"),
+        _lancamento_receita_bruta(9, "Tarifa", "18.2 - TARIFAS BANCARIAS", debito="50.00"),
+    ]
+
+    linhas, _ = service._agregar_para_apoio(lancamentos, plano)
+    setembro = {row[1]: row[10] for row in linhas}
+
+    assert {
+        "consorcios": setembro["Consorcios"],
+        "despesas_financeiras_bloco_financeiro": round(setembro["(-) Despesas Financeiras"], 2),
+        "financeiro": round(setembro["(+/-)Despesas e Receitas Financeiras"], 2),
+        "despesas_financeiras_gastos_fixos": setembro["Despesas Financeiras"],
+        "gastos_fixos": setembro["(-)Gastos Fixos"],
+    } == {
+        "consorcios": -1141.65,
+        "despesas_financeiras_bloco_financeiro": -1241.65,
+        "financeiro": -1241.65,
+        "despesas_financeiras_gastos_fixos": -50.0,
+        "gastos_fixos": -50.0,
+    }
+
+
+def test_plano_de_contas_cada_rubrica_com_linha_fica_no_bloco_da_sua_conta_filho():
+    """Rubrica exibida em um bloco e somada em outro quebra a soma dos subtotais."""
+    with TemplateWriter(settings.template_dre_path) as writer:
+        plano = DREGeracaoCompletaService._ler_plano_contas(
+            writer, aplicar_overrides_dre_gerado=True
+        )
+        ws_dre = writer._wb["DRE"]
+        linha_por_rotulo: dict[str, int] = {}
+        for r in range(6, ws_dre.max_row + 1):
+            rotulo = str(ws_dre.cell(row=r, column=1).value or "").strip().casefold()
+            if rotulo:
+                linha_por_rotulo.setdefault(rotulo, r)
+
+    # Conta usada por um lançamento: código exato vence o texto; só avaliamos
+    # o que o resolvedor realmente devolve para os códigos do plano.
+    entradas = [entrada for chave, entrada in plano.items() if chave.startswith("@cod:")]
+    cabecalhos = sorted(
+        {
+            linha_por_rotulo[str(entrada[campo]).strip().casefold()]
+            for entrada in entradas
+            for campo in ("conta_filho", "conta_pai")
+            if str(entrada[campo]).strip().casefold() in linha_por_rotulo
+        }
+    )
+
+    fora_do_bloco = []
+    for entrada in entradas:
+        linha_rubrica = linha_por_rotulo.get(str(entrada["rubrica"]).strip().casefold())
+        linha_filho = linha_por_rotulo.get(str(entrada["conta_filho"]).strip().casefold())
+        if linha_rubrica is None or linha_filho is None or linha_rubrica == linha_filho:
+            continue
+        proximo = next((c for c in cabecalhos if c > linha_filho), 10**6)
+        if not linha_filho < linha_rubrica < proximo:
+            fora_do_bloco.append((entrada["rubrica"], entrada["conta_filho"]))
+
+    assert fora_do_bloco == []
+
+
+def test_agregar_apoio_deducoes_usa_whitelist_e_icms_17_9_vira_difal_em_fornecedores():
     service = _build_service_com_dados([6])
     with TemplateWriter(settings.template_dre_path) as writer:
         plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
@@ -846,7 +1027,7 @@ def test_agregar_apoio_deducoes_usa_whitelist_17_8_e_icms_17_9_vira_difal_em_for
             historico="ISS",
             credito=Decimal("0"),
             debito=Decimal("100.00"),
-            natureza_raw="17.8 - ISS",
+            natureza_raw="ISS",
             rubrica="ISS",
             centro_custo="OBRA A",
             hash_linha="h-deducoes-iss",
@@ -935,12 +1116,12 @@ def test_materializar_financeiro_soma_subtotais_filhos_arredondados(tmp_path):
         service._materializar_dre(writer)
         ws_dre = writer._wb["DRE"]
 
-        assert ws_dre["J152"].value == 1.19
-        assert round(ws_dre["J156"].value, 2) == -44942.61
-        assert ws_dre["J151"].value == _arredondar_inteiro(
-            ws_dre["J152"].value
-        ) + _arredondar_inteiro(ws_dre["J156"].value)
-        assert ws_dre["J151"].value == -44942
+        assert ws_dre["J153"].value == 1.19
+        assert round(ws_dre["J157"].value, 2) == -44942.61
+        assert ws_dre["J152"].value == _arredondar_inteiro(
+            ws_dre["J153"].value
+        ) + _arredondar_inteiro(ws_dre["J157"].value)
+        assert ws_dre["J152"].value == -44942
 
 
 def test_materializar_receita_liquida_parte_da_receita_bruta_exibida_em_reais(tmp_path):
@@ -970,7 +1151,7 @@ def test_materializar_receita_liquida_parte_da_receita_bruta_exibida_em_reais(tm
             historico="ISS retido",
             credito=Decimal("0"),
             debito=Decimal("100.00"),
-            natureza_raw="17.8 - ISS",
+            natureza_raw="ISS",
             rubrica="ISS",
             centro_custo="OBRA A",
             hash_linha="h-receita-arredondada-iss",
@@ -988,7 +1169,7 @@ def test_materializar_receita_liquida_parte_da_receita_bruta_exibida_em_reais(tm
         assert ws_dre["B16"].value == 900
 
 
-def test_subtotais_trimestrais_somam_os_meses_ja_arredondados():
+def test_subtotal_financeiro_trimestral_soma_os_meses_ja_arredondados():
     apoio = {
         "Despesas com Pessoal": {1: -10.4, 2: -10.4, 3: -10.4},
         "(-)Gastos Fixos": {1: -10.4, 2: -10.4, 3: -10.4},
@@ -996,6 +1177,7 @@ def test_subtotais_trimestrais_somam_os_meses_ja_arredondados():
         "(-) Despesas Financeiras": {1: 0.0, 2: 0.0, 3: 0.0},
     }
 
+    # Gastos Fixos usa a soma exata lida do APOIO, sem arredondar os filhos.
     assert (
         DREGeracaoCompletaService._subtotal_filhos_arredondados(
             "(-)Gastos Fixos",
@@ -1003,7 +1185,7 @@ def test_subtotais_trimestrais_somam_os_meses_ja_arredondados():
             apoio,
             {},
         )
-        == -30
+        is None
     )
     assert (
         DREGeracaoCompletaService._subtotal_filhos_arredondados(

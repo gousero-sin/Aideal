@@ -19,7 +19,6 @@ from ..repository.fluxo_indicadores_manuais import FluxoIndicadoresManuaisReposi
 from ..repository.fluxo_repository import FluxoCaixaRepository
 from ..templates.writer import TemplateWriter
 from .dre_geracao_completa import (
-    _CODIGOS_EXCLUSIVOS_PESSOAL,
     DREGeracaoCompletaService,
     _extrair_codigo_gerencial,
     _participa_deducao_receita_por_codigo,
@@ -290,25 +289,24 @@ class PainelDREService(_PainelBaseService):
     )
     # Rubricas tratadas como impostos/deduções (não compõem a saída operacional).
     # Tarifa de Antecipação não entra: é despesa financeira do recebível.
+    # A guia 17.8 ISS também não: é despesa administrativa, em Gastos Fixos.
     IMPOSTO_DEBITO_EXPR = (
         "CASE WHEN TRIM(rubrica) IN "
         "('IR','IR Retido','ISS','ISS Retido','INSS','INSS Retido','PIS','COFINS','CSLL',"
         "'Impostos sobre vendas','Deduções sobre vendas',"
         "'(-)Deduções sobre vendas','Descontos sobre vendas','Simples Nacional') "
-        "OR TRIM(rubrica) IN ('17.2','17.3','17.4','17.5','17.7','17.8') "
-        "OR TRIM(natureza_raw) IN ('17.2','17.3','17.4','17.5','17.7','17.8') "
+        "OR TRIM(rubrica) IN ('17.2','17.3','17.4','17.5','17.7') "
+        "OR TRIM(natureza_raw) IN ('17.2','17.3','17.4','17.5','17.7') "
         "OR TRIM(rubrica) LIKE '17.2 - %' "
         "OR TRIM(rubrica) LIKE '17.3 - %' "
         "OR TRIM(rubrica) LIKE '17.4 - %' "
         "OR TRIM(rubrica) LIKE '17.5 - %' "
         "OR TRIM(rubrica) LIKE '17.7 - %' "
-        "OR TRIM(rubrica) LIKE '17.8 - %' "
         "OR TRIM(natureza_raw) LIKE '17.2 - %' "
         "OR TRIM(natureza_raw) LIKE '17.3 - %' "
         "OR TRIM(natureza_raw) LIKE '17.4 - %' "
         "OR TRIM(natureza_raw) LIKE '17.5 - %' "
         "OR TRIM(natureza_raw) LIKE '17.7 - %' "
-        "OR TRIM(natureza_raw) LIKE '17.8 - %' "
         "THEN debito ELSE 0 END"
     )
     SAIDAS_LIQUIDAS_EXPR = f"(debito - ({IMPOSTO_DEBITO_EXPR}))"
@@ -338,8 +336,8 @@ class PainelDREService(_PainelBaseService):
         "investimentos_gerencial": _alias_set(["(-)Investimentos"]),
         "folha_pagamento": _alias_set(["(-)Gastos Fixos"]),
     }
-    # Linha 176 da DRE gerada: RESULTADO ANTES DO IR = SUM(152, 153, 154, 167).
-    # 154 e 167 são as contas pai abaixo do operacional, somadas com sinal.
+    # RESULTADO ANTES DO IR da DRE gerada soma estas contas pai abaixo do
+    # operacional, com sinal.
     CONTAS_PAI_ABAIXO_OPERACIONAL = {
         "resultado_financeiro": _alias_set(["(+/-)Despesas e Receitas Financeiras"]),
         "resultado_nao_operacional": _alias_set(["(+/-)Despesas e Recebimentos Não Operacionais"]),
@@ -1273,7 +1271,8 @@ class PainelDREService(_PainelBaseService):
             not tem_receita_liquida and not tem_receita_bruta and receita_liquida_base is not None
         )
         # Abaixo do operacional a DRE gerada soma as contas pai com sinal
-        # (crédito - débito); o painel espelha as linhas 176, 181 e 189.
+        # (crédito - débito); o painel espelha os resultados Antes do IR, Líquido
+        # e Gerencial.
         depreciacao_saldo, _ = self._somar_componente(
             rows, "depreciacao", somente_debitos=receita_por_credito_total
         )
@@ -1401,16 +1400,11 @@ class PainelDREService(_PainelBaseService):
         grupo: str,
         somente_debitos: bool = False,
     ) -> float:
-        """Soma crédito - débito das linhas cuja conta pai resolvida pertence ao grupo.
-
-        Respeita a mesma exclusão do APOIO: 12.9/12.11 não sobem para a conta pai.
-        """
+        """Soma crédito - débito das linhas cuja conta pai resolvida pertence ao grupo."""
         contas_pai = self.CONTAS_PAI_ABAIXO_OPERACIONAL[grupo]
         total = 0.0
         for row in rows:
             if _normalizar_chave_conta(self._row_get(row, "conta_pai")) not in contas_pai:
-                continue
-            if self._codigo_conta_row(row) in _CODIGOS_EXCLUSIVOS_PESSOAL:
                 continue
             if any(
                 self._row_dre_matches(row, self.COMPONENTES_DRE[componente], componente)
@@ -1448,8 +1442,6 @@ class PainelDREService(_PainelBaseService):
             participa_deducoes = _participa_deducao_receita_por_codigo(codigo_conta)
             if participa_deducoes is False:
                 return False
-        if componente == "gastos_fixos" and codigo_conta in _CODIGOS_EXCLUSIVOS_PESSOAL:
-            return False
         if componente in PainelDREService.COMPONENTES_DRE_CODIGO_ESTRITO and not codigo_conta:
             return False
 

@@ -140,8 +140,8 @@ export const buildFilterSummary = (filters, descriptors) =>
     })),
   );
 
-// Card de resultado do Painel DRE: o valor é o Resultado Líquido da DRE
-// (linha 181); o saldo de caixa só entra quando a API não o envia.
+// Card de resultado do Painel DRE: o valor é o Resultado Líquido da DRE;
+// o saldo de caixa só entra quando a API não o envia.
 export const buildResultadoLiquidoKpi = (kpis = {}) => {
   const value = kpis.resultado_liquido ?? kpis.saldo_liquido;
   const temDetalhe = kpis.resultado_antes_ir != null && kpis.resultado_gerencial != null;

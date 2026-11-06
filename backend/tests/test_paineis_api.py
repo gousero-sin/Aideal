@@ -336,7 +336,7 @@ def test_painel_dre_calcula_saldo_com_receita_liquida_sem_descontar_impostos_dua
     assert body["kpis"]["total_saidas_liquidas"] == 2372883.0
     assert body["kpis"]["saldo_liquido"] == 445525.0
     # O IR (17.4 → (-)IRPJ/CSLL) fica fora do saldo de caixa, mas é descontado
-    # do Resultado Líquido, como na linha 181 da DRE gerada.
+    # do Resultado Líquido, como na DRE gerada.
     assert body["kpis"]["resultado_antes_ir"] == 445525.0
     assert body["kpis"]["resultado_liquido"] == 345525.0
     assert body["kpis"]["resultado_gerencial"] == 345525.0
@@ -1466,19 +1466,21 @@ def test_painel_dre_resultado_liquido_segue_dre_gerado_sem_somar_irpj_ao_saldo()
     body = resp.json()
     kpis = body["kpis"]
     # Receita Bruta 9.000 (soma das notas, sem recompor ISS nem tarifa);
-    # Receita Líquida 8.500 (- ISS 500); Operacional 8.500 - 1.000 - 2.000 = 5.500.
+    # Receita Líquida 9.000 (17.8 ISS não é dedução, é despesa administrativa);
+    # Operacional 9.000 - 1.000 - 2.000 - 500 = 5.500.
     # Financeiras: -300 - 100 + 50 = -350; Não Operacionais: -400.
     assert kpis["resultado_antes_ir"] == pytest.approx(4750.0)
     assert kpis["resultado_liquido"] == pytest.approx(4150.0)
     assert kpis["resultado_gerencial"] == pytest.approx(3450.0)
-    # Identidades da DRE gerada: linha 181 = 176 + 177 e linha 189 = 181 + 182.
+    # Identidades da DRE gerada: Líquido = Antes do IR + IRPJ/CSLL;
+    # Gerencial = Líquido + Investimentos.
     assert kpis["resultado_liquido"] == pytest.approx(kpis["resultado_antes_ir"] - 600.0)
     assert kpis["resultado_gerencial"] == pytest.approx(kpis["resultado_liquido"] - 700.0)
     assert kpis["irpj_csll"] == pytest.approx(600.0)
-    assert kpis["margem_resultado_percentual"] == pytest.approx(4150 / 8500 * 100)
+    assert kpis["margem_resultado_percentual"] == pytest.approx(4150 / 9000 * 100)
     # O saldo de caixa continua sendo crédito - (débito - impostos), sem a tarifa.
-    assert kpis["total_impostos"] == pytest.approx(1100.0)
-    assert kpis["saldo_liquido"] == pytest.approx(9050.0 - (5600.0 - 1100.0))
+    assert kpis["total_impostos"] == pytest.approx(600.0)
+    assert kpis["saldo_liquido"] == pytest.approx(9050.0 - (5600.0 - 600.0))
 
     indicadores = {item["id"]: item for item in body["indicadores_viabilidade"]}
     assert indicadores["ebitda"]["valor"] == pytest.approx(5500.0)
@@ -1499,7 +1501,7 @@ def test_painel_dre_tarifa_antecipacao_sai_das_deducoes_e_compoe_despesas_financ
         "Obra Tarifa",
         [
             ("Recebimento de clientes", 9000, 0, "1.1.1 - Recebimento de Clientes"),
-            ("ISS sobre faturamento", 0, 500, "17.8 - ISS"),
+            ("ISS retido na nota", 0, 500, "ISS"),
             ("Tarifa de antecipação de recebíveis", 0, 300, "Tarifa de Antecipação"),
         ],
     )
@@ -1519,6 +1521,43 @@ def test_painel_dre_tarifa_antecipacao_sai_das_deducoes_e_compoe_despesas_financ
     # Compõe (-) Despesas Financeiras, abaixo do Resultado Operacional.
     assert kpis["resultado_antes_ir"] == pytest.approx(8500.0 - 300.0)
     assert kpis["resultado_liquido"] == pytest.approx(8200.0)
+
+
+def test_painel_dre_gastos_fixos_soma_12_9_12_11_e_17_8_e_consorcio_fica_no_financeiro():
+    """Painel e DRE gerado seguem a mesma regra de Gastos Fixos e do bloco financeiro."""
+    db = _novo_db()
+    _inserir_lancamentos_dre(
+        db,
+        "dre-fixos-completos",
+        2026,
+        9,
+        "Obra Fixos",
+        [
+            ("Recebimento de clientes", 9000, 0, "1.1.1 - Recebimento de Clientes"),
+            ("ISS retido na nota", 0, 400, "ISS"),
+            ("Salários", 0, 2000, "12.1 - SALARIO"),
+            ("Passagens", 0, 90, "12.9 - PASSAGENS COLABORADORES"),
+            ("Assistência médica", 0, 11, "12.11 - ASSISTENCIA MEDICA ADM"),
+            ("Guia de ISS", 0, 7, "17.8 - ISS"),
+            ("Tarifas", 0, 50, "18.2 - TARIFAS BANCARIAS"),
+            ("Consórcio", 0, 1000, "11.12 - CONSÓRCIO"),
+        ],
+    )
+
+    client = _client_com_db(db)
+    resp = client.get("/api/dre/painel?ano=2026&meses=9&centro_custo=Obra%20Fixos")
+
+    assert resp.status_code == 200
+    kpis = resp.json()["kpis"]
+    assert kpis["receita_bruta"] == pytest.approx(9000.0)
+    # Só o ISS retido na nota deduz; a guia 17.8 é despesa administrativa.
+    assert kpis["deducoes_vendas"] == pytest.approx(400.0)
+    assert kpis["receita_liquida"] == pytest.approx(8600.0)
+    # Operacional 8.600 - (2.000 + 90 + 11 + 7 + 50) = 6.442; Consórcio fora dos fixos.
+    indicadores = {item["id"]: item for item in resp.json()["indicadores_viabilidade"]}
+    assert indicadores["ebitda"]["valor"] == pytest.approx(6442.0)
+    # O Consórcio entra abaixo do operacional, em (+/-) Despesas e Receitas Financeiras.
+    assert kpis["resultado_antes_ir"] == pytest.approx(5442.0)
 
 
 def test_painel_dre_resultado_liquido_explicito_prevalece_sobre_calculo():
