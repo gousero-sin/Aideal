@@ -538,3 +538,84 @@
 /* Avisos do cálculo: não bloqueiam salvar, mas precisam saltar aos olhos no resumo. */
 .orc-root .orc-summary-warnings { display: grid; margin: 0 0 14px; padding: 12px 14px 12px 32px; border: 1px solid rgba(255, 190, 90, .38); border-radius: 14px; background: rgba(255, 170, 60, .09); color: #ffd9a1; gap: 8px; font-size: .8rem; line-height: 1.45; }
 .orc-root .orc-summary-warnings li::marker { color: rgba(255, 190, 90, .8); }
+
+/* --- Correções visuais (formulário, seletores, tabelas) --------------------------------- */
+/* O grid estica cada rótulo até a altura da linha; sem isto o campo descola do rótulo. */
+.orc-root .orc-field { align-content: start; }
+.orc-root .orc-field small.orc-hint { color: var(--orc-muted); font-size: .7rem; font-weight: 500; line-height: 1.35; }
+
+/* Seletores: seta própria e opções com fundo escuro explícito. Sem fundo nas <option>, o menu
+   nativo (Windows/Linux) abre branco com texto branco e Estado/Cidade ficam ilegíveis. */
+.orc-root select { color-scheme: dark; }
+.orc-root .orc-field select,
+.orc-root .orc-field select:focus {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 38px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%239fc6e8' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 13px center;
+  background-size: 14px;
+}
+.orc-root .orc-field select:disabled { cursor: not-allowed; }
+.orc-root select option,
+.orc-root select optgroup { background-color: #111e2e; color: #f2f7fc; }
+.orc-root select option:disabled { color: #7d8ea3; }
+.orc-root select option:checked { background-color: #1d4f80; }
+
+/* Números: sem as setas nativas, que cobriam o último dígito ("0⬍"). */
+.orc-root .orc-num { text-align: right; font-variant-numeric: tabular-nums; -moz-appearance: textfield; }
+.orc-root .orc-num::-webkit-inner-spin-button,
+.orc-root .orc-num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.orc-root .orc-num-cell { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: #cfe2f3; }
+.orc-root .orc-num-cell--strong { color: #fff; font-weight: 700; }
+
+/* Nome do item: coluna mais larga e o nome completo no title; reticências só quando precisa. */
+.orc-root .orc-dfp-table tbody th { min-width: 250px; }
+.orc-root .orc-dfp-table tbody th input { text-overflow: ellipsis; font-weight: 650; }
+.orc-root .orc-row-label { display: block; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #fff; }
+
+/* Rodapé: o total em R$ fica na coluna congelada, sempre visível. */
+.orc-root .orc-dfp-table tfoot th,
+.orc-root .orc-dfp-table tfoot td { border-top: 1px solid rgba(142, 218, 255, .22); background: #182637; }
+.orc-root .orc-table-total { display: grid; gap: 2px; text-align: left; }
+.orc-root .orc-table-total span { color: var(--orc-muted); font-size: .66rem; letter-spacing: .06em; text-transform: uppercase; }
+.orc-root .orc-table-total strong { color: #fff; font-size: 1.02rem; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.orc-root .orc-table-total small { color: #9fc6e8; font-size: .7rem; font-weight: 560; }
+
+.orc-root .orc-visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* --- Composição HH ------------------------------------------------------------------------ */
+.orc-root .orc-note--hh { border-color: rgba(100, 210, 255, .3); background: rgba(10, 132, 255, .09); color: #cdeaff; }
+.orc-root .orc-hh-table th sup { margin-left: 2px; color: #ffcf8a; }
+.orc-root .orc-hh-group-row th,
+.orc-root .orc-hh-group-row td { background: #1a2b40; }
+.orc-root .orc-hh-group-row td { white-space: nowrap; }
+.orc-root .orc-hh-group-meta { color: #9fc6e8; font-size: .72rem; font-weight: 620; }
+.orc-root .orc-hh-group-actions { display: inline-flex; gap: 8px; margin-left: 14px; vertical-align: middle; }
+.orc-root .orc-check-cell { white-space: nowrap; color: var(--orc-muted); }
+.orc-root .orc-check-cell input { width: 18px; height: 18px; min-height: 0; vertical-align: middle; accent-color: var(--orc-blue, #0a84ff); }
+.orc-root .orc-hh-encargos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.orc-root .orc-field--inline { grid-template-columns: minmax(0, 1fr) 128px; align-items: center; gap: 10px; }
+.orc-root .orc-field--inline > span:first-child { color: #dce8f4; font-weight: 560; }
+.orc-root .orc-field--inline input { min-height: 36px; text-align: right; }
+.orc-root .orc-field--inline .orc-input-suffix b { min-height: 36px; }
+.orc-root .orc-hh-derived { display: flex; justify-content: space-between; gap: 10px; margin: 0; color: var(--orc-muted); font-size: .76rem; }
+.orc-root .orc-hh-derived strong { color: #fff; font-variant-numeric: tabular-nums; }
+.orc-root .orc-hh-total-line { grid-column: 1 / -1; margin: 0; padding: 12px 14px; border: 1px solid rgba(100, 210, 255, .25); border-radius: 14px; background: rgba(10, 132, 255, .08); color: #dce8f4; }
+.orc-root .orc-hh-total-line strong { color: #fff; font-variant-numeric: tabular-nums; }
+@media (max-width: 1050px) {
+  .orc-root .orc-hh-encargos { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .orc-root .orc-dfp-table tbody th { min-width: 170px; }
+  .orc-root .orc-row-label { max-width: 170px; }
+  .orc-root .orc-hh-group-actions { display: flex; margin: 8px 0 0; }
+}
+/* Região da Obra: País/Estado/Cidade em linha própria, sem espremer os seletores. */
+.orc-root .orc-location-header { grid-column: 1 / -1; }
+.orc-root .orc-reuse-field { margin-bottom: 18px; }

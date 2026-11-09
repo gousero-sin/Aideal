@@ -1,0 +1,382 @@
+{
+  "meses": 36.0,
+  "percentual_noturno": 20.0,
+  "periculosidade_percent": 30.0,
+  "salario_minimo": 1621.0,
+  "horas_extras_percentuais": [
+    60.0,
+    80.0,
+    100.0
+  ],
+  "encargos": [
+    {
+      "id": "a1",
+      "grupo": "A",
+      "label": "INSS",
+      "percent": 20.0
+    },
+    {
+      "id": "a2",
+      "grupo": "A",
+      "label": "FGTS",
+      "percent": 8.0
+    },
+    {
+      "id": "a3",
+      "grupo": "A",
+      "label": "SESI/SESC",
+      "percent": 1.5
+    },
+    {
+      "id": "a4",
+      "grupo": "A",
+      "label": "SENAI/SENAC",
+      "percent": 1.0
+    },
+    {
+      "id": "a5",
+      "grupo": "A",
+      "label": "INCRA",
+      "percent": 0.2
+    },
+    {
+      "id": "a6",
+      "grupo": "A",
+      "label": "Salário educação",
+      "percent": 2.5
+    },
+    {
+      "id": "a7",
+      "grupo": "A",
+      "label": "Seguro de acidente de trabalho",
+      "percent": 3.0
+    },
+    {
+      "id": "a8",
+      "grupo": "A",
+      "label": "SEBRAE",
+      "percent": 0.6
+    },
+    {
+      "id": "a9",
+      "grupo": "A",
+      "label": "SECONCI",
+      "percent": 1.0
+    },
+    {
+      "id": "b1",
+      "grupo": "B",
+      "label": "Descanso semanal remunerado",
+      "percent": 22.9
+    },
+    {
+      "id": "b2",
+      "grupo": "B",
+      "label": "Férias",
+      "percent": 0.0
+    },
+    {
+      "id": "b3",
+      "grupo": "B",
+      "label": "1/3 constitucional de férias",
+      "percent": 0.0
+    },
+    {
+      "id": "b4",
+      "grupo": "B",
+      "label": "Feriados",
+      "percent": 0.0
+    },
+    {
+      "id": "b5",
+      "grupo": "B",
+      "label": "Aviso prévio indenizado",
+      "percent": 0.0
+    },
+    {
+      "id": "b6",
+      "grupo": "B",
+      "label": "Enfermidade",
+      "percent": 0.79
+    },
+    {
+      "id": "b7",
+      "grupo": "B",
+      "label": "Acidentes de trabalho",
+      "percent": 0.0
+    },
+    {
+      "id": "b8",
+      "grupo": "B",
+      "label": "Licença paternidade",
+      "percent": 0.34
+    },
+    {
+      "id": "b9",
+      "grupo": "B",
+      "label": "13º salário",
+      "percent": 10.57
+    },
+    {
+      "id": "b10",
+      "grupo": "B",
+      "label": "Falta justificada",
+      "percent": 4.57
+    },
+    {
+      "id": "c1",
+      "grupo": "C",
+      "label": "Férias indenizadas",
+      "percent": 14.06
+    },
+    {
+      "id": "c2",
+      "grupo": "C",
+      "label": "50% do FGTS nas rescisões sem justa causa",
+      "percent": 5.57
+    },
+    {
+      "id": "c3",
+      "grupo": "C",
+      "label": "Aviso prévio indenizado",
+      "percent": 13.12
+    },
+    {
+      "id": "c4",
+      "grupo": "C",
+      "label": "FGTS sobre aviso prévio indenizado",
+      "percent": 0.0
+    }
+  ],
+  "bdi": {
+    "despesas_indiretas_percent": 2.2,
+    "lucro_percent": 4.0
+  },
+  "tributos": [
+    {
+      "id": "iss",
+      "label": "ISS",
+      "percent": 5.0
+    },
+    {
+      "id": "pis",
+      "label": "PIS",
+      "percent": 0.65
+    },
+    {
+      "id": "cofins",
+      "label": "COFINS",
+      "percent": 3.0
+    },
+    {
+      "id": "csll",
+      "label": "CSLL",
+      "percent": 2.88
+    },
+    {
+      "id": "ir",
+      "label": "IR",
+      "percent": 4.8
+    }
+  ],
+  "grupos": [
+    {
+      "id": "pintura",
+      "label": "1 - Pintura Industrial e Jato Abrasivo",
+      "funcoes": [
+        {
+          "id": "encarregado_de_jatamento_e_pintura_industrial",
+          "label": "Encarregado de Jatamento e Pintura Industrial",
+          "quantidade": 1.0,
+          "horas_mes": 220.0,
+          "salario_base": 4759.59,
+          "periculosidade": false,
+          "adicional_noturno_percent": 0.0,
+          "custos": {
+            "mobilizacao": 0.0,
+            "exames_medicos": 23.81,
+            "treinamentos": 23.82,
+            "transporte": 1500.0,
+            "cesta_basica": 0.0,
+            "assistencia_medica": 40.0,
+            "seguro_vida": 0.0,
+            "plr": 0.0,
+            "uniforme": 95.25,
+            "epi": 101.05,
+            "treinamento_racs": 0.0,
+            "materiais": 0.0,
+            "ferramentas": 0.0,
+            "equipamentos": 0.0,
+            "veiculos": 0.0,
+            "combustivel": 0.0,
+            "comunicacao": 0.0,
+            "investimentos": 0.0,
+            "desmobilizacao": 0.0,
+            "outros": 1336.0
+          }
+        },
+        {
+          "id": "pintor_letrista",
+          "label": "Pintor letrista",
+          "quantidade": 1.0,
+          "horas_mes": 220.0,
+          "salario_base": 2591.24,
+          "periculosidade": false,
+          "adicional_noturno_percent": 0.0,
+          "custos": {
+            "mobilizacao": 0.0,
+            "exames_medicos": 23.81,
+            "treinamentos": 23.82,
+            "transporte": 1500.0,
+            "cesta_basica": 0.0,
+            "assistencia_medica": 40.0,
+            "seguro_vida": 0.0,
+            "plr": 0.0,
+            "uniforme": 95.25,
+            "epi": 127.07,
+            "treinamento_racs": 0.0,
+            "materiais": 0.0,
+            "ferramentas": 0.0,
+            "equipamentos": 0.0,
+            "veiculos": 0.0,
+            "combustivel": 0.0,
+            "comunicacao": 0.0,
+            "investimentos": 0.0,
+            "desmobilizacao": 0.0,
+            "outros": 1336.0
+          }
+        },
+        {
+          "id": "jatista_industrial",
+          "label": "Jatista Industrial",
+          "quantidade": 2.0,
+          "horas_mes": 220.0,
+          "salario_base": 2615.23,
+          "periculosidade": false,
+          "adicional_noturno_percent": 0.0,
+          "custos": {
+            "mobilizacao": 0.0,
+            "exames_medicos": 23.81,
+            "treinamentos": 23.82,
+            "transporte": 1500.0,
+            "cesta_basica": 0.0,
+            "assistencia_medica": 40.0,
+            "seguro_vida": 0.0,
+            "plr": 0.0,
+            "uniforme": 95.25,
+            "epi": 150.15,
+            "treinamento_racs": 0.0,
+            "materiais": 0.0,
+            "ferramentas": 0.0,
+            "equipamentos": 0.0,
+            "veiculos": 0.0,
+            "combustivel": 0.0,
+            "comunicacao": 0.0,
+            "investimentos": 0.0,
+            "desmobilizacao": 0.0,
+            "outros": 1336.0
+          }
+        },
+        {
+          "id": "pintor_industrial",
+          "label": "Pintor Industrial",
+          "quantidade": 2.0,
+          "horas_mes": 220.0,
+          "salario_base": 2591.24,
+          "periculosidade": false,
+          "adicional_noturno_percent": 0.0,
+          "custos": {
+            "mobilizacao": 0.0,
+            "exames_medicos": 23.81,
+            "treinamentos": 23.82,
+            "transporte": 1500.0,
+            "cesta_basica": 0.0,
+            "assistencia_medica": 40.0,
+            "seguro_vida": 0.0,
+            "plr": 0.0,
+            "uniforme": 95.25,
+            "epi": 127.07,
+            "treinamento_racs": 0.0,
+            "materiais": 0.0,
+            "ferramentas": 0.0,
+            "equipamentos": 0.0,
+            "veiculos": 0.0,
+            "combustivel": 0.0,
+            "comunicacao": 0.0,
+            "investimentos": 0.0,
+            "desmobilizacao": 0.0,
+            "outros": 1336.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "isolamento",
+      "label": "Isolamento Térmico Industrial",
+      "funcoes": [
+        {
+          "id": "isolador",
+          "label": "Isolador",
+          "quantidade": 2.0,
+          "horas_mes": 220.0,
+          "salario_base": 2467.85,
+          "periculosidade": false,
+          "adicional_noturno_percent": 0.0,
+          "custos": {
+            "mobilizacao": 0.0,
+            "exames_medicos": 23.81,
+            "treinamentos": 23.82,
+            "transporte": 1500.0,
+            "cesta_basica": 0.0,
+            "assistencia_medica": 40.0,
+            "seguro_vida": 0.0,
+            "plr": 0.0,
+            "uniforme": 95.25,
+            "epi": 360.0,
+            "treinamento_racs": 0.0,
+            "materiais": 0.0,
+            "ferramentas": 0.0,
+            "equipamentos": 0.0,
+            "veiculos": 0.0,
+            "combustivel": 0.0,
+            "comunicacao": 0.0,
+            "investimentos": 0.0,
+            "desmobilizacao": 0.0,
+            "outros": 1336.0
+          }
+        },
+        {
+          "id": "funileiro",
+          "label": "Funileiro",
+          "quantidade": 2.0,
+          "horas_mes": 220.0,
+          "salario_base": 3293.12,
+          "periculosidade": false,
+          "adicional_noturno_percent": 0.0,
+          "custos": {
+            "mobilizacao": 0.0,
+            "exames_medicos": 23.81,
+            "treinamentos": 23.82,
+            "transporte": 1500.0,
+            "cesta_basica": 0.0,
+            "assistencia_medica": 40.0,
+            "seguro_vida": 0.0,
+            "plr": 0.0,
+            "uniforme": 95.25,
+            "epi": 365.0,
+            "treinamento_racs": 0.0,
+            "materiais": 0.0,
+            "ferramentas": 0.0,
+            "equipamentos": 0.0,
+            "veiculos": 0.0,
+            "combustivel": 0.0,
+            "comunicacao": 0.0,
+            "investimentos": 0.0,
+            "desmobilizacao": 0.0,
+            "outros": 1336.0
+          }
+        }
+      ]
+    }
+  ]
+}

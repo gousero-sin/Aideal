@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import StartDateField from './StartDateField';
+import { useHhSections } from './HhEditor';
+import { collectHhWarnings, mesesDoPrazo } from './hhModel';
 import brazilLocations from '../../data/brazilLocations.json';
 import {
   BadgeDollarSign,
@@ -41,6 +43,13 @@ const formatMoney = (value) => Number(value || 0).toLocaleString('pt-BR', {
   style: 'currency',
   currency: 'BRL',
 });
+const formatPercent = (value) => `${Number(value || 0).toLocaleString('pt-BR', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})}%`;
+// Valores calculados (hora, horas trabalhadas) chegam com dízimas; o campo é só leitura.
+const COMPUTED_LABOR_COLUMNS = new Set(['worked_hours', 'hourly_rate']);
+const roundComputed = (value) => (Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) / 100 : value);
 
 const inputValue = (value) => value ?? '';
 const CatalogContext = createContext({ funcoes: [], itens: [], custo_administrativo_diario: 0 });
@@ -330,11 +339,12 @@ function DataTable({ collectionPath, columns, disabled, dfp, onChange, sectionTi
         <tbody>
           {(Array.isArray(items) ? items : []).map((item) => (
             <tr key={item.id}>
-              <th scope="row"><input list={listId} aria-label={`${sectionTitle} · Nome do item ${item.id}`} disabled={disabled} value={item.label} onChange={(event) => changeName(item, event.target.value)} /></th>
+              <th scope="row"><input list={listId} aria-label={`${sectionTitle} · Nome do item ${item.id}`} disabled={disabled} title={item.label} value={item.label} onChange={(event) => changeName(item, event.target.value)} /></th>
               {visibleColumns.map((column) => (
                 <td key={column.key}>
                   <input
                     aria-label={`${sectionTitle} · ${item.label} · ${column.label}`}
+                    className={column.type === 'number' ? 'orc-num' : undefined}
                     disabled={disabled}
                     readOnly={column.readonly || column.read_only || (isUpdatedLabor && ['worked_hours', 'hourly_rate'].includes(column.key))}
                     min={column.type === 'number' ? '0' : undefined}
@@ -352,16 +362,17 @@ function DataTable({ collectionPath, columns, disabled, dfp, onChange, sectionTi
                     title={isUpdatedLabor && INHERITED_LABOR_COLUMNS.has(column.key)
                       ? `Em branco usa ${inheritedLaborDays(dfp, column.key)}, o valor de Identificação e Escopo. Digite 0 para não considerar.`
                       : undefined}
-                    value={inputValue(dfp.calculation_version === 2 && collectionPath === 'alimentacao.items' && column.key === 'quantity' ? peopleDays : isUpdatedLabor ? computeLaborRow(item, dfp)[column.key] : item[column.key])}
+                    value={inputValue(dfp.calculation_version === 2 && collectionPath === 'alimentacao.items' && column.key === 'quantity' ? peopleDays : isUpdatedLabor ? (COMPUTED_LABOR_COLUMNS.has(column.key) ? roundComputed(computeLaborRow(item, dfp)[column.key]) : computeLaborRow(item, dfp)[column.key]) : item[column.key])}
                   />
                 </td>
               ))}
-              <td>{formatMoney(computeTableRowSubtotal(dfp, collectionPath, item))}</td>
+              <td className="orc-num-cell">{formatMoney(computeTableRowSubtotal(dfp, collectionPath, item))}</td>
               {canRemoveRows && <td><button className="orc-btn orc-btn--compact" type="button" aria-label={`Remover ${sectionTitle} · ${item.label}`} onClick={() => onChange(removeDfpCollectionItem(dfp, collectionPath, item.id))}>Remover</button></td>}
             </tr>
           ))}
         </tbody>
-        <tfoot><tr><th colSpan={visibleColumns.length + 1}>Total · {directTotal ? (100 * total / directTotal).toFixed(2) : '0,00'}% dos custos diretos</th><td>{formatMoney(total)}</td>{canRemoveRows && <td />}</tr></tfoot>
+        {/* O valor fica na coluna fixa: na última coluna ele some atrás da rolagem horizontal. */}
+        <tfoot><tr><th scope="row" className="orc-table-total"><span>Total</span><strong>{formatMoney(total)}</strong><small>{formatPercent(directTotal ? (100 * total) / directTotal : 0)} dos custos diretos</small></th><td colSpan={visibleColumns.length} /><td className="orc-num-cell orc-num-cell--strong">{formatMoney(total)}</td>{canRemoveRows && <td />}</tr></tfoot>
       </table>
     </div>
     <div className="orc-table-actions">
@@ -522,11 +533,24 @@ function SchemaSection({ disabled, dfp, onChange, schema, section }) {
   return <p className="orc-note">Seção indisponível nesta versão do editor.</p>;
 }
 
-function SummaryWindow({ dfp }) {
+function SummaryWindow({ dfp, hhSummary, prazoDias }) {
   const reducedMotion = useReducedMotion();
-  const summary = useMemo(() => computeDfpSummary(dfp), [dfp]);
-  const warnings = useMemo(() => collectOrcamentoWarnings(dfp), [dfp]);
-  const items = [
+  const dfpSummary = useMemo(() => computeDfpSummary(dfp), [dfp]);
+  const summary = hhSummary || dfpSummary;
+  const warnings = useMemo(
+    () => (hhSummary ? collectHhWarnings(dfp?.hh) : collectOrcamentoWarnings(dfp, { prazoDias })),
+    [dfp, hhSummary, prazoDias],
+  );
+  const items = hhSummary ? [
+    ['Colaboradores', hhSummary.colaboradores.toLocaleString('pt-BR')],
+    ['Encargos sociais', `${hhSummary.encargos.totalPercent.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}%`],
+    ['Total mensal', hhSummary.totalMensal],
+    ['Prazo do contrato', `${hhSummary.meses.toLocaleString('pt-BR')} mês(es)`],
+    ['Custos diretos no prazo', hhSummary.custosDiretosTotal],
+    ['Despesas indiretas no prazo', hhSummary.custosIndiretosTotal],
+    ['Lucro no prazo', hhSummary.lucroTotal],
+    ['Tributos', `${hhSummary.aliquotaImpostosTotal.toLocaleString('pt-BR')}%`],
+  ] : [
     ['Custos diretos', summary.custosDiretosTotal],
     ['Custos indiretos', summary.custosIndiretosTotal],
     ['Lucro / BDI', summary.lucroTotal],
@@ -553,7 +577,7 @@ function SummaryWindow({ dfp }) {
           <div key={label}><dt>{label}</dt><dd>{typeof value === 'number' ? formatMoney(value) : value}</dd></div>
         ))}
         <div className="orc-summary-total">
-          <dt>Preço total de faturamento</dt>
+          <dt>{hhSummary ? 'Total estimado do contrato (HH)' : 'Preço total de faturamento'}</dt>
           <motion.dd key={summary.precoTotalFaturamento} initial={{ opacity: 1 }} animate={reducedMotion ? {} : { opacity: [0.65, 1] }} transition={{ duration: 0.18 }}>{formatMoney(summary.precoTotalFaturamento)}</motion.dd>
         </div>
       </dl>
@@ -570,9 +594,12 @@ export default function DfpEditor({
   canEdit,
   errors,
   form,
+  hhSchema,
   onClose,
   onDfpChange,
+  onDfpUpdate,
   onHeaderChange,
+  onImportHh,
   onSave,
   revision,
   schema,
@@ -580,7 +607,52 @@ export default function DfpEditor({
   const closeButtonRef = useRef(null);
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(true);
-  const sections = getSchemaSections(schema);
+  const [importingHh, setImportingHh] = useState(false);
+  const isHh = form.modalidade === 'HH';
+  const hhDefaults = hhSchema?.defaults;
+  const editable = canEdit && !busy;
+  // Modalidade HH abre a planilha de composição por Homem-Hora; sem composição salva, uma
+  // revisão editável parte do modelo padrão (a planilha de referência) e uma somente leitura
+  // não finge ter valores que nunca foram gravados.
+  // Revisão que já era HH e tem preço DFP (criada antes da composição HH) não troca de valor
+  // sozinha: o modelo de exemplo só entra por ação explícita. Orçamento novo, sem preço DFP, ou
+  // que acabou de mudar para HH parte direto do modelo.
+  const dfpSalvoTemPreco = useMemo(
+    () => computeDfpSummary(revision?.dfp || {}).precoTotalFaturamento > 0,
+    [revision],
+  );
+  const semeiaSozinho = revision?.modalidade !== 'HH' || !dfpSalvoTemPreco;
+  const hh = form.dfp?.hh || (canEdit && semeiaSozinho ? hhDefaults : null);
+  const carregarModeloHh = () => onDfpChange({ ...form.dfp, hh: JSON.parse(JSON.stringify(hhDefaults)) });
+  useEffect(() => {
+    if (isHh && canEdit && semeiaSozinho && !form.dfp?.hh && hhDefaults) {
+      onDfpChange({ ...form.dfp, hh: JSON.parse(JSON.stringify(hhDefaults)) });
+    }
+  }, [isHh, canEdit, semeiaSozinho, form.dfp, hhDefaults, onDfpChange]);
+  const changeHh = (next) => onDfpChange({ ...form.dfp, hh: next });
+  const importHh = async (file) => {
+    if (!onImportHh) return;
+    setImportingHh(true);
+    try {
+      const imported = await onImportHh(file);
+      // Aplica sobre o estado atual: o usuário pode ter editado o cabeçalho durante o upload.
+      if (imported && onDfpUpdate) onDfpUpdate((dfp) => ({ ...dfp, hh: imported }));
+      else if (imported) changeHh(imported);
+    } finally {
+      setImportingHh(false);
+    }
+  };
+  const hhView = useHhSections({
+    disabled: !editable,
+    hh: hh || hhDefaults,
+    importing: importingHh,
+    onChange: changeHh,
+    onImport: importHh,
+    prazoMeses: mesesDoPrazo(form.prazoExecucaoDias),
+  });
+  const showHh = isHh && Boolean(hh);
+  const schemaSections = getSchemaSections(schema);
+  const sections = showHh ? hhView.sections : schemaSections;
 
   const reducedMotion = useReducedMotion();
   const dialogRef = useOrcamentoDialog({ busy, initialFocusRef: closeButtonRef, onClose });
@@ -719,15 +791,28 @@ export default function DfpEditor({
 
           <form className="orc-editor-form" onSubmit={onSave} ref={formRef}>
             {serverError && <p className="orc-note" role="alert">{serverError}</p>}
-            {form.dfp?.calculation_version !== 2 && <p className="orc-note">Revisão com regras anteriores à atualização. Seus cálculos históricos foram preservados.</p>}
-            {form.dfp?.calculation_version === 2 && <p className="orc-note">Perfil de compatibilidade em validação. Confirme dias, mobilização, jornadas, incidência de horas extras e descontos conforme a regra comercial aprovada para este orçamento.</p>}
+            {showHh && <p className="orc-note orc-note--hh">Modalidade HH: composição por Homem-Hora (salário + encargos, custos mensais por pessoa, BDI e tributos), como na planilha de composição de custos. {!revision?.dfp?.hh && 'Modelo padrão da planilha carregado — ajuste e salve a revisão para gravá-lo.'}</p>}
+            {isHh && !showHh && (
+              <p className="orc-note">
+                Esta revisão está na modalidade HH, mas o preço salvo vem da composição DFP abaixo.{' '}
+                {canEdit && hhDefaults && <button className="orc-btn orc-btn--compact" disabled={busy} type="button" onClick={carregarModeloHh}>Iniciar composição HH com o modelo padrão</button>}
+              </p>
+            )}
+            {!showHh && form.dfp?.calculation_version !== 2 && <p className="orc-note">Revisão com regras anteriores à atualização. Seus cálculos históricos foram preservados.</p>}
+            {!showHh && form.dfp?.calculation_version === 2 && <p className="orc-note">Perfil de compatibilidade em validação. Confirme dias, mobilização, jornadas, incidência de horas extras e descontos conforme a regra comercial aprovada para este orçamento.</p>}
 
             <GoFlowWindow eyebrow="Dados contratuais" icon={FileText} id="orc-section-header" title="Cabeçalho">
               <HeaderFields disabled={!canEdit || busy} errors={errors} form={form} onChange={onHeaderChange} onDfpChange={onDfpChange} />
               {errors.dfp && <p className="orc-validation-error" role="alert">{errors.dfp}</p>}
             </GoFlowWindow>
 
-            {sections.map((section) => (
+            {showHh && hhView.sections.map((section) => (
+              <GoFlowWindow eyebrow={section.eyebrow} icon={Calculator} id={`orc-section-${section.id}`} key={section.id} title={section.title}>
+                {section.content}
+              </GoFlowWindow>
+            ))}
+
+            {!showHh && schemaSections.map((section) => (
               <GoFlowWindow
                 eyebrow={{ fields: 'Premissas do orçamento', 'labor-table': 'Equipe e encargos', 'cost-table': 'Composição de custos', 'percent-groups': 'Tributos e margem' }[section.kind] || 'Composição de preços'}
                 icon={Calculator}
@@ -745,7 +830,7 @@ export default function DfpEditor({
               </GoFlowWindow>
             ))}
 
-            <SummaryWindow dfp={form.dfp} />
+            <SummaryWindow dfp={showHh ? { ...form.dfp, hh } : form.dfp} hhSummary={showHh ? hhView.summary : null} prazoDias={form.prazoExecucaoDias} />
 
             <GoFlowWindow className="orc-editor-footer" title="Finalizar edição">
               <div className="orc-editor-footer__row">

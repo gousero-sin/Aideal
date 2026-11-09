@@ -10,6 +10,13 @@ from numbers import Real
 from typing import Any
 
 from .exceptions import InvalidOrcamentoInputError
+from .hh import (
+    CUSTO_COLUNAS,
+    ENCARGOS_DERIVADOS,
+    build_default_hh,
+    compute_hh_summary,
+    normalize_hh,
+)
 
 MAX_TEXT_LENGTH = 4000
 MAX_COLLECTION_ITEMS = 250
@@ -725,9 +732,26 @@ def get_dfp_window_schema(*, calculation_version: int = 2) -> dict[str, Any]:
     return _schema_v2(schema) if calculation_version == 2 else schema
 
 
+def get_hh_schema() -> dict[str, Any]:
+    """Modelo padrão e colunas da composição HH, para a UI montar a planilha."""
+    return {
+        "version": "hh.composicao.v1",
+        "defaults": build_default_hh(),
+        "custo_colunas": [
+            {"id": coluna_id, "label": label, "base_hora_extra": mantem}
+            for coluna_id, label, mantem in CUSTO_COLUNAS
+        ],
+        "encargos_derivados": [
+            {"id": item_id, "grupo": grupo, "label": label}
+            for item_id, grupo, label in ENCARGOS_DERIVADOS
+        ],
+    }
+
+
 def _schema_v2(schema: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(schema)
     result["version"] = "dfp.window.v2"
+    result["hh"] = get_hh_schema()
     result["defaults"] = build_default_dfp_snapshot(calculation_version=2)
     excluded = {"mao_de_obra_indireta", "lodging_assets"}
     result["sections"] = [
@@ -735,7 +759,11 @@ def _schema_v2(schema: dict[str, Any]) -> dict[str, Any]:
     ]
     for section in result["sections"]:
         if section["id"] == "metadata":
-            removidos = {"zona_salarial", "codigo_dfp", "folha", "previsao_inicio"}
+            # Jornadas diárias não entram mais nas horas: cada diária vale 220/30 h.
+            removidos = {
+                "zona_salarial", "codigo_dfp", "folha", "previsao_inicio",
+                "horas_semana", "horas_sabado", "horas_domingo",
+            }
             section["fields"] = [
                 field for field in section["fields"] if field["key"] not in removidos
             ]
@@ -745,7 +773,6 @@ def _schema_v2(schema: dict[str, Any]) -> dict[str, Any]:
                 "sabado_fator": "Multiplicador hora extra sábado (1,5 = hora e meia)",
                 "domingo_fator": "Multiplicador hora extra domingo (2 = hora dobrada)",
                 "semana_fator": "Multiplicador hora extra semanal (1,5 = hora e meia)",
-                "horas_semana": "Horas por dia de semana",
                 "quantidade_dias_semana": "Qtd. dias de semana",
                 "quantidade_sabado": "Qtd. de sábados",
                 "quantidade_domingo": "Qtd. de domingos",
@@ -1188,6 +1215,10 @@ def normalize_dfp_payload(
     if isinstance(version, bool) or version not in (1, 2):
         raise InvalidOrcamentoInputError("DFP: calculation_version deve ser 1 ou 2")
     result["calculation_version"] = version
+    # Composição HH (modalidade HH): opcional, preservada ao lado do DFP para que trocar a
+    # modalidade não descarte o que já foi preenchido.
+    if payload.get("hh") is not None:
+        result["hh"] = normalize_hh(payload["hh"])
     return _normalize_v2(result, payload) if version == 2 else result
 
 
@@ -1266,8 +1297,16 @@ def _validate_incoming_item_identity(
             labels.add(label_key)
 
 
+HORAS_MES = Decimal("220")
+DIAS_MES = Decimal("30")
+
+
 def _labor_v2_values(item: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Decimal]:
-    """Dias de execução excluem mobilização; extras são horas adicionais por pessoa."""
+    """Horas = (220/30) × (dias de execução + mobilização), conforme as instruções da DFP.
+
+    Cada diária vale 220/30 horas (divisor mensal de 220 h em 30 dias), seja dia de semana,
+    sábado ou domingo; horas extras são lançadas à parte, por pessoa.
+    """
     def _herdado(chave: str, padrao: str) -> Decimal:
         valor = item.get(chave)
         return _decimal(metadata[padrao] if valor is None else valor)
@@ -1277,12 +1316,10 @@ def _labor_v2_values(item: dict[str, Any], metadata: dict[str, Any]) -> dict[str
     sunday = _herdado("sunday_days", "quantidade_domingo")
     mobilization = _decimal(item["mobilization_days"])
     quantity = _decimal(item["quantity"])
-    hourly = _decimal(item["salary_real"]) / Decimal("220")
-    hours = (
-        (days + mobilization) * _decimal(metadata["horas_semana"])
-        + saturday * _decimal(metadata["horas_sabado"])
-        + sunday * _decimal(metadata["horas_domingo"])
-    ) * quantity
+    salary_real = _decimal(item["salary_real"])
+    hourly = salary_real / HORAS_MES
+    diarias = (days + saturday + sunday + mobilization) * quantity
+    hours = diarias * HORAS_MES / DIAS_MES
     overtime = quantity * hourly * sum(
         (_decimal(item.get(key, 0)) * _decimal(metadata[factor]) for key, factor in (
             ("overtime_week_hours", "semana_fator"),
@@ -1293,7 +1330,8 @@ def _labor_v2_values(item: dict[str, Any], metadata: dict[str, Any]) -> dict[str
     return {
         "hours": hours,
         "hourly": hourly,
-        "salary": hours * hourly,
+        # Mesma conta de horas × salário-hora, sem passar pela dízima de 220/30.
+        "salary": diarias * salary_real / DIAS_MES,
         "overtime": overtime,
         "person_days": (days + mobilization + saturday + sunday) * quantity,
     }
@@ -1464,9 +1502,18 @@ def _direct_labor_v2(section: dict[str, Any], metadata: dict[str, Any]) -> Decim
     return _discount(subtotal * encargos, section)
 
 
-def compute_dfp_summary(dfp: dict[str, Any] | None) -> dict[str, float]:
-    """Calcula o perfil DFP sem mutar a entrada e arredonda moeda em half-up."""
+def compute_dfp_summary(
+    dfp: dict[str, Any] | None, *, modalidade: str | None = None
+) -> dict[str, float]:
+    """Calcula o perfil DFP sem mutar a entrada e arredonda moeda em half-up.
+
+    Na modalidade HH com composição preenchida, o resumo vem da planilha de Homem-Hora; sem
+    composição HH salva, mantém o cálculo DFP para não exibir o modelo padrão como se fosse
+    valor do orçamento.
+    """
     snapshot = normalize_dfp_payload(dfp)
+    if modalidade == "HH" and snapshot.get("hh") is not None:
+        return compute_hh_summary(snapshot["hh"])
 
     def labor_total(section: dict[str, Any]) -> Decimal:
         subtotal_a = Decimal("0")

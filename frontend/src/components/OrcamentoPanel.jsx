@@ -27,6 +27,7 @@ const TIPOS_EDICAO = Object.freeze({
 const formatMoney = (value) => Number(value || 0).toLocaleString('pt-BR', {
   style: 'currency', currency: 'BRL', maximumFractionDigits: 0,
 });
+const HH_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
 const formatDate = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('pt-BR') : null);
 
 function StatusBadge({ revision }) {
@@ -197,7 +198,7 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, onNotify, 
     setCreateErrors(errors);
     if (Object.keys(errors).length) return;
     const created = await runMutation(
-      () => request('/orcamentos', { body: buildOrcamentoPayload(createForm), method: 'POST' }),
+      () => request('/orcamentos', { body: buildOrcamentoPayload(createForm, { hhDefaults: schema?.hh?.defaults }), method: 'POST' }),
       'Orçamento criado com a revisão 0 em rascunho.',
     );
     if (created) setCreateForm(createEmptyOrcamentoForm(schema));
@@ -236,6 +237,32 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, onNotify, 
   const showHistory = async (budget) => {
     try { setHistory({ budget, entries: (await request(`/orcamentos/${budget.id}/historico`)).historico }); }
     catch (err) { setError(err.message); }
+  };
+
+  // A planilha vai crua no corpo: o backend só lê e devolve a composição, sem gravar.
+  const importHhWorkbook = async (file) => {
+    setError('');
+    if (file.size > HH_IMPORT_MAX_BYTES) {
+      const message = 'A planilha excede 5 MB.';
+      setError(message);
+      onNotify?.({ message, type: 'error' });
+      return null;
+    }
+    try {
+      const response = await fetchWithCsrfRecovery(`${endpoint}/hh/importar`, {
+        body: file,
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        method: 'POST',
+      }, { csrfToken, apiBase });
+      if (!response.ok) throw new Error(await readApiError(response));
+      const payload = await response.json();
+      onNotify?.({ message: `Planilha “${file.name}” importada. Revise e salve a revisão.`, type: 'success' });
+      return payload.hh;
+    } catch (err) {
+      setError(err.message);
+      onNotify?.({ message: err.message, type: 'error' });
+      return null;
+    }
   };
 
   const downloadRevision = async (revision, formato) => {
@@ -302,7 +329,7 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, onNotify, 
 
       {canEdit ? (
         <GoFlowWindow className="orc-create-window" eyebrow="Novo orçamento" icon={FilePlus2} title="Criar orçamento">
-          <label className="orc-field">Preencher a partir de orçamento existente<select defaultValue="" onChange={(e) => reuseBudget(e.target.value)} disabled={busy}>
+          <label className="orc-field orc-reuse-field">Preencher a partir de orçamento existente<select defaultValue="" onChange={(e) => reuseBudget(e.target.value)} disabled={busy}>
             <option value="">Selecione para reaproveitar dados</option>{budgets.map((b) => <option key={b.id} value={b.id}>{b.codigo} — {b.contratante}</option>)}
           </select></label>
           <form onSubmit={handleCreate}>
@@ -356,7 +383,7 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, onNotify, 
                 <div className="orc-card-summary">
                   {current && <StatusBadge revision={current} />}
                   <strong>{formatMoney(budget.dfpSummary.precoTotalFaturamento)}</strong>
-                  <span>preço de faturamento</span>
+                  <span>{current?.modalidade === 'HH' && current?.dfp?.hh ? 'total estimado do contrato (HH)' : 'preço de faturamento'}</span>
                 </div>
                 <dl className="orc-card-meta">
                   <div><dt>Revisão atual</dt><dd>{current?.numero ?? '—'}</dd></div>
@@ -398,7 +425,7 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, onNotify, 
 
       <AnimatePresence>
       {editor && schema && (
-        <DfpEditor key={editor.revision.id} budget={editor.budget} catalogo={catalogo} onExport={(format) => downloadRevision(editor.revision, format)} busy={saving} canEdit={editor.canEdit} errors={editorErrors} form={editorForm} onClose={() => setEditor(null)} onDfpChange={(dfp) => setEditorForm((current) => applyDfpChange(current, dfp))} onHeaderChange={(field, value) => {
+        <DfpEditor key={editor.revision.id} budget={editor.budget} catalogo={catalogo} hhSchema={schema.hh} onImportHh={importHhWorkbook} onExport={(format) => downloadRevision(editor.revision, format)} busy={saving} canEdit={editor.canEdit} errors={editorErrors} form={editorForm} onClose={() => setEditor(null)} onDfpChange={(dfp) => setEditorForm((current) => applyDfpChange(current, dfp))} onDfpUpdate={(update) => setEditorForm((current) => applyDfpChange(current, update(current.dfp)))} onHeaderChange={(field, value) => {
           setEditorForm((current) => applyHeaderChange(current, field, value));
           setEditorErrors((current) => {
             if (!current[field]) return current;

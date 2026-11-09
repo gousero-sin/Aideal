@@ -97,10 +97,11 @@ test('cálculo v2 mantém paridade com cenário de encargos e adicionais do back
     custos_administrativos: { daily_cost: 100, days: 10, considered_percent: 50,
       multiplier: 2, discount_percent: 10 },
   };
-  assert.equal(computeLaborRow(dfp.mao_de_obra_direta.items[0], dfp).worked_hours, 176);
-  assert.equal(computeSectionTotal(dfp, 'mao_de_obra_direta'), 2813.4);
+  // Instruções DFP: (220/30) × (10 dias + 1 mob) × 2 pessoas.
+  assert.ok(Math.abs(computeLaborRow(dfp.mao_de_obra_direta.items[0], dfp).worked_hours - 484 / 3) < 1e-9);
+  assert.equal(computeSectionTotal(dfp, 'mao_de_obra_direta'), 2585.7);
   assert.equal(computeSectionTotal(dfp, 'custos_administrativos'), 900);
-  assert.equal(computeDfpSummary(dfp).precoTotalFaturamento, 3713.4);
+  assert.equal(computeDfpSummary(dfp).precoTotalFaturamento, 3485.7);
 });
 
 test('só a contratante bloqueia a criação; o cabeçalho é completado depois', () => {
@@ -582,14 +583,17 @@ test('campo de dias em branco informa o valor herdado da identificação', () =>
   assert.equal(inheritedLaborDays(dfp, 'quantity'), null);
 });
 
-test('avisa quando há dias lançados e a jornada correspondente está zerada', () => {
-  const semJornada = dfpV2({ metadata: { horas_semana: 0 } });
-  const avisos = collectOrcamentoWarnings(semJornada);
-  assert.equal(avisos.length, 1);
-  assert.match(avisos[0], /jornada correspondente está zerada/);
-
-  // Com jornada preenchida não há aviso.
-  assert.deepEqual(collectOrcamentoWarnings(dfpV2()), []);
+test('horas seguem (220/30) × diárias, sem depender da jornada diária', () => {
+  // Exemplo das instruções: 20 dias de execução + 20 de mobilização = 293,33 h.
+  const dfp = { calculation_version: 2, metadata: { horas_semana: 0, horas_sabado: 0, horas_domingo: 0 } };
+  const item = { quantity: 1, salary_real: 2200, worked_days: 20, saturday_days: 0, sunday_days: 0, mobilization_days: 20 };
+  const row = computeLaborRow(item, dfp);
+  assert.equal(Math.round(row.worked_hours * 100) / 100, 293.33);
+  assert.ok(Math.abs(row.total - 2933.3333333) < 1e-6);
+  // Fim de semana vale a mesma diária e jornada zerada não gera aviso.
+  const fimDeSemana = computeLaborRow({ ...item, worked_days: 10, saturday_days: 5, sunday_days: 5 }, dfp);
+  assert.equal(Math.round(fimDeSemana.worked_hours * 100) / 100, 293.33);
+  assert.deepEqual(collectOrcamentoWarnings(dfpV2({ metadata: { horas_semana: 0 } })), []);
 });
 
 test('avisa quando horas extras são lançadas com multiplicador zerado', () => {

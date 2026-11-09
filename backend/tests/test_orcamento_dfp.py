@@ -43,9 +43,10 @@ def test_v2_horas_salario_extras_e_adicional_seletivo():
     normalized = normalize_dfp_payload(snapshot)
     assert normalized["calculation_version"] == 2
     assert normalized["mao_de_obra_direta"]["items"][0]["hourly_rate"] == 10
-    assert normalized["mao_de_obra_direta"]["items"][0]["worked_hours"] == 104
-    # 104h * 10 + 2 pessoas * 2h * 1.5 * 10 + 520 * 30%; encargos 10%.
-    assert compute_dfp_summary(snapshot)["mao_de_obra_direta_total"] == 1381.6
+    # (220/30) × 7 diárias (5 + 1 sáb + 1 mob) × 2 pessoas = 102,67 h.
+    assert normalized["mao_de_obra_direta"]["items"][0]["worked_hours"] == pytest.approx(308 / 3)
+    # 14 diárias × 2200/30 = 1026,67 + 2 pessoas * 2h * 1.5 * 10 + 513,33 * 30%; encargos 10%.
+    assert compute_dfp_summary(snapshot)["mao_de_obra_direta_total"] == 1364.73
 
 
 def test_v2_admin_alimentacao_desconto_e_denominador_pessoa_dia():
@@ -63,8 +64,8 @@ def test_v2_admin_alimentacao_desconto_e_denominador_pessoa_dia():
     assert summary["alimentacao_total"] == 140
     assert summary["equipamentos_total"] == 150
     assert summary["mao_de_obra_indireta_total"] == 700
-    assert summary["custos_diretos_total"] == 2090
-    assert summary["valor_dia_colaborador"] == 149.29
+    assert summary["custos_diretos_total"] == 2076.67
+    assert summary["valor_dia_colaborador"] == 148.33
 
 
 @pytest.mark.parametrize(

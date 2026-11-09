@@ -192,6 +192,9 @@ class OrcamentoService:
         # Validate combined totals before persistence, not only when serializing
         # the response: otherwise one invalid draft can break every listing.
         compute_dfp_summary(dfp)
+        if dados_normalizados["modalidade"] == "HH":
+            # O DFP continua no snapshot (trocar a modalidade volta a usá-lo): valida os dois.
+            compute_dfp_summary(dfp, modalidade="HH")
         return {
             "situacao": SITUACAO_RASCUNHO,
             **dados_normalizados,

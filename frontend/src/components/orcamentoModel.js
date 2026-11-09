@@ -1,3 +1,5 @@
+import { validateHh } from './orcamento/hhModel.js';
+
 const deepClone = (value) => {
   if (value === null || value === undefined) return value;
   return JSON.parse(JSON.stringify(value));
@@ -306,14 +308,19 @@ export const validateRevisaoForm = (form) => {
   if (form?.dataInicio && form.dataInicio !== 'N/A' && !isValidIsoDate(form.dataInicio)) {
     errors.dataInicio = 'Informe uma data válida ou N/A.';
   }
-  const dfpErrors = validateDfpV2(form?.dfp);
+  // O bloco HH segue salvo mesmo fora da modalidade HH e o backend sempre o valida.
+  const dfpErrors = [...validateHh(form?.dfp?.hh), ...validateDfpV2(form?.dfp)];
   if (dfpErrors.length) errors.dfp = dfpErrors[0];
 
   return errors;
 };
 
-export const buildOrcamentoPayload = (form) => {
+export const buildOrcamentoPayload = (form, { hhDefaults } = {}) => {
   if (Object.keys(validateOrcamentoForm(form)).length > 0) return null;
+  const dfp = syncHeaderDfp(form);
+  // Orçamento criado já em HH nasce com o modelo padrão de composição, senão o card mostraria
+  // R$ 0,00 até a primeira edição.
+  if (form.modalidade === 'HH' && !dfp.hh && hhDefaults) dfp.hh = deepClone(hhDefaults);
   return {
     contratante: form.contratante.trim(),
     dados_contratante: optionalText(form.dadosContratante),
@@ -324,7 +331,7 @@ export const buildOrcamentoPayload = (form) => {
     mobilizacao: optionalText(form.mobilizacao),
     desmobilizacao: optionalText(form.desmobilizacao),
     area_unidade_base: optionalText(form.areaUnidadeBase),
-    dfp: syncHeaderDfp(form),
+    dfp,
     motivo: null,
   };
 };
@@ -506,6 +513,9 @@ const numberOrBlankDefault = (value, fallback) => (
 
 const roundCurrency = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 
+const HORAS_MES = 220;
+const DIAS_MES = 30;
+
 export const computeLaborRow = (item, dfp) => {
   const m = dfp?.metadata || {};
   const inherited = (value, fallback) => numberOrZero(value == null || value === '' ? fallback : value);
@@ -513,10 +523,10 @@ export const computeLaborRow = (item, dfp) => {
   const saturday = inherited(item.saturday_days, m.quantidade_sabado);
   const sunday = inherited(item.sunday_days, m.quantidade_domingo);
   const allDays = days + saturday + sunday + numberOrZero(item.mobilization_days);
-  const hours = (days + numberOrZero(item.mobilization_days)) * numberOrZero(m.horas_semana)
-    + saturday * numberOrZero(m.horas_sabado) + sunday * numberOrZero(m.horas_domingo);
-  const hourly = numberOrZero(item.salary_real) / 220;
-  const base = hours * numberOrZero(item.quantity) * hourly;
+  // Instruções da DFP: horas = (220/30) × (dias de execução + mobilização).
+  const hours = allDays * HORAS_MES / DIAS_MES;
+  const hourly = numberOrZero(item.salary_real) / HORAS_MES;
+  const base = allDays * numberOrZero(item.quantity) * numberOrZero(item.salary_real) / DIAS_MES;
   const extra = numberOrZero(item.quantity) * hourly * (
     numberOrZero(item.overtime_week_hours) * numberOrZero(m.semana_fator)
     + numberOrZero(item.overtime_saturday_hours) * numberOrZero(m.sabado_fator)
@@ -538,36 +548,40 @@ export const inheritedLaborDays = (dfp, field) => {
   return chave ? numberOrZero(dfp?.metadata?.[chave]) : null;
 };
 
-const temPessoas = (dfp) => (dfp?.mao_de_obra_direta?.items || [])
-  .some((item) => numberOrZero(item?.quantity) > 0);
-
-const diasDaCategoria = (dfp, field) => (dfp?.mao_de_obra_direta?.items || []).reduce(
-  (soma, item) => soma + numberOrZero(
-    item?.[field] == null || item[field] === '' ? inheritedLaborDays(dfp, field) : item[field],
-  ),
-  0,
-);
-
 const horasExtrasDaCategoria = (dfp, field) => (dfp?.mao_de_obra_direta?.items || [])
   .reduce((soma, item) => soma + numberOrZero(item?.[field]), 0);
 
+const formatarDias = (dias) => `${dias} dia${dias === 1 ? '' : 's'}`;
+
+// O prazo de execução do cabeçalho não alimenta a mão de obra: os dias vêm de
+// Identificação e Escopo e de cada função. Quando divergem, o total muda dezenas ou centenas de
+// milhares de reais sem nenhum sinal na tela — por isso o aviso nomeia os dois números.
+export const avisosDePrazo = (dfp, prazoCabecalho) => {
+  if (dfp?.calculation_version !== 2) return [];
+  const linhas = (dfp.mao_de_obra_direta?.items || []).filter((item) => numberOrZero(item?.quantity) > 0);
+  if (!linhas.length) return [];
+  const avisos = [];
+  // Só o campo numérico "Prazo de execução (dias)" do cabeçalho: o texto livre de
+  // Identificação ("6 meses") geraria um número de dias errado no aviso.
+  const prazo = Number.isInteger(Number(prazoCabecalho)) && Number(prazoCabecalho) > 0 ? Number(prazoCabecalho) : null;
+  if (prazo) {
+    const diasPorFuncao = linhas.map((item) => ['worked_days', 'saturday_days', 'sunday_days'].reduce(
+      (soma, campo) => soma + numberOrZero(item?.[campo] == null || item[campo] === '' ? inheritedLaborDays(dfp, campo) : item[campo]),
+      0,
+    ));
+    const diferentes = [...new Set(diasPorFuncao.filter((dias) => dias !== prazo))];
+    if (diferentes.length) {
+      avisos.push(`O prazo de execução do cabeçalho é de ${formatarDias(prazo)}, mas a mão de obra está calculada com ${diferentes.map(formatarDias).join(' / ')} de execução (dias de semana + sábados + domingos). Confira as quantidades de dias em Identificação e Escopo ou em cada função.`);
+    }
+  }
+  return avisos;
+};
+
 // Avisos não bloqueiam o salvamento: apontam entradas que zeram ou duplicam valor em silêncio.
-export const collectOrcamentoWarnings = (dfp) => {
+export const collectOrcamentoWarnings = (dfp, { prazoDias } = {}) => {
   if (dfp?.calculation_version !== 2) return [];
   const avisos = [];
   const metadata = dfp.metadata || {};
-
-  if (temPessoas(dfp)) {
-    for (const [campoDias, campoHoras, rotulo] of [
-      ['worked_days', 'horas_semana', 'dias de semana'],
-      ['saturday_days', 'horas_sabado', 'sábados'],
-      ['sunday_days', 'horas_domingo', 'domingos'],
-    ]) {
-      if (diasDaCategoria(dfp, campoDias) > 0 && numberOrZero(metadata[campoHoras]) === 0) {
-        avisos.push(`Há ${rotulo} informados, mas a jornada correspondente está zerada em Identificação e Escopo: essas horas não entram no custo.`);
-      }
-    }
-  }
 
   for (const [campoHoras, campoFator, rotulo] of [
     ['overtime_week_hours', 'semana_fator', 'semanais'],
@@ -578,6 +592,8 @@ export const collectOrcamentoWarnings = (dfp) => {
       avisos.push(`Há horas extras ${rotulo} lançadas com multiplicador zerado: elas não estão sendo pagas no cálculo.`);
     }
   }
+
+  avisos.push(...avisosDePrazo(dfp, prazoDias));
 
   const administrativo = numberOrZero(dfp.custos_administrativos?.daily_cost) > 0;
   const indiretoAdm = (dfp.custos_indiretos?.items || []).find((item) => (

@@ -1,5 +1,6 @@
 """AIDEAL GoFlowOS MVP — API FastAPI principal."""
 
+import asyncio
 import logging
 import math
 import tempfile
@@ -68,6 +69,8 @@ from .orcamento import (
     compute_dfp_summary,
     get_dfp_window_schema,
 )
+from .orcamento.hh_import import MAX_ARQUIVO_BYTES as HH_IMPORT_MAX_BYTES
+from .orcamento.hh_import import import_hh_workbook
 from .processamento import DREProcessamentoService, FluxoCaixaProcessamentoService
 from .processamento.competencia import CompetenciaDetectorService
 from .processamento.dashboard import DashboardResumoService
@@ -611,7 +614,9 @@ def _orcamento_payload(service, orcamento, agora) -> dict:
     corpo = orcamento.to_dict(agora=agora)
     atual = orcamento.revisao_atual
     corpo["cabecalho_pendente"] = list(service.cabecalho_pendente(atual)) if atual else []
-    corpo["dfp_summary"] = compute_dfp_summary(atual.dfp if atual else None)
+    corpo["dfp_summary"] = compute_dfp_summary(
+        atual.dfp if atual else None, modalidade=atual.modalidade if atual else None
+    )
     return corpo
 
 
@@ -762,6 +767,35 @@ def salvar_catalogo_orcamento(
         return get_orcamento_service().save_catalogo(payload, responsavel_user_id=session.user.id)
     except InvalidOrcamentoInputError as exc:
         _raise_orcamento_http_error(exc)
+
+
+# Leitura de .xlsx é CPU/memória intensiva: no máximo duas importações simultâneas.
+_HH_IMPORT_SLOTS = asyncio.Semaphore(2)
+
+
+@app.post("/api/orcamento/hh/importar")
+async def importar_planilha_hh(
+    request: Request,
+    _session=Depends(require_permissions_with_csrf("orcamento.view", "orcamento.edit")),
+):
+    """Lê a planilha de composição HH (.xlsx no corpo) e devolve o bloco HH validado.
+
+    Não grava nada: o resultado entra no editor e só é salvo junto com a revisão.
+    """
+    declarado = request.headers.get("content-length")
+    if declarado and declarado.isdigit() and int(declarado) > HH_IMPORT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Planilha excede 5 MB")
+    conteudo = bytearray()
+    async for parte in request.stream():
+        conteudo.extend(parte)
+        if len(conteudo) > HH_IMPORT_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Planilha excede 5 MB")
+    try:
+        async with _HH_IMPORT_SLOTS:
+            hh = await asyncio.to_thread(import_hh_workbook, bytes(conteudo))
+    except InvalidOrcamentoInputError as exc:
+        _raise_orcamento_http_error(exc)
+    return {"hh": hh}
 
 
 @app.get("/api/orcamento/orcamentos/{orcamento_id}/historico")

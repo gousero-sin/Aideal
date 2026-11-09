@@ -30,9 +30,11 @@ def test_v2_zero_days_override_and_hours_are_derived():
     original = deepcopy(dfp)
     normalized = normalize_dfp_payload(dfp)
     row = normalized['mao_de_obra_direta']['items'][0]
-    assert row['worked_hours'] == 176
+    # Instruções DFP: horas = (220/30) × (10 dias + 1 mob) × 2 pessoas.
+    assert row['worked_hours'] == pytest.approx(484 / 3)
     assert row['hourly_rate'] == 10
-    assert compute_dfp_summary(dfp)['mao_de_obra_direta_total'] == 1820
+    # 22 diárias × 2200/30 + 2 pessoas × 2h × 1,5 × 10.
+    assert compute_dfp_summary(dfp)['mao_de_obra_direta_total'] == 1673.33
     assert dfp == original
 
 
@@ -43,7 +45,7 @@ def test_v2_null_days_inherit_metadata_and_food_uses_person_days():
     dfp['alimentacao']['items'][0]['unit_cost'] = 25
     summary = compute_dfp_summary(dfp)
     assert summary['alimentacao_total'] == 700  # 2 people * (10+2+1+1) * 25
-    assert summary['mao_de_obra_direta_total'] == 2060
+    assert summary['mao_de_obra_direta_total'] == 2113.33  # 28 diárias × 2200/30 + 60
 
 
 def test_v2_admin_discount_and_targeted_additional():
@@ -56,7 +58,7 @@ def test_v2_admin_discount_and_targeted_additional():
     dfp['custos_administrativos'].update(daily_cost=100, days=10, considered_percent=50,
                                        multiplier=2, discount_percent=10)
     summary = compute_dfp_summary(dfp)
-    assert summary['mao_de_obra_direta_total'] == 2813.4
+    assert summary['mao_de_obra_direta_total'] == 2585.7
     assert summary['custos_administrativos_total'] == 900
 
 
@@ -165,7 +167,7 @@ def test_same_additional_can_target_multiple_functions():
         {'id': f'perigo_{target}', 'label': 'Periculosidade', 'labor_item_id': target,
          'quantity': 1, 'percent': 30, 'base': 'salary'}
         for target in ('pintor', 'ajudante')]
-    assert compute_dfp_summary(dfp)['mao_de_obra_direta_total'] == 4168
+    assert compute_dfp_summary(dfp)['mao_de_obra_direta_total'] == 3830.67
 
 
 def test_huge_integer_input_is_rejected_without_float_overflow():
@@ -173,3 +175,19 @@ def test_huge_integer_input_is_rejected_without_float_overflow():
     dfp['mao_de_obra_direta']['items'][0]['salary_real'] = 10**400
     with pytest.raises(InvalidOrcamentoInputError, match='limite'):
         normalize_dfp_payload(dfp)
+
+
+def test_v2_horas_seguem_formula_das_instrucoes_dfp():
+    """Exemplo das instruções: 20 dias de execução + 20 de mobilização = 293,33 h/empregado."""
+    dfp = build_default_dfp_snapshot(calculation_version=2)
+    dfp['metadata'].update(horas_semana=0, horas_sabado=0, horas_domingo=0)
+    dfp['mao_de_obra_direta']['items'] = [{
+        'id': 'pintor', 'label': 'Pintor', 'quantity': 1, 'salary_real': 2200,
+        'worked_days': 20, 'saturday_days': 0, 'sunday_days': 0, 'mobilization_days': 20,
+    }]
+    row = normalize_dfp_payload(dfp)['mao_de_obra_direta']['items'][0]
+    assert round(row['worked_hours'], 2) == 293.33
+    # Jornadas diárias não alteram as horas: cada diária vale 220/30 h, inclusive fim de semana.
+    dfp['mao_de_obra_direta']['items'][0].update(worked_days=10, saturday_days=5, sunday_days=5)
+    assert round(normalize_dfp_payload(dfp)['mao_de_obra_direta']['items'][0]['worked_hours'], 2) == 293.33
+    assert compute_dfp_summary(dfp)['mao_de_obra_direta_total'] == 2933.33

@@ -8,6 +8,7 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from .dfp import compute_dfp_summary, normalize_dfp_payload
+from .hh import compute_hh
 
 SECTIONS = (
     ("mao_de_obra_direta", "Mão de obra direta"),
@@ -30,6 +31,19 @@ SUMMARY = (
     ("valor_dia_colaborador", "Valor por dia e colaborador"),
     ("preco_total_faturamento", "Preço total de faturamento"),
 )
+HH_SUMMARY = (
+    ("hh_colaboradores", "Colaboradores"),
+    ("hh_encargos_percent", "Encargos sociais (%)"),
+    ("hh_total_mensal", "Total mensal"),
+    ("hh_meses", "Prazo do contrato (meses)"),
+    ("custos_diretos_total", "Custos diretos no prazo"),
+    ("custos_indiretos_total", "Despesas indiretas no prazo"),
+    ("lucro_total", "Lucro no prazo"),
+    ("aliquota_impostos_total", "Tributos (%)"),
+    ("preco_total_faturamento", "Preço total estimado do contrato"),
+)
+UNIDADES_SEM_MOEDA = {"aliquota_impostos_total", "hh_encargos_percent", "hh_meses",
+                      "hh_colaboradores"}
 
 
 def _number(value: Any) -> str:
@@ -64,7 +78,8 @@ def _model(budget: dict, revision: dict) -> dict:
     code = f"{code.split('-R')[0]}-R{number}"
     dfp = normalize_dfp_payload(revision.get("dfp"))
     meta = dfp["metadata"]
-    summary = compute_dfp_summary(dfp)
+    hh_ativo = revision.get("modalidade") == "HH" and dfp.get("hh") is not None
+    summary = compute_dfp_summary(dfp, modalidade=revision.get("modalidade"))
     fields = (
         (
             "Contratante",
@@ -90,6 +105,12 @@ def _model(budget: dict, revision: dict) -> dict:
         ("Emitido em", revision.get("emitido_em")),
         ("Válido até", revision.get("valido_ate")),
     )
+    if hh_ativo:
+        return {"code": code, "fields": fields, "tables": _hh_tables(dfp["hh"]),
+                "summary": summary, "summary_rows": HH_SUMMARY,
+                "scope": revision.get("escopo") or meta.get("descricao_projeto") or "N/A",
+                "notes": dfp.get("informacoes_adicionais", {}).get("observacoes"),
+                "rules": revision.get("versao_regras")}
     tables = []
     sections = SECTIONS if dfp.get("calculation_version") == 2 else (
         SECTIONS[0], ("mao_de_obra_indireta", "Mão de obra indireta"), *SECTIONS[2:])
@@ -107,9 +128,38 @@ def _model(budget: dict, revision: dict) -> dict:
                        else "Valor unitário (R$)")
             tables.append((label, headers, rows, summary.get(f"{key}_total", 0)))
     return {"code": code, "fields": fields, "tables": tables, "summary": summary,
+            "summary_rows": SUMMARY,
             "scope": revision.get("escopo") or meta.get("descricao_projeto") or "N/A",
             "notes": dfp.get("informacoes_adicionais", {}).get("observacoes"),
             "rules": revision.get("versao_regras")}
+
+
+def _hh_tables(hh: dict) -> list:
+    """Uma tabela por grupo de funções e outra com os valores de Homem-Hora."""
+    calculo = compute_hh(hh)
+    tables = []
+    taxas = []
+    for grupo, resultado in zip(hh["grupos"], calculo["grupos"]):
+        linhas = []
+        for funcao, valores in zip(grupo["funcoes"], resultado["funcoes"]):
+            linhas.append((_text(funcao["label"]), _number(funcao["quantidade"]),
+                           _number(valores["total_unitario"])))
+            taxas.append((_text(funcao["label"]), _number(valores["hora_normal"]),
+                          _number(valores["hora_noturna"])))
+        tables.append((grupo["label"], ("Função", "Quantidade", "Total unitário mensal (R$)"),
+                       linhas, resultado["total_mensal"]))
+    if taxas:
+        # Valores por hora não somam: a tabela sai sem linha de subtotal.
+        tables.append(("Valores de Homem-Hora",
+                       ("Função", "Hora normal (R$)", "Hora noturna (R$)"), taxas, None))
+    return tables
+
+
+def _summary_value(model: dict, key: str) -> str:
+    valor = _number(model["summary"].get(key))
+    if key in {"hh_meses", "hh_colaboradores"}:
+        return valor
+    return valor + (" %" if key in UNIDADES_SEM_MOEDA else " BRL")
 
 
 def _docx_table(doc, headers, rows):
@@ -164,11 +214,11 @@ def _docx(model: dict) -> bytes:
         doc.add_heading(label, 1)
         if rows:
             _docx_table(doc, headers, rows)
-        doc.add_paragraph(f"Subtotal: R$ {_number(total)}")
+        if total is not None:
+            doc.add_paragraph(f"Subtotal: R$ {_number(total)}")
     doc.add_heading("Impostos e resumo", 1)
     _docx_table(doc, ("Indicador", "Valor"), [
-        (label, _number(model["summary"].get(key)) +
-         (" %" if key == "aliquota_impostos_total" else " BRL")) for key, label in SUMMARY
+        (label, _summary_value(model, key)) for key, label in model["summary_rows"]
     ])
     if model["notes"]:
         doc.add_heading("Observações", 1)
@@ -214,14 +264,15 @@ def _pdf(model: dict) -> bytes:
         story.extend([table, Spacer(1, 10)])
 
     for label, headers, rows, total in model["tables"]:
-        story.append(Paragraph(label, styles["Heading1"]))
+        # Rótulos HH vêm do usuário: o Paragraph interpreta marcação (<img>, <a>), então escapa.
+        story.append(Paragraph(escape(str(label)), styles["Heading1"]))
         if rows:
             add_table(headers, rows)
-        story.append(para(f"Subtotal: R$ {_number(total)}"))
+        if total is not None:
+            story.append(para(f"Subtotal: R$ {_number(total)}"))
     story.append(Paragraph("Impostos e resumo", styles["Heading1"]))
     add_table(("Indicador", "Valor"), [
-        (label, _number(model["summary"].get(key)) +
-         (" %" if key == "aliquota_impostos_total" else " BRL")) for key, label in SUMMARY
+        (label, _summary_value(model, key)) for key, label in model["summary_rows"]
     ])
     if model["notes"]:
         story += [Paragraph("Observações", styles["Heading1"]), para(model["notes"])]
