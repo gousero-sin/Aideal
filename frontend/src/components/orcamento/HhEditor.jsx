@@ -1,5 +1,9 @@
-import React, { useMemo, useRef } from 'react';
-import { FileSpreadsheet, Plus, Trash2 } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { FileSpreadsheet, Plus, Trash2, UploadCloud } from 'lucide-react';
+import TableScroll from './editor/TableScroll';
+import { isXlsxFile } from './editor/editorState';
+import { listItemMotion } from './orcamentoMotion';
 import {
   HH_CUSTO_COLUNAS,
   HH_GRUPOS_ENCARGOS,
@@ -56,21 +60,22 @@ function ParamField({ disabled, hint, label, max, onChange, step = '0.01', suffi
 function HhTable({ caption, children, head, footer }) {
   return (
     <div className="orc-table-shell">
-      <div className="orc-table-scroll" role="region" aria-label={`${caption}, tabela rolável`} tabIndex={0}>
+      <TableScroll label={caption} scrollKey={`hh-${caption}`}>
         <table className="orc-dfp-table orc-hh-table">
           <caption className="orc-visually-hidden">{caption}</caption>
           <thead><tr>{head}</tr></thead>
           <tbody>{children}</tbody>
           {footer && <tfoot>{footer}</tfoot>}
         </table>
-      </div>
+      </TableScroll>
     </div>
   );
 }
 
 function GroupRow({ colSpan, disabled, grupo, hh, onChange, resultado }) {
+  const reducedMotion = useReducedMotion();
   return (
-    <tr className="orc-hh-group-row">
+    <motion.tr className="orc-hh-group-row" {...listItemMotion(reducedMotion)}>
       <th scope="rowgroup">
         <input aria-label={`Nome do grupo ${grupo.label}`} disabled={disabled} value={grupo.label} onChange={(event) => onChange(updateHhGrupo(hh, grupo.id, event.target.value))} />
       </th>
@@ -83,11 +88,12 @@ function GroupRow({ colSpan, disabled, grupo, hh, onChange, resultado }) {
           </span>
         )}
       </td>
-    </tr>
+    </motion.tr>
   );
 }
 
 function SalaryTable({ disabled, hh, onChange, summary }) {
+  const reducedMotion = useReducedMotion();
   const columns = ['Qtd.', 'Horas / mês', 'Salário base (R$)', 'Periculosidade', 'Adic. noturno (%)', 'Salário / hora', 'Subtotal A¹', `Encargos (${percent(summary.encargos.totalPercent)})`, 'Subtotal A²', 'Total A'];
   return (
     <HhTable
@@ -95,14 +101,14 @@ function SalaryTable({ disabled, hh, onChange, summary }) {
       head={<><th scope="col">Função</th>{columns.map((label) => <th key={label} scope="col">{label}</th>)}{!disabled && <th scope="col">Ações</th>}</>}
       footer={<tr><th scope="row">Total A · {decimal(summary.colaboradores, 0)} pessoa(s)</th><td colSpan={columns.length - 1} /><td className="orc-num-cell">{money(summary.grupos.reduce((soma, grupo) => soma + grupo.funcoes.reduce((s, linha) => s + linha.totalA, 0), 0))}</td>{!disabled && <td />}</tr>}
     >
-      {(hh.grupos || []).map((grupo, gIndex) => (
-        <React.Fragment key={grupo.id}>
-          <GroupRow colSpan={columns.length + (disabled ? 0 : 1)} disabled={disabled} grupo={grupo} hh={hh} onChange={onChange} resultado={summary.grupos[gIndex]} />
-          {(grupo.funcoes || []).map((funcao, fIndex) => {
+      <AnimatePresence initial={false}>
+        {(hh.grupos || []).flatMap((grupo, gIndex) => [
+          <GroupRow colSpan={columns.length + (disabled ? 0 : 1)} disabled={disabled} grupo={grupo} hh={hh} key={`grupo-${grupo.id}`} onChange={onChange} resultado={summary.grupos[gIndex]} />,
+          ...(grupo.funcoes || []).map((funcao, fIndex) => {
             const linha = summary.grupos[gIndex]?.funcoes[fIndex] || {};
             const set = (field) => (value) => onChange(updateHhFuncao(hh, grupo.id, funcao.id, field, value));
             return (
-              <tr key={funcao.id}>
+              <motion.tr key={funcao.id} {...listItemMotion(reducedMotion)}>
                 <th scope="row"><input aria-label={`Nome da função ${funcao.label}`} disabled={disabled} title={funcao.label} value={funcao.label} onChange={(event) => set('label')(event.target.value)} /></th>
                 <td><NumberCell disabled={disabled} label={`${funcao.label} · Quantidade`} onChange={set('quantidade')} step="1" value={funcao.quantidade} /></td>
                 <td><NumberCell disabled={disabled} label={`${funcao.label} · Horas por mês`} onChange={set('horas_mes')} value={funcao.horas_mes} /></td>
@@ -115,11 +121,11 @@ function SalaryTable({ disabled, hh, onChange, summary }) {
                 <td className="orc-num-cell">{money(linha.subtotalA2)}</td>
                 <td className="orc-num-cell orc-num-cell--strong">{money(linha.totalA)}</td>
                 {!disabled && <td><button className="orc-btn orc-btn--compact" type="button" aria-label={`Remover função ${funcao.label}`} onClick={() => onChange(removeHhFuncao(hh, grupo.id, funcao.id))}>Remover</button></td>}
-              </tr>
+              </motion.tr>
             );
-          })}
-        </React.Fragment>
-      ))}
+          }),
+        ])}
+      </AnimatePresence>
     </HhTable>
   );
 }
@@ -246,8 +252,50 @@ function BdiSection({ disabled, hh, onChange }) {
   );
 }
 
-function ParamsSection({ disabled, hh, onChange, onImport, importing, prazoMeses }) {
+/**
+ * Importação da planilha de composição: botão ou arrastar e soltar, com progresso visível.
+ * O envio não informa porcentagem, então a barra é indeterminada até a resposta.
+ */
+function HhImportZone({ importing, onImport }) {
   const fileRef = useRef(null);
+  const [dragging, setDragging] = useState(false);
+  const [rejected, setRejected] = useState('');
+  const busy = Boolean(importing);
+  const accept = (file) => {
+    if (!file || busy) return;
+    if (!isXlsxFile(file)) {
+      setRejected(`“${file.name}” não é uma planilha .xlsx.`);
+      return;
+    }
+    setRejected('');
+    onImport(file);
+  };
+  const leave = (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setDragging(false);
+  };
+  return (
+    <div
+      aria-busy={busy || undefined}
+      className={`orc-hh-dropzone ${dragging ? 'is-dragging' : ''} ${busy ? 'is-busy' : ''}`}
+      onDragEnter={(event) => { event.preventDefault(); if (!busy) setDragging(true); }}
+      onDragLeave={leave}
+      onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = busy ? 'none' : 'copy'; }}
+      onDrop={(event) => { event.preventDefault(); setDragging(false); accept(event.dataTransfer.files?.[0]); }}
+    >
+      <input accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="orc-visually-hidden" ref={fileRef} tabIndex={-1} type="file" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; accept(file); }} />
+      <UploadCloud aria-hidden="true" className="orc-hh-dropzone__icon" />
+      <div className="orc-hh-dropzone__copy">
+        <strong>{busy ? `Importando “${importing === true ? 'planilha' : importing}”…` : 'Arraste a planilha de composição (.xlsx) para cá'}</strong>
+        <span>{busy ? 'Os valores atuais só serão substituídos quando a importação terminar.' : 'ou escolha o arquivo no computador. Até 5 MB.'}</span>
+        {busy && <span aria-label="Importando planilha" className="orc-progress orc-progress--indeterminate" role="progressbar"><span /></span>}
+        {rejected && <small className="orc-hh-dropzone__error" role="alert">{rejected}</small>}
+      </div>
+      <button className="orc-btn" disabled={busy} type="button" onClick={() => fileRef.current?.click()}><FileSpreadsheet aria-hidden="true" /> {busy ? 'Importando planilha…' : 'Importar planilha de composição (.xlsx)'}</button>
+    </div>
+  );
+}
+
+function ParamsSection({ disabled, hh, onChange, onImport, importing, prazoMeses }) {
   const he = hh.horas_extras_percentuais || [60, 80, 100];
   return (
     <div className="orc-section-stack">
@@ -260,10 +308,9 @@ function ParamsSection({ disabled, hh, onChange, onImport, importing, prazoMeses
           <ParamField disabled={disabled} key={index} label={`Hora extra ${index + 1}`} max="1000" onChange={(value) => onChange(updateHhHoraExtra(hh, index, value))} suffix="%" value={valor} />
         ))}
       </div>
+      {(!disabled || importing) && <HhImportZone importing={importing} onImport={onImport} />}
       {!disabled && (
         <div className="orc-table-actions">
-          <input accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="orc-visually-hidden" ref={fileRef} tabIndex={-1} type="file" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) onImport(file); }} />
-          <button className="orc-btn" disabled={importing} type="button" onClick={() => fileRef.current?.click()}><FileSpreadsheet aria-hidden="true" /> {importing ? 'Importando planilha…' : 'Importar planilha de composição (.xlsx)'}</button>
           <button className="orc-btn" type="button" onClick={() => onChange(addHhGrupo(hh))}><Plus aria-hidden="true" /> Adicionar grupo de funções</button>
         </div>
       )}

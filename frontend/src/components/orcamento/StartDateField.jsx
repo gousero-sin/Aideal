@@ -1,11 +1,29 @@
-import React from 'react';
+import React, { useId } from 'react';
 
+// Mesma anatomia dos outros campos (.orc-field: rótulo, controle, mensagem), com o N/A ao lado.
 export default function StartDateField({ value, disabled, onChange, error }) {
-  return <div className="orc-field">
-    <label>Data de início<input aria-label="Data de início" type="date" disabled={disabled || value === 'N/A'}
-      value={value === 'N/A' ? '' : value || ''} onChange={(e) => onChange(e.target.value)} /></label>
-    <label className="orc-check"><input type="checkbox" disabled={disabled} checked={value === 'N/A'}
-      onChange={(e) => onChange(e.target.checked ? 'N/A' : '')} />N/A — início não definido</label>
-    {error && <small role="alert">{error}</small>}
-  </div>;
+  const id = useId();
+  const notDefined = value === 'N/A';
+  const errorId = `${id}-error`;
+  return (
+    <div className="orc-field orc-field--date">
+      <span aria-hidden="true">Data de início</span>
+      <div className="orc-date-row">
+        <input
+          aria-describedby={error ? errorId : undefined}
+          aria-invalid={Boolean(error)}
+          aria-label="Data de início"
+          disabled={disabled || notDefined}
+          onChange={(event) => onChange(event.target.value)}
+          type="date"
+          value={notDefined ? '' : value || ''}
+        />
+        <label className="orc-check orc-check--inline">
+          <input checked={notDefined} disabled={disabled} onChange={(event) => onChange(event.target.checked ? 'N/A' : '')} type="checkbox" />
+          <span>N/A — início não definido</span>
+        </label>
+      </div>
+      {error && <small id={errorId} role="alert">{error}</small>}
+    </div>
+  );
 }

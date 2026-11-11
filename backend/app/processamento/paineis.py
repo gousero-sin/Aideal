@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import unicodedata
 from datetime import date
 from decimal import Decimal
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from openpyxl.utils import column_index_from_string
@@ -24,6 +27,7 @@ from .dre_geracao_completa import (
     _participa_deducao_receita_por_codigo,
 )
 from .fluxo_caixa import FluxoCaixaProcessamentoService
+from .painel_cache import PainelRespostaCache, VersaoBancoSQLite, assinatura_arquivo
 
 MESES_LABEL = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
 
@@ -69,18 +73,35 @@ def _append_in(
     params.extend(values)
 
 
+_RE_PERCENTUAL_CONTA = re.compile(r"\([^)]*%\)\s*;?")
+_RE_PREFIXO_HIERARQUICO = re.compile(r"^\s*\d+(?:\.\d+)+(?:\s*[-.]?\s*|\s+)")
+_RE_PREFIXO_SIMPLES = re.compile(r"^\s*\d+\s*-\s*")
+_RE_NAO_ALFANUMERICO = re.compile(r"[^A-Za-z0-9]+")
+_RE_ESPACOS = re.compile(r"\s+")
+
+
 def _normalizar_chave_conta(valor: Any) -> str:
     texto = str(valor or "").strip()
     if not texto:
         return ""
-    texto = re.sub(r"\([^)]*%\)\s*;?", "", texto)
-    texto = re.sub(r"^\s*\d+(?:\.\d+)+(?:\s*[-.]?\s*|\s+)", "", texto)
-    texto = re.sub(r"^\s*\d+\s*-\s*", "", texto)
+    return _normalizar_texto_conta(texto)
+
+
+@lru_cache(maxsize=16384)
+def _normalizar_texto_conta(texto: str) -> str:
+    """Normalização pura e memoizada: o painel DRE a chama ~1 milhão de vezes por ano.
+
+    O conjunto de rubricas/contas distintas é pequeno, então o cache evita refazer
+    regex + NFKD a cada linha. `lru_cache` é seguro entre threads.
+    """
+    texto = _RE_PERCENTUAL_CONTA.sub("", texto)
+    texto = _RE_PREFIXO_HIERARQUICO.sub("", texto)
+    texto = _RE_PREFIXO_SIMPLES.sub("", texto)
     texto = texto.replace("°", "")
     sem_acento = unicodedata.normalize("NFKD", texto)
     sem_acento = "".join(ch for ch in sem_acento if not unicodedata.combining(ch))
-    sem_pontuacao = re.sub(r"[^A-Za-z0-9]+", " ", sem_acento)
-    return re.sub(r"\s+", " ", sem_pontuacao).strip().upper()
+    sem_pontuacao = _RE_NAO_ALFANUMERICO.sub(" ", sem_acento)
+    return _RE_ESPACOS.sub(" ", sem_pontuacao).strip().upper()
 
 
 def _alias_set(valores: list[str]) -> set[str]:
@@ -137,6 +158,28 @@ def _indicador_indisponivel(
 class _PainelBaseService:
     def __init__(self, db: DatabaseConnection | None = None) -> None:
         self.db = db or DatabaseConnection()
+        self._cache_respostas = PainelRespostaCache()
+        db_path = getattr(self.db, "db_path", None)
+        self._versao_banco = VersaoBancoSQLite(db_path) if db_path else None
+
+    def invalidar_cache(self) -> None:
+        """Descarta respostas em cache; chamado pelas rotas que alteram dados."""
+        self._cache_respostas.invalidar()
+
+    def _templates_dependentes(self) -> tuple[Path, ...]:
+        return ()
+
+    def _obter_com_cache(self, filtros: tuple[Any, ...], calcular: Any) -> dict[str, Any]:
+        versao_banco = self._versao_banco.atual() if self._versao_banco else None
+        if versao_banco is None:
+            return calcular()
+        chave = (
+            filtros,
+            versao_banco,
+            self._cache_respostas.geracao,
+            tuple(assinatura_arquivo(path) for path in self._templates_dependentes()),
+        )
+        return self._cache_respostas.obter_ou_calcular(chave, calcular)
 
     def _ano_mais_recente(self, table: str) -> int:
         with self.db.get_connection() as conn:
@@ -276,12 +319,13 @@ class _PainelBaseService:
 class PainelDREService(_PainelBaseService):
     """Agrega KPIs, séries e slicers web para DRE."""
 
-    _PLANO_CONTAS_GERADO_CACHE: tuple[str, float, dict[str, dict]] | None = None
+    # (caminho, mtime_ns, plano). Compartilhado entre instâncias e threads.
+    _PLANO_CONTAS_GERADO_CACHE: tuple[str, int, dict[str, dict]] | None = None
+    _PLANO_CONTAS_GERADO_LOCK = threading.Lock()
 
     def __init__(self, db: DatabaseConnection | None = None) -> None:
         super().__init__(db)
         self.indicadores_manuais = DREIndicadoresManuaisRepository(self.db)
-        self._plano_contas_gerado_cache: dict[str, dict] | None = None
 
     CENTRO_CUSTO_EXPR = "COALESCE(NULLIF(TRIM(centro_custo), ''), 'Sem obra')"
     NATUREZA_EXPR = (
@@ -594,7 +638,41 @@ class PainelDREService(_PainelBaseService):
         "passivos_operacionais": _alias_set(["Passivos Operacionais"]),
     }
 
+    def _templates_dependentes(self) -> tuple[Path, ...]:
+        return (settings.template_dre_path,)
+
+    def aquecer(self) -> None:
+        """Carrega o PLANO_CONTAS e calcula o painel padrão fora do caminho do usuário."""
+        self._plano_contas_gerado()
+        self.obter_painel()
+
     def obter_painel(
+        self,
+        ano: int | None = None,
+        meses: list[int] | None = None,
+        centro_custo: list[str] | None = None,
+        natureza: list[str] | None = None,
+        escopo_periodo: str | None = None,
+    ) -> dict[str, Any]:
+        filtros = (
+            ano,
+            tuple(sorted(set(meses or []))),
+            tuple(_normalizar_lista_texto(centro_custo)),
+            tuple(_normalizar_lista_texto(natureza)),
+            (escopo_periodo or "").strip(),
+        )
+        return self._obter_com_cache(
+            filtros,
+            lambda: self._calcular_painel(
+                ano=ano,
+                meses=meses,
+                centro_custo=centro_custo,
+                natureza=natureza,
+                escopo_periodo=escopo_periodo,
+            ),
+        )
+
+    def _calcular_painel(
         self,
         ano: int | None = None,
         meses: list[int] | None = None,
@@ -861,31 +939,39 @@ class PainelDREService(_PainelBaseService):
         }
 
     def _plano_contas_gerado(self) -> dict[str, dict]:
-        if self._plano_contas_gerado_cache is not None:
-            return self._plano_contas_gerado_cache
+        """PLANO_CONTAS do template DRE, relido só quando o arquivo muda.
 
+        O lock garante uma única leitura do template (openpyxl, alguns segundos)
+        mesmo com várias requisições simultâneas no threadpool.
+        """
+        caminho = settings.template_dre_path
         try:
-            caminho = settings.template_dre_path
-            mtime = caminho.stat().st_mtime
-            cache = self.__class__._PLANO_CONTAS_GERADO_CACHE
-            if cache and cache[0] == str(caminho) and cache[1] == mtime:
-                self._plano_contas_gerado_cache = cache[2]
-                return self._plano_contas_gerado_cache
+            mtime = caminho.stat().st_mtime_ns
+        except OSError as exc:
+            logger.warning("Template DRE indisponível para PLANO_CONTAS: %s", exc)
+            return {}
 
-            with TemplateWriter(caminho) as writer:
-                self._plano_contas_gerado_cache = DREGeracaoCompletaService._ler_plano_contas(
-                    writer,
-                    aplicar_overrides_dre_gerado=True,
-                )
-            self.__class__._PLANO_CONTAS_GERADO_CACHE = (
-                str(caminho),
-                mtime,
-                self._plano_contas_gerado_cache,
-            )
-        except Exception as exc:
-            logger.warning("Não foi possível ler PLANO_CONTAS do DRE gerado: %s", exc)
-            self._plano_contas_gerado_cache = {}
-        return self._plano_contas_gerado_cache
+        cls = PainelDREService
+        cache = cls._PLANO_CONTAS_GERADO_CACHE
+        if cache and cache[0] == str(caminho) and cache[1] == mtime:
+            return cache[2]
+        with cls._PLANO_CONTAS_GERADO_LOCK:
+            cache = cls._PLANO_CONTAS_GERADO_CACHE
+            if cache and cache[0] == str(caminho) and cache[1] == mtime:
+                return cache[2]
+            try:
+                with TemplateWriter(caminho) as writer:
+                    plano = DREGeracaoCompletaService._ler_plano_contas(
+                        writer,
+                        aplicar_overrides_dre_gerado=True,
+                    )
+            except Exception as exc:
+                # Também fica em cache (pelo mtime) para não reler um template
+                # inválido a cada requisição; muda quando o arquivo for trocado.
+                logger.warning("Não foi possível ler PLANO_CONTAS do DRE gerado: %s", exc)
+                plano = {}
+            cls._PLANO_CONTAS_GERADO_CACHE = (str(caminho), mtime, plano)
+            return plano
 
     def _componentes_compativeis_dre_gerado(self, rows: list[Any]) -> list[dict[str, Any]]:
         plano = self._plano_contas_gerado()
@@ -1765,7 +1851,12 @@ class PainelDREService(_PainelBaseService):
 class PainelFluxoCaixaService(_PainelBaseService):
     """Agrega KPIs, séries e slicers web para Fluxo de Caixa."""
 
-    _FLUXO_TEMPLATE_CONTEXT_CACHE: tuple[str, float, Any, Any, dict[str, str]] | None = None
+    # (caminho, mtime_ns, contexto). A planilha em cache é tratada como somente
+    # leitura depois de carregada; o lock só protege a carga.
+    _FLUXO_TEMPLATE_CONTEXT_CACHE: tuple[str, int, tuple[Any, dict[str, str]] | None] | None = (
+        None
+    )
+    _FLUXO_TEMPLATE_CONTEXT_LOCK = threading.Lock()
 
     def __init__(self, db: DatabaseConnection | None = None) -> None:
         super().__init__(db)
@@ -2032,7 +2123,41 @@ class PainelFluxoCaixaService(_PainelBaseService):
         },
     ]
 
+    def _templates_dependentes(self) -> tuple[Path, ...]:
+        return (settings.template_fluxo_path,)
+
+    def aquecer(self) -> None:
+        """Carrega o template do Fluxo e calcula o painel padrão em segundo plano."""
+        self._fluxo_template_context()
+        self.obter_painel()
+
     def obter_painel(
+        self,
+        ano: int | None = None,
+        meses: list[int] | None = None,
+        banco: list[str] | None = None,
+        tipo: list[str] | None = None,
+        classificacao: list[str] | None = None,
+    ) -> dict[str, Any]:
+        filtros = (
+            ano,
+            tuple(sorted(set(meses or []))),
+            tuple(_normalizar_lista_texto(banco)),
+            tuple(_normalizar_lista_texto(tipo)),
+            tuple(_normalizar_lista_texto(classificacao)),
+        )
+        return self._obter_com_cache(
+            filtros,
+            lambda: self._calcular_painel(
+                ano=ano,
+                meses=meses,
+                banco=banco,
+                tipo=tipo,
+                classificacao=classificacao,
+            ),
+        )
+
+    def _calcular_painel(
         self,
         ano: int | None = None,
         meses: list[int] | None = None,
@@ -2440,11 +2565,22 @@ class PainelFluxoCaixaService(_PainelBaseService):
 
     def _fluxo_template_context(self) -> tuple[Any, dict[str, str]] | None:
         caminho = settings.template_fluxo_path
-        mtime = caminho.stat().st_mtime
-        cache = self.__class__._FLUXO_TEMPLATE_CONTEXT_CACHE
+        mtime = caminho.stat().st_mtime_ns
+        cls = PainelFluxoCaixaService
+        cache = cls._FLUXO_TEMPLATE_CONTEXT_CACHE
         if cache and cache[0] == str(caminho) and cache[1] == mtime:
-            return cache[2], cache[4]
+            return cache[2]
+        with cls._FLUXO_TEMPLATE_CONTEXT_LOCK:
+            cache = cls._FLUXO_TEMPLATE_CONTEXT_CACHE
+            if cache and cache[0] == str(caminho) and cache[1] == mtime:
+                return cache[2]
+            contexto = self._carregar_fluxo_template_context(caminho)
+            cls._FLUXO_TEMPLATE_CONTEXT_CACHE = (str(caminho), mtime, contexto)
+            return contexto
 
+    def _carregar_fluxo_template_context(
+        self, caminho: Path
+    ) -> tuple[Any, dict[str, str]] | None:
         writer = TemplateWriter(caminho)
         writer.abrir()
         wb = writer._wb
@@ -2465,13 +2601,6 @@ class PainelFluxoCaixaService(_PainelBaseService):
             wb,
             consolidado_ws,
             consolidado_ws.max_row,
-        )
-        self.__class__._FLUXO_TEMPLATE_CONTEXT_CACHE = (
-            str(caminho),
-            mtime,
-            fluxo_ws,
-            consolidado_ws,
-            classificacoes_template,
         )
         return fluxo_ws, classificacoes_template
 

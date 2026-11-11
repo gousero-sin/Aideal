@@ -1,589 +1,65 @@
-import React, { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import StartDateField from './StartDateField';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AlertTriangle, Calculator, FileText } from 'lucide-react';
 import { useHhSections } from './HhEditor';
 import { collectHhWarnings, mesesDoPrazo } from './hhModel';
-import brazilLocations from '../../data/brazilLocations.json';
-import {
-  BadgeDollarSign,
-  BookOpenCheck,
-  Calculator,
-  FileText,
-  LockKeyhole,
-  Maximize2,
-  Minimize2,
-  Minus,
-  Save,
-  X,
-} from 'lucide-react';
-import { motion, useReducedMotion } from 'framer-motion';
 import useOrcamentoDialog from './useOrcamentoDialog';
-import { windowMotion } from './orcamentoMotion';
+import ConfirmDialog from './ConfirmDialog';
+import { backdropMotion, springSoft, windowMotion } from './orcamentoMotion';
 import { GoFlowWindow } from '../goflow-window';
 import {
-  CAMPOS_REVISAO,
+  applyDfpChange,
   collectOrcamentoWarnings,
   computeDfpSummary,
-  createDfpItemId,
-  inheritedLaborDays,
-  INHERITED_LABOR_DAYS,
-  computeLaborRow,
-  computeSectionTotal,
-  computeTableRowSubtotal,
-  removeDfpCollectionItem,
-  nextDfpItemLabel,
-  setNestedValue,
-  getDfpSectionStatePath,
-  getNestedValue,
   getSchemaSections,
-  updateDfpCollectionItemAtPath,
-  updateDfpField,
 } from '../orcamentoModel';
+import { CatalogContext } from './editor/editorShared';
+import { HeaderFields } from './editor/FieldInputs';
+import SchemaSection from './editor/SchemaSection';
+import SummaryWindow from './editor/SummaryWindow';
+import EditorTitlebar from './editor/EditorTitlebar';
+import EditorFooter from './editor/EditorFooter';
+import { EditorSectionNav, MobileSectionNav } from './editor/EditorNav';
+import { firstIssueIn, useActiveSection, useSectionIssues } from './editor/useActiveSection';
+import {
+  isSaveShortcut,
+  rebaseIfClean,
+  serializeEditorForm,
+  shouldBlockEnterSubmit,
+} from './editor/editorState';
+import '../../styles/orcamento-editor.css';
 
-const formatMoney = (value) => Number(value || 0).toLocaleString('pt-BR', {
-  style: 'currency',
-  currency: 'BRL',
-});
-const formatPercent = (value) => `${Number(value || 0).toLocaleString('pt-BR', {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-})}%`;
-// Valores calculados (hora, horas trabalhadas) chegam com dízimas; o campo é só leitura.
-const COMPUTED_LABOR_COLUMNS = new Set(['worked_hours', 'hourly_rate']);
-const roundComputed = (value) => (Number.isFinite(Number(value)) ? Math.round(Number(value) * 100) / 100 : value);
+export { LocationHeaderField, LocationSelectors } from './editor/FieldInputs';
 
-const inputValue = (value) => value ?? '';
-const CatalogContext = createContext({ funcoes: [], itens: [], custo_administrativo_diario: 0 });
-const NATURAL_LABOR_COLUMNS = new Set(['quantity', 'worked_days', 'saturday_days', 'sunday_days', 'mobilization_days']);
-const INHERITED_LABOR_COLUMNS = new Set(Object.keys(INHERITED_LABOR_DAYS));
-const HIDDEN_V2_LABOR_COLUMNS = new Set(['hours_per_employee', 'salary_base_hours', 'manual_total']);
-const BRAZIL_STATES = brazilLocations.states || [];
-const BRAZIL_STATES_BY_CODE = new Map(BRAZIL_STATES.map((state) => [state.code, state]));
-const typedInputValue = (type, value) => (
-  type === 'number' && value !== '' ? Number(value) : value
-);
+const SECTION_EYEBROWS = {
+  fields: 'Premissas do orçamento',
+  'labor-table': 'Equipe e encargos',
+  'cost-table': 'Composição de custos',
+  'percent-groups': 'Tributos e margem',
+};
+const cloneJson = (value) => JSON.parse(JSON.stringify(value));
 
-function HeaderFields({ disabled, errors, form, onChange, onDfpChange }) {
-  return (
-    <div className="orc-field-grid">
-      {CAMPOS_REVISAO.map(({ field, label, long, options, type }) => field === 'regiao' ? (
-        <LocationHeaderField disabled={disabled} error={errors[field]} form={form} key={field} onDfpChange={onDfpChange} />
-      ) : field === 'dataInicio' ?
-        <StartDateField key={field} value={form[field]} disabled={disabled} error={errors[field]} onChange={(value) => onChange(field, value)} /> : (
-        <label className={`orc-field ${long ? 'orc-field--wide' : ''}`} key={field}>
-          <span>{label}</span>
-          {long ? (
-            <textarea
-              aria-invalid={Boolean(errors[field])}
-              disabled={disabled}
-              onChange={(event) => onChange(field, event.target.value)}
-              rows={3}
-              value={inputValue(form[field])}
-            />
-          ) : options ? (
-            <select
-              aria-invalid={Boolean(errors[field])}
-              disabled={disabled}
-              onChange={(event) => onChange(field, event.target.value)}
-              value={inputValue(form[field])}
-            >
-              <option value="">Selecione</option>
-              {options.map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
-          ) : (
-            <input
-              aria-invalid={Boolean(errors[field])}
-              disabled={disabled}
-              min={type === 'number' ? '0' : undefined}
-              onChange={(event) => onChange(field, event.target.value)}
-              step={field === 'prazoExecucaoDias' ? '1' : undefined}
-              type={type || 'text'}
-              value={inputValue(form[field])}
-            />
-          )}
-          {errors[field] && <small role="alert">{errors[field]}</small>}
-        </label>
-      ))}
-    </div>
-  );
-}
+// Arquivo solto fora da área de importação não deve fazer o navegador abrir a planilha.
+const preventFileDrop = (event) => {
+  if ([...(event.dataTransfer?.types || [])].includes('Files')) event.preventDefault();
+};
 
-function SchemaInput({ disabled, field, label, onChange, options, value }) {
-  const id = `${field.key}-${String(label).replace(/\W+/g, '-').toLowerCase()}`;
-  const strictPercent = ['social_charges_percent', 'factor_percent'].includes(field.key);
-  const boundedPercent = ['considered_percent', 'discount_percent'].includes(field.key);
-  if (field.type === 'boolean') {
-    return (
-      <label className="orc-check" htmlFor={id}>
-        <input
-          checked={Boolean(value)}
-          disabled={disabled}
-          id={id}
-          onChange={(event) => onChange(event.target.checked)}
-          type="checkbox"
-        />
-        <span>{label}</span>
-      </label>
-    );
+/** Enter em uma célula leva ao mesmo campo da linha seguinte (Shift+Enter: anterior). */
+const focusSiblingRowInput = (event) => {
+  const cell = event.target.closest('td, th');
+  const row = cell?.parentElement;
+  if (!cell || row?.tagName !== 'TR' || !row.parentElement || row.parentElement.tagName !== 'TBODY') return;
+  const index = [...row.children].indexOf(cell);
+  const step = (current) => (event.shiftKey ? current.previousElementSibling : current.nextElementSibling);
+  for (let sibling = step(row); sibling; sibling = step(sibling)) {
+    const target = sibling.children[index]?.querySelector('input:not([disabled]):not([readonly])');
+    if (target) {
+      target.focus();
+      try { target.select(); } catch { /* alguns tipos não aceitam seleção */ }
+      return;
+    }
   }
-
-  return (
-    <label className={`orc-field ${field.type === 'textarea' ? 'orc-field--wide' : ''}`} htmlFor={id}>
-      <span>{label}</span>
-      {field.type === 'textarea' ? (
-        <textarea
-          disabled={disabled}
-          id={id}
-          onChange={(event) => onChange(typedInputValue(field.type, event.target.value))}
-          rows={3}
-          value={inputValue(value)}
-        />
-      ) : field.type === 'select' ? (
-        <select
-          disabled={disabled}
-          id={id}
-          onChange={(event) => onChange(event.target.value)}
-          value={inputValue(value)}
-        >
-          <option value="">Selecione</option>
-          {options.map((option) => <option key={option} value={option}>{option}</option>)}
-        </select>
-      ) : (
-        <input
-          disabled={disabled}
-          id={id}
-          max={strictPercent ? '99.999999' : boundedPercent ? '100' : undefined}
-          min={field.type === 'number' ? '0' : undefined}
-          onChange={(event) => onChange(typedInputValue(field.type, event.target.value))}
-          step={field.step}
-          type={field.type || 'text'}
-          value={inputValue(value)}
-        />
-      )}
-    </label>
-  );
-}
-
-export function LocationSelectors({ disabled, dfp, idPrefix = 'orc-location', includeCountry = true, onChange, statePath }) {
-  const metadata = getNestedValue(dfp, statePath) || {};
-  const country = metadata.pais || brazilLocations.country;
-  const selectedState = BRAZIL_STATES_BY_CODE.get(String(metadata.uf || '').toUpperCase());
-  const selectedCity = metadata.municipio || '';
-  const cities = selectedState?.cities || [];
-
-  const updateLocation = (changes) => {
-    let next = dfp;
-    Object.entries(changes).forEach(([key, value]) => {
-      next = updateDfpField(next, statePath, key, value);
-    });
-    onChange(next);
-  };
-
-  return (
-    <>
-      {includeCountry && <label className="orc-field" htmlFor={`${idPrefix}-country`}>
-        <span>País</span>
-        <select
-          disabled={disabled}
-          aria-label="País"
-          id={`${idPrefix}-country`}
-          onChange={(event) => updateLocation({
-            pais: event.target.value,
-            uf: '',
-            municipio: '',
-            macrorregiao: '',
-          })}
-          value={country}
-        >
-          <option value="Brasil">Brasil</option>
-          {country !== 'Brasil' && <option value={country}>{country} (legado)</option>}
-        </select>
-      </label>}
-
-      <label className="orc-field" htmlFor={`${idPrefix}-state`}>
-        <span>Estado</span>
-        <select
-          disabled={disabled || country !== 'Brasil'}
-          aria-label="Estado"
-          id={`${idPrefix}-state`}
-          onChange={(event) => {
-            const state = BRAZIL_STATES_BY_CODE.get(event.target.value);
-            updateLocation({
-              pais: 'Brasil',
-              uf: event.target.value,
-              municipio: '',
-              macrorregiao: state?.region || '',
-            });
-          }}
-          value={metadata.uf || ''}
-        >
-          <option value="">Selecione o estado</option>
-          {BRAZIL_STATES.map((state) => (
-            <option key={state.code} value={state.code}>{state.name} ({state.code})</option>
-          ))}
-          {metadata.uf && !selectedState && <option value={metadata.uf}>{metadata.uf} (legado)</option>}
-        </select>
-      </label>
-
-      <label className="orc-field" htmlFor={`${idPrefix}-city`}>
-        <span>Cidade</span>
-        <select
-          disabled={disabled || !selectedState}
-          aria-label="Cidade"
-          id={`${idPrefix}-city`}
-          onChange={(event) => updateLocation({ pais: 'Brasil', municipio: event.target.value })}
-          value={selectedCity}
-        >
-          <option value="">{selectedState ? 'Selecione a cidade' : 'Selecione o estado primeiro'}</option>
-          {cities.map((city) => <option key={city} value={city}>{city}</option>)}
-          {selectedCity && !cities.includes(selectedCity) && <option value={selectedCity}>{selectedCity} (legado)</option>}
-        </select>
-      </label>
-    </>
-  );
-}
-
-export function LocationHeaderField({ disabled, error, form, idPrefix = 'orc-header-location', onDfpChange }) {
-  return (
-    <fieldset className="orc-location-header">
-      <legend>Região da Obra</legend>
-      <div className="orc-location-header__grid">
-        <LocationSelectors
-          disabled={disabled}
-          dfp={form.dfp}
-          idPrefix={idPrefix}
-          onChange={onDfpChange}
-          statePath="metadata"
-        />
-      </div>
-      <output aria-label="Região selecionada" className="orc-location-header__value">
-        {form.regiao || 'Selecione o estado e a cidade'}
-      </output>
-      {error && <small role="alert">{error}</small>}
-    </fieldset>
-  );
-}
-
-function FieldsSection({ disabled, dfp, onChange, schema, section }) {
-  const catalog = useContext(CatalogContext);
-  const statePath = getDfpSectionStatePath(section);
-  const selectOptions = schema?.options?.forma_tributacao || [];
-  const fields = (section.fields || []).filter((field) => !(
-    statePath === 'metadata' && field.key === 'codigo_dfp'
-  ));
-  return (
-    <div className="orc-field-grid">
-      {section.id === 'custos_administrativos' && <div><p>Total: {formatMoney(computeSectionTotal(dfp, 'custos_administrativos'))}</p>
-        <button className="orc-btn" type="button" disabled={disabled} onClick={() => onChange(updateDfpField(dfp, statePath, 'daily_cost', catalog.custo_administrativo_diario || 0))}>Usar custo diário cadastrado</button></div>}
-      {fields.map((field) => {
-        if (statePath === 'metadata' && ['pais', 'uf', 'municipio', 'macrorregiao'].includes(field.key)) return null;
-        return (
-          <SchemaInput
-            disabled={disabled}
-            field={field}
-            key={field.key}
-            label={field.label}
-            onChange={(value) => onChange(updateDfpField(dfp, statePath, field.key, value))}
-            options={field.type === 'select' ? selectOptions : []}
-            value={getNestedValue(dfp, `${statePath}.${field.key}`)}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-function DataTable({ collectionPath, columns, disabled, dfp, onChange, sectionTitle }) {
-  const catalog = useContext(CatalogContext);
-  const suggestions = collectionPath.startsWith('mao_de_obra') ? catalog.funcoes || [] : catalog.itens || [];
-  const listId = `catalog-${collectionPath.replaceAll('.', '-')}`;
-  const items = getNestedValue(dfp, collectionPath);
-  const bottom = useRef(null);
-  const top = useRef(null);
-  const [width, setWidth] = useState(2000);
-  useLayoutEffect(() => {
-    const table = bottom.current?.querySelector('table');
-    if (!table) return undefined;
-    const observer = new ResizeObserver(() => setWidth(table.scrollWidth));
-    observer.observe(table);
-    return () => observer.disconnect();
-  }, [columns]);
-  const sectionPath = collectionPath.replace(/\.items$/, '');
-  const isUpdatedLabor = dfp.calculation_version === 2 && collectionPath === 'mao_de_obra_direta.items';
-  const visibleColumns = isUpdatedLabor
-    ? columns.filter((column) => !HIDDEN_V2_LABOR_COLUMNS.has(column.key))
-    : columns;
-  const canRemoveRows = dfp.calculation_version === 2 && !disabled;
-  const total = computeSectionTotal(dfp, sectionPath);
-  const directTotal = computeDfpSummary(dfp).custosDiretosTotal;
-  const peopleDays = (dfp.mao_de_obra_direta?.items || []).reduce((sum, row) => sum + computeLaborRow(row, dfp).allDays * Number(row.quantity || 0), 0);
-  const changeName = (item, name) => {
-    const suggestion = suggestions.find((entry) => entry.nome.toLocaleLowerCase() === name.toLocaleLowerCase());
-    const changed = updateDfpCollectionItemAtPath(dfp, collectionPath, item.id, 'label', name);
-    onChange(suggestion ? updateDfpCollectionItemAtPath(changed, collectionPath, item.id,
-      collectionPath.startsWith('mao_de_obra') ? 'salary_real' : 'unit_cost', suggestion.salario_real ?? suggestion.valor_unitario) : changed);
-  };
-  return (
-    <div className="orc-table-shell">
-    <div className="orc-table-scroll-top" ref={top} onScroll={() => { if (bottom.current) bottom.current.scrollLeft = top.current.scrollLeft; }} aria-label={`Rolagem superior de ${sectionTitle}`} tabIndex={0}><div style={{ width, height: 1 }} /></div>
-    <div ref={bottom} onScroll={() => { if (top.current) top.current.scrollLeft = bottom.current.scrollLeft; }} className="orc-table-scroll" data-scroll-key={collectionPath} tabIndex="0" role="region" aria-label={`${sectionTitle}, tabela rolável`}>
-      <datalist id={listId}>{suggestions.map((entry) => <option key={entry.nome} value={entry.nome} />)}</datalist>
-      <table className="orc-dfp-table">
-        <thead>
-          <tr>
-            <th scope="col">Item</th>
-            {visibleColumns.map((column) => <th key={column.key} scope="col">{column.label}</th>)}
-            <th scope="col">{collectionPath.startsWith('mao_de_obra') ? 'Subtotal antes de adicionais e encargos' : 'Subtotal'}</th>
-            {canRemoveRows && <th scope="col">Ações</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {(Array.isArray(items) ? items : []).map((item) => (
-            <tr key={item.id}>
-              <th scope="row"><input list={listId} aria-label={`${sectionTitle} · Nome do item ${item.id}`} disabled={disabled} title={item.label} value={item.label} onChange={(event) => changeName(item, event.target.value)} /></th>
-              {visibleColumns.map((column) => (
-                <td key={column.key}>
-                  <input
-                    aria-label={`${sectionTitle} · ${item.label} · ${column.label}`}
-                    className={column.type === 'number' ? 'orc-num' : undefined}
-                    disabled={disabled}
-                    readOnly={column.readonly || column.read_only || (isUpdatedLabor && ['worked_hours', 'hourly_rate'].includes(column.key))}
-                    min={column.type === 'number' ? '0' : undefined}
-                    onChange={(event) => onChange(updateDfpCollectionItemAtPath(
-                      dfp,
-                      collectionPath,
-                      item.id,
-                      column.key,
-                      typedInputValue(column.type, event.target.value),
-                    ))}
-                    step={column.key === 'hourly_rate' ? 'any' : isUpdatedLabor && NATURAL_LABOR_COLUMNS.has(column.key) ? '1' : column.step}
-                    type={column.type || 'text'}
-                    placeholder={isUpdatedLabor && INHERITED_LABOR_COLUMNS.has(column.key)
-                      ? String(inheritedLaborDays(dfp, column.key)) : undefined}
-                    title={isUpdatedLabor && INHERITED_LABOR_COLUMNS.has(column.key)
-                      ? `Em branco usa ${inheritedLaborDays(dfp, column.key)}, o valor de Identificação e Escopo. Digite 0 para não considerar.`
-                      : undefined}
-                    value={inputValue(dfp.calculation_version === 2 && collectionPath === 'alimentacao.items' && column.key === 'quantity' ? peopleDays : isUpdatedLabor ? (COMPUTED_LABOR_COLUMNS.has(column.key) ? roundComputed(computeLaborRow(item, dfp)[column.key]) : computeLaborRow(item, dfp)[column.key]) : item[column.key])}
-                  />
-                </td>
-              ))}
-              <td className="orc-num-cell">{formatMoney(computeTableRowSubtotal(dfp, collectionPath, item))}</td>
-              {canRemoveRows && <td><button className="orc-btn orc-btn--compact" type="button" aria-label={`Remover ${sectionTitle} · ${item.label}`} onClick={() => onChange(removeDfpCollectionItem(dfp, collectionPath, item.id))}>Remover</button></td>}
-            </tr>
-          ))}
-        </tbody>
-        {/* O valor fica na coluna fixa: na última coluna ele some atrás da rolagem horizontal. */}
-        <tfoot><tr><th scope="row" className="orc-table-total"><span>Total</span><strong>{formatMoney(total)}</strong><small>{formatPercent(directTotal ? (100 * total) / directTotal : 0)} dos custos diretos</small></th><td colSpan={visibleColumns.length} /><td className="orc-num-cell orc-num-cell--strong">{formatMoney(total)}</td>{canRemoveRows && <td />}</tr></tfoot>
-      </table>
-    </div>
-    <div className="orc-table-actions">
-      <button type="button" className="orc-btn" disabled={disabled} onClick={() => onChange(setNestedValue(dfp, collectionPath, [...(items || []), { ...Object.fromEntries(visibleColumns.map((column) => [column.key, ['worked_days', 'saturday_days', 'sunday_days'].includes(column.key) ? null : column.type === 'number' ? 0 : ''])), id: createDfpItemId(), label: nextDfpItemLabel(items) }]))}>Adicionar item</button>
-      {dfp.calculation_version === 2 && <label className="orc-field">Desconto do subtópico (%)<input type="number" min="0" max="100" step="0.01" disabled={disabled} value={getNestedValue(dfp, `${sectionPath}.discount_percent`) || 0} onChange={(event) => onChange(updateDfpField(dfp, sectionPath, 'discount_percent', Number(event.target.value)))} /></label>}
-    </div>
-    </div>
-  );
-}
-
-function LaborSection({ disabled, dfp, onChange, section }) {
-  const statePath = getDfpSectionStatePath(section);
-  const adjustments = getNestedValue(dfp, `${statePath}.adjustments`) || [];
-  const footer = section.footer_field;
-  return (
-    <div className="orc-section-stack">
-      <DataTable
-        collectionPath={`${statePath}.items`}
-        columns={section.columns || []}
-        disabled={disabled}
-        dfp={dfp}
-        onChange={onChange}
-        sectionTitle={section.title}
-      />
-      <div className="orc-adjustments" aria-label={`Ajustes de ${section.title}`}>
-        {dfp.calculation_version !== 2 && adjustments.map((adjustment) => (
-          <label className="orc-field" key={adjustment.id}>
-            <span>{adjustment.label} (%)</span>
-            <input
-              aria-label={`${section.title} · ${adjustment.label}`}
-              disabled={disabled}
-              min="0"
-              onChange={(event) => onChange(updateDfpCollectionItemAtPath(
-                dfp,
-                `${statePath}.adjustments`,
-                adjustment.id,
-                'percent',
-                typedInputValue('number', event.target.value),
-              ))}
-              step="0.01"
-              type="number"
-              value={inputValue(adjustment.percent)}
-            />
-          </label>
-        ))}
-        {footer && (
-          <SchemaInput
-            disabled={disabled}
-            field={footer}
-            label={footer.label}
-            onChange={(value) => onChange(updateDfpField(dfp, statePath, footer.key, value))}
-            options={[]}
-            value={getNestedValue(dfp, `${statePath}.${footer.key}`)}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CostSection({ disabled, dfp, onChange, section }) {
-  const path = getDfpSectionStatePath(section);
-  const collectionPath = Array.isArray(getNestedValue(dfp, path)) ? path : `${path}.items`;
-  return (
-    <DataTable
-      collectionPath={collectionPath}
-      columns={section.columns || []}
-      disabled={disabled}
-      dfp={dfp}
-      onChange={onChange}
-      sectionTitle={section.title}
-    />
-  );
-}
-
-function PercentSection({ disabled, dfp, onChange, section }) {
-  return (
-    <div className="orc-percent-layout">
-      {(section.groups || []).map((group) => (
-        <fieldset className="orc-percent-group" key={group.state_key}>
-          <legend>{group.title}</legend>
-          {(getNestedValue(dfp, `${group.state_key}.items`) || []).map((item) => (
-            <div className="orc-percent-field" key={item.id}>
-              <label className="orc-field"><span>Item</span><input aria-label={`${group.title} · Nome do item ${item.id}`} disabled={disabled} value={item.label} onChange={(event) => onChange(updateDfpCollectionItemAtPath(dfp, `${group.state_key}.items`, item.id, 'label', event.target.value))} /></label>
-              <label className="orc-field"><span>Alíquota (%)</span><span className="orc-input-suffix">
-                <input
-                  aria-label={`${group.title} · ${item.label}`}
-                  disabled={disabled}
-                  max="99.999999"
-                  min="0"
-                  onChange={(event) => onChange(updateDfpCollectionItemAtPath(
-                    dfp,
-                    `${group.state_key}.items`,
-                    item.id,
-                    'aliquot_percent',
-                    typedInputValue('number', event.target.value),
-                  ))}
-                  step="0.01"
-                  type="number"
-                  value={inputValue(item.aliquot_percent)}
-                />
-                <b>%</b>
-              </span></label>
-              {!disabled && <button className="orc-btn orc-btn--compact" type="button" onClick={() => onChange(setNestedValue(dfp, `${group.state_key}.items`, (getNestedValue(dfp, `${group.state_key}.items`) || []).filter((row) => row.id !== item.id)))}>Remover</button>}
-            </div>
-          ))}
-          <button type="button" className="orc-btn" disabled={disabled} onClick={() => onChange(setNestedValue(dfp, `${group.state_key}.items`, [...(getNestedValue(dfp, `${group.state_key}.items`) || []), { id: createDfpItemId(), label: nextDfpItemLabel(getNestedValue(dfp, `${group.state_key}.items`)), aliquot_percent: 0 }]))}>Adicionar item em {group.title}</button>
-          {dfp.calculation_version === 2 && group.state_key === 'custos_indiretos' && <label className="orc-field">Desconto dos custos indiretos (%)<input type="number" min="0" max="100" step="0.01" disabled={disabled} value={dfp.custos_indiretos?.discount_percent || 0} onChange={(event) => onChange(updateDfpField(dfp, 'custos_indiretos', 'discount_percent', Number(event.target.value)))} /></label>}
-        </fieldset>
-      ))}
-      {section.field && (
-        <fieldset className="orc-percent-group orc-percent-group--accent">
-          <legend>Bonificação e despesas indiretas</legend>
-          {dfp.calculation_version === 2 && <label className="orc-field">Desconto do BDI (%)<input type="number" min="0" max="100" step="0.01" disabled={disabled} value={dfp.bdi?.discount_percent || 0} onChange={(event) => onChange(updateDfpField(dfp, 'bdi', 'discount_percent', Number(event.target.value)))} /></label>}
-          <SchemaInput
-            disabled={disabled}
-            field={section.field}
-            label={section.field.label}
-            onChange={(value) => onChange(updateDfpField(
-              dfp,
-              section.field.state_key,
-              section.field.key,
-              value,
-            ))}
-            options={[]}
-            value={getNestedValue(dfp, `${section.field.state_key}.${section.field.key}`)}
-          />
-        </fieldset>
-      )}
-    </div>
-  );
-}
-
-function SchemaSection({ disabled, dfp, onChange, schema, section }) {
-  if (section.kind === 'labor-adjustments') {
-    const path = 'mao_de_obra_direta.adjustments';
-    const adjustments = getNestedValue(dfp, path) || [];
-    return <div className="orc-section-stack">{adjustments.map((item) => <fieldset className="orc-percent-group" key={item.id}>
-      <legend>{item.label}</legend><div className="orc-field-grid">
-        <label className="orc-field">Nome<input disabled={disabled} value={item.label} onChange={(e) => onChange(updateDfpCollectionItemAtPath(dfp, path, item.id, 'label', e.target.value))} /></label>
-        <label className="orc-field">Função<select disabled={disabled} value={item.labor_item_id || ''} onChange={(e) => onChange(updateDfpCollectionItemAtPath(dfp, path, item.id, 'labor_item_id', e.target.value))}><option value="">Selecione a função</option>{(dfp.mao_de_obra_direta?.items || []).map((row) => <option value={row.id} key={row.id}>{row.label}</option>)}</select></label>
-        {['quantity', 'percent'].map((key) => <label className="orc-field" key={key}>{key === 'quantity' ? 'Pessoas' : 'Percentual (%)'}<input disabled={disabled} type="number" min="0" max={key === 'percent' ? '99.999999' : undefined} step={key === 'quantity' ? 1 : 0.01} value={item[key] || 0} onChange={(e) => onChange(updateDfpCollectionItemAtPath(dfp, path, item.id, key, Number(e.target.value)))} /></label>)}
-        <label className="orc-field">Base de incidência<select disabled={disabled} value={item.base || 'salary'} onChange={(e) => onChange(updateDfpCollectionItemAtPath(dfp, path, item.id, 'base', e.target.value))}><option value="salary">Salário</option><option value="salary_and_overtime">Salário e horas extras</option></select></label>
-      </div>{!disabled && <button className="orc-btn orc-btn--compact" type="button" onClick={() => onChange(setNestedValue(dfp, path, adjustments.filter((adjustment) => adjustment.id !== item.id)))}>Remover adicional</button>}</fieldset>)}<button className="orc-btn" type="button" disabled={disabled} onClick={() => onChange(setNestedValue(dfp, path, [...adjustments, { id: createDfpItemId(), label: 'Novo adicional', quantity: 0, percent: 0, labor_item_id: '', base: 'salary' }]))}>Adicionar adicional</button></div>;
-  }
-  if (section.kind === 'fields') {
-    return <FieldsSection disabled={disabled} dfp={dfp} onChange={onChange} schema={schema} section={section} />;
-  }
-  if (section.kind === 'labor-table') {
-    return <LaborSection disabled={disabled} dfp={dfp} onChange={onChange} section={section} />;
-  }
-  if (section.kind === 'cost-table') {
-    return <CostSection disabled={disabled} dfp={dfp} onChange={onChange} section={section} />;
-  }
-  if (section.kind === 'percent-groups') {
-    return <PercentSection disabled={disabled} dfp={dfp} onChange={onChange} section={section} />;
-  }
-  return <p className="orc-note">Seção indisponível nesta versão do editor.</p>;
-}
-
-function SummaryWindow({ dfp, hhSummary, prazoDias }) {
-  const reducedMotion = useReducedMotion();
-  const dfpSummary = useMemo(() => computeDfpSummary(dfp), [dfp]);
-  const summary = hhSummary || dfpSummary;
-  const warnings = useMemo(
-    () => (hhSummary ? collectHhWarnings(dfp?.hh) : collectOrcamentoWarnings(dfp, { prazoDias })),
-    [dfp, hhSummary, prazoDias],
-  );
-  const items = hhSummary ? [
-    ['Colaboradores', hhSummary.colaboradores.toLocaleString('pt-BR')],
-    ['Encargos sociais', `${hhSummary.encargos.totalPercent.toLocaleString('pt-BR', { maximumFractionDigits: 4 })}%`],
-    ['Total mensal', hhSummary.totalMensal],
-    ['Prazo do contrato', `${hhSummary.meses.toLocaleString('pt-BR')} mês(es)`],
-    ['Custos diretos no prazo', hhSummary.custosDiretosTotal],
-    ['Despesas indiretas no prazo', hhSummary.custosIndiretosTotal],
-    ['Lucro no prazo', hhSummary.lucroTotal],
-    ['Tributos', `${hhSummary.aliquotaImpostosTotal.toLocaleString('pt-BR')}%`],
-  ] : [
-    ['Custos diretos', summary.custosDiretosTotal],
-    ['Custos indiretos', summary.custosIndiretosTotal],
-    ['Lucro / BDI', summary.lucroTotal],
-    ['Custos totais', summary.custosTotais],
-    ['Impostos', `${summary.aliquotaImpostosTotal.toLocaleString('pt-BR')}%`],
-    ['Preço por área', formatMoney(summary.precoPorArea)],
-    ['Valor dia / colaborador', formatMoney(summary.valorDiaColaborador)],
-  ];
-  return (
-    <GoFlowWindow
-      className="orc-summary-window"
-      eyebrow="Cálculo em tempo real"
-      icon={BadgeDollarSign}
-      id="orc-section-summary"
-      title="Impostos e resumo"
-    >
-      {warnings.length > 0 && (
-        <ul className="orc-summary-warnings" role="status" aria-label="Avisos do cálculo">
-          {warnings.map((warning) => <li key={warning}>{warning}</li>)}
-        </ul>
-      )}
-      <dl className="orc-summary-grid">
-        {items.map(([label, value]) => (
-          <div key={label}><dt>{label}</dt><dd>{typeof value === 'number' ? formatMoney(value) : value}</dd></div>
-        ))}
-        <div className="orc-summary-total">
-          <dt>{hhSummary ? 'Total estimado do contrato (HH)' : 'Preço total de faturamento'}</dt>
-          <motion.dd key={summary.precoTotalFaturamento} initial={{ opacity: 1 }} animate={reducedMotion ? {} : { opacity: [0.65, 1] }} transition={{ duration: 0.18 }}>{formatMoney(summary.precoTotalFaturamento)}</motion.dd>
-        </div>
-      </dl>
-    </GoFlowWindow>
-  );
-}
+};
 
 export default function DfpEditor({
   budget,
@@ -593,6 +69,7 @@ export default function DfpEditor({
   busy,
   canEdit,
   errors,
+  exportingFormat,
   form,
   hhSchema,
   onClose,
@@ -605,9 +82,31 @@ export default function DfpEditor({
   schema,
 }) {
   const closeButtonRef = useRef(null);
+  const saveButtonRef = useRef(null);
+  const formRef = useRef(null);
+  const mountedRef = useRef(true);
+  const scrollPosition = useRef(0);
+  const tableScrollPositions = useRef({});
+  const reducedMotion = useReducedMotion();
   const [minimized, setMinimized] = useState(false);
   const [maximized, setMaximized] = useState(true);
-  const [importingHh, setImportingHh] = useState(false);
+  const [importingHh, setImportingHh] = useState(null);
+  const [exporting, setExporting] = useState(null);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [attempted, setAttempted] = useState(false);
+  const pendingIssueFocus = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // Snapshot do formulário ao abrir: base do aviso de alterações não salvas.
+  const baselineRef = useRef(null);
+  if (baselineRef.current === null) baselineRef.current = serializeEditorForm(form);
+  const serializedForm = useMemo(() => serializeEditorForm(form), [form]);
+  const dirty = canEdit && serializedForm !== baselineRef.current;
+
   const isHh = form.modalidade === 'HH';
   const hhDefaults = hhSchema?.defaults;
   const editable = canEdit && !busy;
@@ -623,23 +122,27 @@ export default function DfpEditor({
   );
   const semeiaSozinho = revision?.modalidade !== 'HH' || !dfpSalvoTemPreco;
   const hh = form.dfp?.hh || (canEdit && semeiaSozinho ? hhDefaults : null);
-  const carregarModeloHh = () => onDfpChange({ ...form.dfp, hh: JSON.parse(JSON.stringify(hhDefaults)) });
+  const carregarModeloHh = () => onDfpChange({ ...form.dfp, hh: cloneJson(hhDefaults) });
   useEffect(() => {
     if (isHh && canEdit && semeiaSozinho && !form.dfp?.hh && hhDefaults) {
-      onDfpChange({ ...form.dfp, hh: JSON.parse(JSON.stringify(hhDefaults)) });
+      const nextDfp = { ...form.dfp, hh: cloneJson(hhDefaults) };
+      // A semeadura automática não é alteração do usuário: se o formulário estava limpo,
+      // o modelo semeado passa a ser a nova base.
+      baselineRef.current = rebaseIfClean(baselineRef.current, form, applyDfpChange(form, nextDfp));
+      onDfpChange(nextDfp);
     }
-  }, [isHh, canEdit, semeiaSozinho, form.dfp, hhDefaults, onDfpChange]);
+  }, [isHh, canEdit, semeiaSozinho, form, hhDefaults, onDfpChange]);
   const changeHh = (next) => onDfpChange({ ...form.dfp, hh: next });
   const importHh = async (file) => {
     if (!onImportHh) return;
-    setImportingHh(true);
+    setImportingHh(file?.name || 'planilha');
     try {
       const imported = await onImportHh(file);
       // Aplica sobre o estado atual: o usuário pode ter editado o cabeçalho durante o upload.
       if (imported && onDfpUpdate) onDfpUpdate((dfp) => ({ ...dfp, hh: imported }));
       else if (imported) changeHh(imported);
     } finally {
-      setImportingHh(false);
+      if (mountedRef.current) setImportingHh(null);
     }
   };
   const hhView = useHhSections({
@@ -654,17 +157,35 @@ export default function DfpEditor({
   const schemaSections = getSchemaSections(schema);
   const sections = showHh ? hhView.sections : schemaSections;
 
-  const reducedMotion = useReducedMotion();
-  const dialogRef = useOrcamentoDialog({ busy, initialFocusRef: closeButtonRef, onClose });
-  const formRef = useRef(null);
-  const scrollPosition = useRef(0);
-  const tableScrollPositions = useRef({});
-  const [activeSection, setActiveSection] = useState('orc-section-header');
+  const hhSummary = showHh ? hhView.summary : null;
+  const dfpSummary = useMemo(() => computeDfpSummary(form.dfp), [form.dfp]);
+  const summary = hhSummary || dfpSummary;
+  const warnings = useMemo(
+    () => (showHh ? collectHhWarnings(hh) : collectOrcamentoWarnings(form.dfp, { prazoDias: form.prazoExecucaoDias })),
+    [form.dfp, form.prazoExecucaoDias, hh, showHh],
+  );
+  const totalLabel = hhSummary ? 'Total estimado do contrato (HH)' : 'Preço total de faturamento';
+
+  const requestClose = useCallback(() => {
+    if (busy) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  }, [busy, dirty, onClose]);
+  const dialogRef = useOrcamentoDialog({ busy, initialFocusRef: closeButtonRef, onClose: requestClose });
+
   const navigation = [
     { id: 'orc-section-header', title: 'Cabeçalho' },
     ...sections.map((section) => ({ id: `orc-section-${section.id}`, title: section.title })),
     { id: 'orc-section-summary', title: 'Impostos e resumo' },
   ];
+  const { active: activeSection, navigateTo } = useActiveSection(formRef, {
+    enabled: !minimized,
+    initial: 'orc-section-header',
+    reducedMotion,
+    watch: `${minimized}|${showHh}|${sections.length}`,
+  });
+  const issues = useSectionIssues(formRef, { enabled: attempted && !minimized });
+  const issueCount = Object.values(issues).reduce((sum, count) => sum + count, 0);
 
   const toggleMinimized = () => {
     if (!minimized) {
@@ -690,166 +211,188 @@ export default function DfpEditor({
     });
   }, [minimized]);
 
+  // Depois de salvar com erro de validação, leva o usuário ao primeiro campo pendente.
   useEffect(() => {
-    const container = formRef.current;
-    if (!container) return undefined;
-    const updateActive = () => {
-      const top = container.getBoundingClientRect().top;
-      const windows = [...container.querySelectorAll('[id^="orc-section-"]')];
-      const current = windows.filter((element) => element.getBoundingClientRect().top <= top + 100).at(-1);
-      if (current) setActiveSection(current.id);
-    };
-    container.addEventListener('scroll', updateActive, { passive: true });
-    updateActive();
-    return () => container.removeEventListener('scroll', updateActive);
-  }, [minimized, schema]);
+    if (!pendingIssueFocus.current) return;
+    pendingIssueFocus.current = false;
+    if (!Object.keys(errors || {}).length) return;
+    const target = firstIssueIn(formRef.current);
+    if (!target) return;
+    target.scrollIntoView({ behavior: reducedMotion ? 'instant' : 'smooth', block: 'center' });
+    target.focus({ preventScroll: true });
+  }, [errors, reducedMotion]);
 
-  const navigateTo = (id) => {
-    setActiveSection(id);
-    const section = document.getElementById(id);
-    section?.scrollIntoView({ behavior: reducedMotion ? 'instant' : 'smooth', block: 'start' });
+  // Ctrl/Cmd+S salva a revisão (o navegador não abre "Salvar página").
+  useEffect(() => {
+    const handleKey = (event) => {
+      if (!isSaveShortcut(event)) return;
+      event.preventDefault();
+      if (confirmDiscard || !canEdit || busy || minimized) return;
+      formRef.current?.requestSubmit(saveButtonRef.current || undefined);
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [busy, canEdit, confirmDiscard, minimized]);
+
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warnBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
+  }, [dirty]);
+
+  const handleSubmit = (event) => {
+    setAttempted(true);
+    pendingIssueFocus.current = true;
+    onSave(event);
   };
+  const handleFormKeyDown = (event) => {
+    if (!shouldBlockEnterSubmit(event)) return;
+    event.preventDefault();
+    focusSiblingRowInput(event);
+  };
+  const handleExport = async (format) => {
+    if (!onExport || exporting || exportingFormat || dirty) return;
+    setExporting(format);
+    try {
+      await onExport(format);
+    } finally {
+      if (mountedRef.current) setExporting(null);
+    }
+  };
+
+  const layoutKey = `${minimized}-${maximized}`;
+  const dialogMotion = windowMotion(reducedMotion);
 
   return (
     <CatalogContext.Provider value={catalogo || {}}>
-    <motion.div {...windowMotion(reducedMotion)} className="orc-editor-layer" role="presentation">
       <motion.div
-        layout={reducedMotion ? false : "size"}
-        transition={{ duration: reducedMotion ? 0 : 0.28 }}
-        ref={dialogRef}
-        tabIndex={-1}
-        aria-describedby="orc-editor-mode"
-        aria-label={budget.contratante}
-        aria-modal="true"
-        className={`orc-editor-dialog ${minimized ? 'is-minimized' : ''} ${maximized ? 'is-maximized' : ''}`}
-        role="dialog"
+        {...backdropMotion(reducedMotion)}
+        className="orc-editor-layer"
+        onDragOver={preventFileDrop}
+        onDrop={preventFileDrop}
+        role="presentation"
       >
-        <GoFlowWindow
-          actions={(
-            <div className="orc-window-controls">
-              <button
-                aria-label={minimized ? 'Restaurar editor' : 'Minimizar editor'}
-                className="orc-icon-btn"
-                onClick={toggleMinimized}
-                type="button"
-              >
-                <Minus aria-hidden="true" />
-              </button>
-              <button
-                aria-label={maximized ? 'Restaurar tamanho do editor' : 'Maximizar editor'}
-                className="orc-icon-btn"
-                disabled={minimized}
-                onClick={() => setMaximized((current) => !current)}
-                type="button"
-              >
-                {maximized ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
-              </button>
-              <button
-                aria-label="Fechar editor"
-                className="orc-icon-btn orc-icon-btn--close"
-                disabled={busy}
-                onClick={onClose}
-                ref={closeButtonRef}
-                type="button"
-              >
-                <X aria-hidden="true" />
-              </button>
-            </div>
-          )}
-          className="orc-editor-titlebar"
-          eyebrow={`${budget.codigo.replace(/-R\d+$/, '')}-R${revision.numero}`}
-          icon={canEdit ? FileText : LockKeyhole}
-          title={budget.contratante}
-          titleAs="h2"
+        <motion.div
+          {...dialogMotion}
+          layout={!reducedMotion}
+          layoutDependency={layoutKey}
+          transition={{ ...dialogMotion.transition, layout: reducedMotion ? { duration: 0 } : springSoft }}
+          ref={dialogRef}
+          tabIndex={-1}
+          aria-describedby="orc-editor-mode"
+          aria-label={budget.contratante}
+          aria-modal="true"
+          className={`orc-editor-dialog ${minimized ? 'is-minimized' : ''} ${maximized ? 'is-maximized' : ''} ${dirty ? 'is-dirty' : ''}`}
+          data-orc-dialog-layer="true"
+          role="dialog"
         >
-          <p id="orc-editor-mode">
-            {canEdit
-              ? 'Composição de preços. As alterações serão gravadas apenas nesta revisão.'
-              : 'Histórico em modo somente leitura. Esta revisão permanece preservada.'}
-          </p>
-        </GoFlowWindow>
+          <EditorTitlebar
+            budget={budget}
+            busy={busy}
+            canEdit={canEdit}
+            closeButtonRef={closeButtonRef}
+            dirty={dirty}
+            layoutKey={layoutKey}
+            maximized={maximized}
+            minimized={minimized}
+            onClose={requestClose}
+            onToggleMaximized={() => setMaximized((current) => !current)}
+            onToggleMinimized={toggleMinimized}
+            reducedMotion={reducedMotion}
+            revision={revision}
+          />
 
-        {!minimized && (
-            <label className="orc-mobile-nav">
-              <span>Seção do orçamento</span>
-              <select value={activeSection} onChange={(event) => navigateTo(event.target.value)}>
-                {navigation.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
-              </select>
-            </label>
-        )}
+          {!minimized && <MobileSectionNav active={activeSection} issues={issues} items={navigation} onNavigate={navigateTo} />}
 
-        {!minimized && <div className="orc-editor-layout">
-          <GoFlowWindow as="nav" className="orc-editor-nav" eyebrow="Seções" icon={BookOpenCheck} title="Formação de preços">
-            {navigation.map((item) => (
-              <a aria-current={activeSection === item.id ? 'location' : undefined} href={`#${item.id}`} key={item.id}
-                onClick={(event) => { event.preventDefault(); navigateTo(item.id); }}>
-                {activeSection === item.id && <motion.span aria-hidden="true" className="orc-nav-indicator" layoutId="orc-active-section" transition={{ duration: reducedMotion ? 0 : 0.18 }} />}
-                <span className="orc-nav-label">{item.title}</span>
-              </a>
-            ))}
-          </GoFlowWindow>
+          {!minimized && <div className="orc-editor-layout">
+            <EditorSectionNav active={activeSection} issues={issues} items={navigation} onNavigate={navigateTo} />
 
-          <form className="orc-editor-form" onSubmit={onSave} ref={formRef}>
-            {serverError && <p className="orc-note" role="alert">{serverError}</p>}
-            {showHh && <p className="orc-note orc-note--hh">Modalidade HH: composição por Homem-Hora (salário + encargos, custos mensais por pessoa, BDI e tributos), como na planilha de composição de custos. {!revision?.dfp?.hh && 'Modelo padrão da planilha carregado — ajuste e salve a revisão para gravá-lo.'}</p>}
-            {isHh && !showHh && (
-              <p className="orc-note">
-                Esta revisão está na modalidade HH, mas o preço salvo vem da composição DFP abaixo.{' '}
-                {canEdit && hhDefaults && <button className="orc-btn orc-btn--compact" disabled={busy} type="button" onClick={carregarModeloHh}>Iniciar composição HH com o modelo padrão</button>}
-              </p>
-            )}
-            {!showHh && form.dfp?.calculation_version !== 2 && <p className="orc-note">Revisão com regras anteriores à atualização. Seus cálculos históricos foram preservados.</p>}
-            {!showHh && form.dfp?.calculation_version === 2 && <p className="orc-note">Perfil de compatibilidade em validação. Confirme dias, mobilização, jornadas, incidência de horas extras e descontos conforme a regra comercial aprovada para este orçamento.</p>}
+            <form
+              className="orc-editor-form"
+              onInvalidCapture={() => setAttempted(true)}
+              onKeyDown={handleFormKeyDown}
+              onSubmit={handleSubmit}
+              ref={formRef}
+            >
+              {showHh && <p className="orc-note orc-note--hh">Modalidade HH: composição por Homem-Hora (salário + encargos, custos mensais por pessoa, BDI e tributos), como na planilha de composição de custos. {!revision?.dfp?.hh && 'Modelo padrão da planilha carregado — ajuste e salve a revisão para gravá-lo.'}</p>}
+              {isHh && !showHh && (
+                <p className="orc-note">
+                  Esta revisão está na modalidade HH, mas o preço salvo vem da composição DFP abaixo.{' '}
+                  {canEdit && hhDefaults && <button className="orc-btn orc-btn--compact" disabled={busy} type="button" onClick={carregarModeloHh}>Iniciar composição HH com o modelo padrão</button>}
+                </p>
+              )}
+              {!showHh && form.dfp?.calculation_version !== 2 && <p className="orc-note">Revisão com regras anteriores à atualização. Seus cálculos históricos foram preservados.</p>}
+              {!showHh && form.dfp?.calculation_version === 2 && <p className="orc-note">Perfil de compatibilidade em validação. Confirme dias, mobilização, jornadas, incidência de horas extras e descontos conforme a regra comercial aprovada para este orçamento.</p>}
 
-            <GoFlowWindow eyebrow="Dados contratuais" icon={FileText} id="orc-section-header" title="Cabeçalho">
-              <HeaderFields disabled={!canEdit || busy} errors={errors} form={form} onChange={onHeaderChange} onDfpChange={onDfpChange} />
-              {errors.dfp && <p className="orc-validation-error" role="alert">{errors.dfp}</p>}
-            </GoFlowWindow>
-
-            {showHh && hhView.sections.map((section) => (
-              <GoFlowWindow eyebrow={section.eyebrow} icon={Calculator} id={`orc-section-${section.id}`} key={section.id} title={section.title}>
-                {section.content}
+              <GoFlowWindow eyebrow="Dados contratuais" icon={FileText} id="orc-section-header" title="Cabeçalho">
+                <HeaderFields disabled={!canEdit || busy} errors={errors} form={form} onChange={onHeaderChange} onDfpChange={onDfpChange} />
+                {errors.dfp && <p className="orc-validation-error" role="alert" tabIndex={-1}>{errors.dfp}</p>}
               </GoFlowWindow>
-            ))}
 
-            {!showHh && schemaSections.map((section) => (
-              <GoFlowWindow
-                eyebrow={{ fields: 'Premissas do orçamento', 'labor-table': 'Equipe e encargos', 'cost-table': 'Composição de custos', 'percent-groups': 'Tributos e margem' }[section.kind] || 'Composição de preços'}
-                icon={Calculator}
-                id={`orc-section-${section.id}`}
-                key={section.id}
-                title={section.title}
-              >
-                <SchemaSection
-                  disabled={!canEdit || busy}
-                  dfp={form.dfp}
-                  onChange={onDfpChange}
-                  schema={schema}
-                  section={section}
-                />
-              </GoFlowWindow>
-            ))}
+              {showHh && hhView.sections.map((section) => (
+                <GoFlowWindow eyebrow={section.eyebrow} icon={Calculator} id={`orc-section-${section.id}`} key={section.id} title={section.title}>
+                  {section.content}
+                </GoFlowWindow>
+              ))}
 
-            <SummaryWindow dfp={showHh ? { ...form.dfp, hh } : form.dfp} hhSummary={showHh ? hhView.summary : null} prazoDias={form.prazoExecucaoDias} />
+              {!showHh && schemaSections.map((section) => (
+                <GoFlowWindow
+                  eyebrow={SECTION_EYEBROWS[section.kind] || 'Composição de preços'}
+                  icon={Calculator}
+                  id={`orc-section-${section.id}`}
+                  key={section.id}
+                  title={section.title}
+                >
+                  <SchemaSection
+                    disabled={!canEdit || busy}
+                    dfp={form.dfp}
+                    onChange={onDfpChange}
+                    schema={schema}
+                    section={section}
+                  />
+                </GoFlowWindow>
+              ))}
 
-            <GoFlowWindow className="orc-editor-footer" title="Finalizar edição">
-              <div className="orc-editor-footer__row">
-                <p>{canEdit ? 'Revise as premissas antes de salvar.' : 'Esta revisão está disponível somente para consulta.'}</p>
-                <div className="orc-button-row">
-                  <button className="orc-btn" disabled={busy} onClick={onClose} type="button">Fechar</button>
-                  {['docx', 'pdf'].map((format) => <button className="orc-btn" type="button" key={format} onClick={() => onExport?.(format)}>Exportar {format.toUpperCase()} salvo</button>)}
-                  {canEdit && (
-                    <button className="orc-btn orc-btn--primary" disabled={busy} type="submit">
-                      <Save aria-hidden="true" /> Salvar revisão
-                    </button>
-                  )}
-                </div>
-              </div>
-            </GoFlowWindow>
-          </form>
-        </div>}
+              <SummaryWindow hhSummary={hhSummary} summary={summary} warnings={warnings} />
+
+              <EditorFooter
+                busy={busy}
+                canEdit={canEdit}
+                dirty={dirty}
+                exporting={exportingFormat || exporting}
+                issueCount={issueCount}
+                onClose={requestClose}
+                onExport={handleExport}
+                saveButtonRef={saveButtonRef}
+                serverError={serverError}
+                total={summary.precoTotalFaturamento}
+                totalLabel={totalLabel}
+              />
+            </form>
+          </div>}
+        </motion.div>
       </motion.div>
-    </motion.div>
+
+      <AnimatePresence>
+        {confirmDiscard && (
+          <ConfirmDialog
+            cancelLabel="Continuar editando"
+            confirmLabel="Descartar e fechar"
+            eyebrow="Alterações não salvas"
+            icon={AlertTriangle}
+            onCancel={() => setConfirmDiscard(false)}
+            onConfirm={() => { setConfirmDiscard(false); onClose(); }}
+            title="Descartar alterações?"
+            tone="danger"
+          >
+            <p>As mudanças feitas na revisão {revision.numero} de {budget.contratante} ainda não foram salvas. Ao fechar, elas serão perdidas.</p>
+          </ConfirmDialog>
+        )}
+      </AnimatePresence>
     </CatalogContext.Provider>
   );
 }

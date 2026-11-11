@@ -13,6 +13,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { invalidatePanelData } from '../services/panelDataCache';
 
 const pad = (value) => String(value).padStart(2, '0');
 
@@ -54,6 +55,7 @@ export default function UploadPanel({
   const [erroMeses, setErroMeses] = useState(null);
   const fileInputRef = useRef(null);
   const competenciaRequestRef = useRef(0);
+  const mesesRequestRef = useRef(null);
 
   const isFluxoCaixa = fluxo === 'fluxo_caixa';
   const isMultiple = isFluxoCaixa;
@@ -78,14 +80,24 @@ export default function UploadPanel({
     return [...base].sort((a, b) => b - a);
   }, [ano, anoAtual]);
 
+  // Os painéis DRE/Fluxo guardam respostas em cache; após gravar ou excluir
+  // meses no banco elas ficam velhas e são revalidadas.
+  const invalidarPaineis = () => {
+    invalidatePanelData(`${apiBase}/${isDre ? 'dre' : 'fluxo_caixa'}/`);
+  };
+
   const carregarMesesDisponiveis = async (anoRef) => {
     if (!anoRef) return;
+    mesesRequestRef.current?.abort();
+    const controller = new AbortController();
+    mesesRequestRef.current = controller;
     setLoadingMeses(true);
     setErroMeses(null);
     try {
       const recurso = isDre ? 'dre' : 'fluxo_caixa';
       const response = await fetch(`${apiBase}/${recurso}/ingestoes?ano=${anoRef}&limit=500`, {
         credentials: 'same-origin',
+        signal: controller.signal,
       });
       if (!response.ok) {
         const err = await response.json().catch(() => ({}));
@@ -109,12 +121,17 @@ export default function UploadPanel({
           .filter((m) => m != null),
       )].sort((a, b) => a - b);
 
+      if (controller.signal.aborted) return;
       setMesesDisponiveis(meses);
     } catch (err) {
+      if (controller.signal.aborted) return;
       setMesesDisponiveis([]);
       setErroMeses(err.message);
     } finally {
-      setLoadingMeses(false);
+      if (mesesRequestRef.current === controller) {
+        mesesRequestRef.current = null;
+        setLoadingMeses(false);
+      }
     }
   };
 
@@ -122,6 +139,8 @@ export default function UploadPanel({
     carregarMesesDisponiveis(ano);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiBase, isDre, ano]);
+
+  useEffect(() => () => mesesRequestRef.current?.abort(), []);
 
   const handleSelecionarMes = (mes) => {
     if (gerarTravado) return;
@@ -304,13 +323,14 @@ export default function UploadPanel({
       }
 
       const result = await response.json();
-      await carregarMesesDisponiveis(ano);
-
+      invalidarPaineis();
+      // O resultado aparece já; a lista de meses salvos atualiza em paralelo.
       onProcess?.({
         _stage: 'ingestao',
         status: 'completed',
         ...result,
       });
+      await carregarMesesDisponiveis(ano);
     } catch (err) {
       onProcess?.({
         status: 'error',
@@ -416,7 +436,7 @@ export default function UploadPanel({
       }
 
       const result = await response.json();
-      await carregarMesesDisponiveis(ano);
+      invalidarPaineis();
       setAnoTodo(false);
       onProcess?.({
         _stage: 'limpeza',
@@ -424,6 +444,7 @@ export default function UploadPanel({
         status: 'completed',
         ...result,
       });
+      await carregarMesesDisponiveis(ano);
     } catch (err) {
       onProcess?.({
         status: 'error',

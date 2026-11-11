@@ -1,10 +1,11 @@
-import React, { useId, useMemo, useState } from 'react';
+import React, { useDeferredValue, useId, useMemo, useState } from 'react';
 import { ChevronDown, Search, SlidersHorizontal, X } from 'lucide-react';
 import { MESES_LABEL, formatNumber, mergeCurrentYear, toggleValue } from './financialPanelUtils';
 
+// Abaixo de 768px os filtros começam recolhidos para os números aparecerem primeiro.
 const getDefaultFilterOpen = () => {
-  if (typeof window === 'undefined') return true;
-  return !window.matchMedia('(max-width: 680px)').matches;
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true;
+  return !window.matchMedia('(max-width: 767px)').matches;
 };
 
 export function FilterDock({
@@ -129,17 +130,18 @@ export function MonthSlicer({ available, selected, onChange }) {
 
 export function SearchableSlicer({ title, options, selected, onChange }) {
   const [query, setQuery] = useState('');
-  const selectedSet = new Set(selected || []);
+  const deferredQuery = useDeferredValue(query);
+  const selectedSet = useMemo(() => new Set(selected || []), [selected]);
   const selectedCount = selected?.length || 0;
   const totalOptions = Array.isArray(options) ? options.length : 0;
   const filteredOptions = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
+    const normalized = deferredQuery.trim().toLowerCase();
     const source = Array.isArray(options) ? options : [];
     if (!normalized) return source.slice(0, 80);
     return source
       .filter((option) => String(option.label || option.value).toLowerCase().includes(normalized))
       .slice(0, 80);
-  }, [options, query]);
+  }, [deferredQuery, options]);
 
   return (
     <div className="aideal-slicer-card">

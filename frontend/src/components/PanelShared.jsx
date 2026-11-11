@@ -1,13 +1,23 @@
 import React, { useEffect } from 'react';
-import { ChevronDown, CheckCircle2, Database, Download, FileCheck2, SearchCheck } from 'lucide-react';
+import { ChevronDown, CheckCircle2, Database, Download, FileCheck2, Loader2, SearchCheck } from 'lucide-react';
 import { GlacierGlassCard } from 'goflow-core';
 
-export function PanelHero({ kicker, title, description, meta = [], actions }) {
+export function PanelHero({ kicker, title, description, meta = [], actions, refreshing = false }) {
   return (
     <GlacierGlassCard className="aideal-page-hero-card">
       <div className="aideal-page-hero-content">
         <div className="aideal-page-hero-copy">
-          <span className="aideal-page-kicker">{kicker}</span>
+          <div className="aideal-page-kicker-row">
+            <span className="aideal-page-kicker">{kicker}</span>
+            <span className="aideal-refresh-indicator" role="status" aria-live="polite">
+              {refreshing && (
+                <>
+                  <Loader2 size={13} aria-hidden="true" />
+                  Atualizando dados
+                </>
+              )}
+            </span>
+          </div>
           <h2>{title}</h2>
           <p>{description}</p>
           {meta.length > 0 && (
@@ -197,5 +207,17 @@ export function OperationSection({
       </div>
       {open && <div className="aideal-operation-body">{children}</div>}
     </section>
+  );
+}
+
+export function ChartCard({ title, subtitle, children, className = '' }) {
+  return (
+    <article className={`aideal-chart-card ${className}`}>
+      <div className="aideal-chart-heading">
+        <h3>{title}</h3>
+        {subtitle && <p>{subtitle}</p>}
+      </div>
+      {children}
+    </article>
   );
 }

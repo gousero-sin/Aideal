@@ -8,6 +8,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from ..db.process_lock import migration_lock
+
 MIGRATION_PATTERN = re.compile(r"^V(\d+)__[\w_]+\.sql$")
 
 
@@ -48,6 +50,11 @@ class IdentityDatabase:
             connection.close()
 
     def migrate(self) -> tuple[int, ...]:
+        # Vários workers do uvicorn migram ao mesmo tempo no startup.
+        with migration_lock(self.path):
+            return self._migrate_locked()
+
+    def _migrate_locked(self) -> tuple[int, ...]:
         migration_dir = Path(__file__).parent / "migrations"
         with self.transaction() as connection:
             connection.execute(

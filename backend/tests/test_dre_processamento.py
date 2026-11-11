@@ -119,19 +119,34 @@ def test_processamento_dre_gera_arquivo_e_log(tmp_path):
         assert "mc:Ignorable" in workbook_xml
         assert "xmlns:x15=" in workbook_xml
 
+    # Painel e PLANO_CONTAS saem intactos. A APOIO é reescrita com os dados
+    # agregados e a DRE recebe caixa alta e recuo nos rótulos (só exibição).
     template_file = settings.template_dre_path
     unchanged_parts = [
         "xl/worksheets/sheet1.xml",
-        "xl/worksheets/sheet2.xml",
         "xl/worksheets/sheet4.xml",
-        "xl/worksheets/sheet5.xml",
         "xl/worksheets/_rels/sheet1.xml.rels",
-        "xl/worksheets/_rels/sheet2.xml.rels",
         "xl/worksheets/_rels/sheet4.xml.rels",
-        "xl/worksheets/_rels/sheet5.xml.rels",
     ]
     for part in unchanged_parts:
         assert _zip_read(output_file, part) == _zip_read(template_file, part), part
+
+    apoio_rels = _zip_read(output_file, "xl/worksheets/_rels/sheet5.xml.rels").decode("utf-8")
+    for tipo in ("/pivotTable", "/drawing"):
+        assert f'relationships{tipo}"' in apoio_rels, tipo
+    dre_rels = _zip_read(output_file, "xl/worksheets/_rels/sheet2.xml.rels").decode("utf-8")
+    for tipo in ("/table", "/drawing", "/printerSettings", "/slicer"):
+        assert f'relationships{tipo}"' in dre_rels, tipo
+    dre_xml = _zip_read(output_file, "xl/worksheets/sheet2.xml").decode("utf-8")
+    assert "x14:slicerList" in dre_xml  # extensões da aba DRE preservadas
+    ws_dre = wb["DRE"]
+    ws_dre_template = template_wb["DRE"]
+    assert ws_dre.max_row == ws_dre_template.max_row
+    for linha in range(6, ws_dre.max_row + 1):
+        rotulo = ws_dre_template.cell(row=linha, column=1).value
+        assert ws_dre.cell(row=linha, column=1).value == rotulo.upper()
+        assert ws_dre.cell(row=linha, column=1).alignment.indent >= 1
+        assert ws_dre.cell(row=linha, column=2).value == ws_dre_template.cell(linha, 2).value
 
     lookup = service.obter_processamento(resultado.id)
     assert lookup is not None

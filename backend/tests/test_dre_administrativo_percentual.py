@@ -54,8 +54,12 @@ def _copiar_template(tmp_path: Path) -> Path:
 
 
 def _linha_por_rotulo(ws, rotulo: str) -> int:
+    # O arquivo gerado sai com rótulos em caixa alta (dre_apresentacao); o
+    # template não. Comparar sem caixa, como o _normalizar_rotulo do serviço.
+    alvo = rotulo.casefold()
     for linha in range(1, ws.max_row + 1):
-        if ws.cell(linha, 1).value == rotulo:
+        valor = ws.cell(linha, 1).value
+        if isinstance(valor, str) and valor.casefold() == alvo:
             return linha
     raise AssertionError(f"Rótulo DRE ausente: {rotulo}")
 

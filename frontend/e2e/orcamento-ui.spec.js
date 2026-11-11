@@ -256,3 +256,37 @@ for (const width of [1280, 390]) {
     }
   });
 }
+
+test('carteira filtra por busca, confirma nova revisão e abre histórico em gaveta', async ({ page }) => {
+  await login(page);
+  await ready(page);
+  const name = `UI carteira ${Date.now()}`;
+  await page.locator('.orc-create-window').getByLabel('Contratante', { exact: true }).fill(name);
+  await page.getByRole('button', { name: 'Criar orçamento', exact: true }).click();
+  const card = page.locator('.orc-card', { hasText: name });
+  await expect(card).toBeVisible();
+
+  const search = page.getByLabel('Buscar orçamentos');
+  await search.fill('contratante-inexistente-xyz');
+  await expect(page.getByRole('heading', { name: 'Nenhum orçamento encontrado' })).toBeVisible();
+  await page.getByRole('button', { name: 'Limpar filtros' }).click();
+  await expect(search).toHaveValue('');
+  await search.fill(name.toUpperCase());
+  await expect(card).toBeVisible();
+  await expect(page.locator('.orc-card')).toHaveCount(1);
+
+  await card.getByRole('button', { name: 'Mais ações' }).click();
+  await card.getByRole('button', { name: 'Nova revisão' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Criar nova revisão' });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button', { name: 'Cancelar' }).click();
+  await expect(confirm).toHaveCount(0);
+
+  await card.getByRole('button', { name: 'Histórico de edição' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Histórico de edição' });
+  await expect(drawer).toBeVisible();
+  await expect(page.locator('body')).toHaveAttribute('data-orc-modal-open', /.*/);
+  await page.keyboard.press('Escape');
+  await expect(drawer).toHaveCount(0);
+  await expect(page.locator('body')).not.toHaveAttribute('data-orc-modal-open', /.*/);
+});

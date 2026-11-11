@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 from threading import RLock
-from time import monotonic
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request, Response, status
@@ -28,7 +27,6 @@ MODULE_CATALOG: tuple[dict[str, str], ...] = (
 _service_lock = RLock()
 _identity_service: IdentityService | None = None
 _orcamento_service: OrcamentoService | None = None
-_login_attempts: dict[str, tuple[float, ...]] = {}
 
 
 def configure_identity_service(service: IdentityService | None) -> None:
@@ -36,7 +34,6 @@ def configure_identity_service(service: IdentityService | None) -> None:
     global _identity_service
     with _service_lock:
         _identity_service = service
-        _login_attempts.clear()
 
 
 def _login_key(request: Request, username: str) -> str:
@@ -44,28 +41,36 @@ def _login_key(request: Request, username: str) -> str:
     return f"{host}:{username.strip().casefold()}"
 
 
+def _identity_service_or_503() -> IdentityService:
+    try:
+        return get_identity_service()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
 def enforce_login_rate_limit(request: Request, username: str) -> None:
-    """Bloqueia tentativas repetidas por combinação IP + usuário."""
-    now = monotonic()
-    cutoff = now - settings.login_window_seconds
-    key = _login_key(request, username)
-    with _service_lock:
-        recent = tuple(item for item in _login_attempts.get(key, ()) if item >= cutoff)
-        if len(recent) >= settings.login_max_attempts:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Muitas tentativas de login. Aguarde e tente novamente.",
-            )
-        _login_attempts[key] = recent
+    """Bloqueia tentativas repetidas por combinação IP + usuário.
+
+    O contador vive no SQLite de identidade, compartilhado por todos os workers.
+    Cada chamada consome uma tentativa; login bem-sucedido zera o contador em
+    `record_login_result`.
+    """
+    allowed = _identity_service_or_503().register_login_attempt(
+        _login_key(request, username),
+        window_seconds=settings.login_window_seconds,
+        max_attempts=settings.login_max_attempts,
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Muitas tentativas de login. Aguarde e tente novamente.",
+        )
 
 
 def record_login_result(request: Request, username: str, *, authenticated: bool) -> None:
-    key = _login_key(request, username)
-    with _service_lock:
-        if authenticated:
-            _login_attempts.pop(key, None)
-            return
-        _login_attempts[key] = (*_login_attempts.get(key, ()), monotonic())
+    # A falha já foi contada em enforce_login_rate_limit.
+    if authenticated:
+        _identity_service_or_503().clear_login_attempts(_login_key(request, username))
 
 
 def _bootstrap_service(service: IdentityService) -> IdentityService:

@@ -16,6 +16,7 @@ from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
@@ -26,6 +27,7 @@ from ..db.connection import DatabaseConnection
 from ..repository.centro_custo_match import eh_centro_administrativo
 from ..repository.dre_repository import DRERepository
 from ..templates.writer import TemplateWriter
+from .dre_apresentacao import aplicar_apresentacao_dre
 
 logger = logging.getLogger(__name__)
 
@@ -291,6 +293,13 @@ def _extrair_codigo_gerencial(texto: Any) -> str | None:
 
 def _normalizar_rotulo(texto: Any) -> str:
     return re.sub(r"\s+", " ", str(texto or "").strip()).casefold()
+
+
+# Subtotais indexados pelo rótulo normalizado: a aba DRE gerada exibe os
+# rótulos em caixa alta, então a busca não pode depender da grafia.
+_DRE_SUBTOTAIS_FILHOS_POR_ROTULO_NORMALIZADO = {
+    _normalizar_rotulo(pai): filhos for pai, filhos in _DRE_SUBTOTAIS_FILHOS_ARREDONDADOS.items()
+}
 
 
 def _participa_deducao_receita_por_codigo(*valores: Any) -> bool | None:
@@ -832,7 +841,7 @@ class DREGeracaoCompletaService:
         apoio_por_rotulo: dict[str, dict[int, float]],
         apoio_por_rotulo_normalizado: dict[str, dict[int, float]],
     ) -> float | None:
-        filhos = _DRE_SUBTOTAIS_FILHOS_ARREDONDADOS.get(rotulo_pai)
+        filhos = _DRE_SUBTOTAIS_FILHOS_POR_ROTULO_NORMALIZADO.get(_normalizar_rotulo(rotulo_pai))
         if filhos is None:
             return None
 
@@ -938,12 +947,17 @@ class DREGeracaoCompletaService:
         for linha in range(1, ws_dre.max_row + 1):
             rotulo = str(ws_dre.cell(row=linha, column=1).value or "").strip()
             if rotulo:
-                linhas_por_rotulo.setdefault(rotulo, linha)
+                linhas_por_rotulo.setdefault(_normalizar_rotulo(rotulo), linha)
 
-        linha_faturamento = linhas_por_rotulo.get(_FATURAMENTO_ROTULO)
-        linha_receita_liquida = linhas_por_rotulo.get(_RECEITA_LIQUIDA_ROTULO)
-        linha_resultado_liquido = linhas_por_rotulo.get(_RESULTADO_LIQUIDO_ROTULO)
-        linha_resultado_gerencial = linhas_por_rotulo.get(_RESULTADO_GERENCIAL_ROTULO)
+        linha_faturamento = linhas_por_rotulo.get(_normalizar_rotulo(_FATURAMENTO_ROTULO))
+        linha_receita_liquida = linhas_por_rotulo.get(_normalizar_rotulo(_RECEITA_LIQUIDA_ROTULO))
+        linha_resultado_liquido = linhas_por_rotulo.get(
+            _normalizar_rotulo(_RESULTADO_LIQUIDO_ROTULO)
+        )
+        linha_resultado_gerencial = linhas_por_rotulo.get(
+            _normalizar_rotulo(_RESULTADO_GERENCIAL_ROTULO)
+        )
+        receita_bruta_normalizada = _normalizar_rotulo(_RECEITA_BRUTA_CONTA_PAI)
         celulas_materializadas = 0
 
         for linha in range(6, ws_dre.max_row + 1):
@@ -959,7 +973,7 @@ class DREGeracaoCompletaService:
                     apoio_por_rotulo,
                     apoio_por_rotulo_normalizado,
                 )
-                if rotulo_linha == _RECEITA_BRUTA_CONTA_PAI:
+                if _normalizar_rotulo(rotulo_linha) == receita_bruta_normalizada:
                     valor_calculado = self._receita_bruta_arredondada(
                         coluna,
                         apoio_por_rotulo,
@@ -1577,7 +1591,9 @@ class DREGeracaoCompletaService:
 
         # 3. Caminho de saída
         if output_path is None:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            # Sufixo aleatório: gerações simultâneas da mesma competência (vários
+            # workers/threads no mesmo segundo) não podem gravar no mesmo arquivo.
+            timestamp = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid4().hex[:8]}"
             output_path = (
                 settings.base_dir
                 / "output"
@@ -1641,6 +1657,9 @@ class DREGeracaoCompletaService:
                 writer,
                 somente_administrativo=_eh_somente_administrativo(lancamentos),
             )
+            # Caixa alta e recuo hierárquico só na saída; valores já estão fixos.
+            aplicar_apresentacao_dre(writer._wb["DRE"])
+            writer._modified_sheets.add("DRE")
 
             # 4g. Aba de detalhamento para uso operacional no workspace/painel.
             detalhe_meta = self._escrever_aba_detalhamento_mensal(

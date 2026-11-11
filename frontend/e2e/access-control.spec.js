@@ -238,6 +238,7 @@ test('Orcamento so aparece para quem tem orcamento.view e preserva revisoes', as
 
   // Nova revisão herda o cabeçalho inteiro e preserva a anterior na trilha.
   await card.getByRole('button', { name: 'Nova revisão' }).click();
+  await page.getByRole('dialog', { name: 'Criar nova revisão' }).getByRole('button', { name: 'Criar revisão', exact: true }).click();
   await expect(card.locator('.orc-revision-chip')).toHaveCount(2);
   await expect(card.locator('.orc-badge')).toHaveText('Rascunho');
   // O cabeçalho veio junto, então a revisão nova não reabre pendências.

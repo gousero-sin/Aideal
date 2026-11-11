@@ -1,8 +1,8 @@
 {
   "workbook_name": "DRE AIDEAL - 05 2025  - obra.xlsx",
-  "captured_at_utc": "2026-11-06T15:00:23.217007+00:00",
-  "file_size_bytes": 992706,
-  "file_sha256": "00ab49a3d15fe5cce36a1ce77a731251c6b71c5cd688d32e3774b7c6f6e1605a",
+  "captured_at_utc": "2026-11-10T18:03:09.183539+00:00",
+  "file_size_bytes": 990786,
+  "file_sha256": "089e9ce2083ae88bfc50465d0725530f5d90a7828ef0fe038ac48d1124f6fe7b",
   "entries": [
     {
       "name": "[Content_Types].xml",
@@ -440,10 +440,10 @@
     },
     {
       "name": "xl/calcChain.xml",
-      "file_size": 1071518,
-      "compress_size": 137913,
-      "crc": 1940072097,
-      "sha256": "0237ccae812d9cb90b3d3bea923ae771e087babf74cdf9e7a7c8efc5ba40d342"
+      "file_size": 1067384,
+      "compress_size": 137379,
+      "crc": 2585976140,
+      "sha256": "cdbfcc0f80dc0723dd011d168db080f1dc5726c338b62451d3fa44069814374d"
     },
     {
       "name": "xl/charts/_rels/chart1.xml.rels",
@@ -840,9 +840,9 @@
     {
       "name": "xl/tables/table1.xml",
       "file_size": 5642,
-      "compress_size": 1845,
-      "crc": 1984323416,
-      "sha256": "2185a18e40025b2845db3760ee40615a113a1ad86e0cb5ee3bd969f1342fa8d2"
+      "compress_size": 1844,
+      "crc": 847250404,
+      "sha256": "e1b9becd9afa3cd96bdd37d5ba32e1724bf27248d4099f3ae3148f0013c0eda5"
     },
     {
       "name": "xl/tables/table2.xml",
@@ -918,8 +918,8 @@
       "name": "xl/workbook.xml",
       "file_size": 3676,
       "compress_size": 1256,
-      "crc": 1715941071,
-      "sha256": "55b434a0dd0d358edc6fcc89be4b6764deb37759fe1df49a96c108af5ad39b7c"
+      "crc": 1688558556,
+      "sha256": "28cad57f878099f532fe9f4c1e013e9f5a911b6003154f7fc78ec9364578b0c8"
     },
     {
       "name": "xl/worksheets/_rels/sheet1.xml.rels",
@@ -965,10 +965,10 @@
     },
     {
       "name": "xl/worksheets/sheet2.xml",
-      "file_size": 513249,
-      "compress_size": 52326,
-      "crc": 2359954178,
-      "sha256": "9a54c1ebdeac0cbaa9b055ef2cffdd349d436781e4c4552e63a3bc64b388f38d"
+      "file_size": 496606,
+      "compress_size": 50936,
+      "crc": 1606662815,
+      "sha256": "b49b2023a64f7184e04e31de467a1a8f770e6ac1563be29c42db27e6e212bc66"
     },
     {
       "name": "xl/worksheets/sheet3.xml",
@@ -987,9 +987,9 @@
     {
       "name": "xl/worksheets/sheet5.xml",
       "file_size": 72961,
-      "compress_size": 11546,
-      "crc": 158828510,
-      "sha256": "905f0b685ffc6917ff7556e6c3aac962fc7d53d2f0f39f1791b1da8db5397bc9"
+      "compress_size": 11551,
+      "crc": 659134095,
+      "sha256": "46dd11088e588918cc2f2bd3ab4a50fa0e57bfee5362da26aafad626ee4ac79e"
     }
   ]
 }

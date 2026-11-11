@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildDefaultYearQuery,
   buildDREExportRequest,
   buildDREPanelQuery,
+  buildPanelUrl,
   buildResultadoLiquidoKpi,
 } from './financialPanelUtils.js';
 
@@ -78,4 +80,17 @@ test('card de resultado cai para o saldo quando a API não envia o Resultado Lí
 
   assert.equal(kpi.value, 1200);
   assert.equal(kpi.detail, 'resultado líquido do DRE');
+});
+
+test('buildPanelUrl só adiciona ? quando há query', () => {
+  assert.equal(buildPanelUrl('/api/dre/painel', ''), '/api/dre/painel');
+  assert.equal(buildPanelUrl('/api/dre/painel', 'ano=2025'), '/api/dre/painel?ano=2025');
+});
+
+test('buildDefaultYearQuery reaproveita a primeira resposta só sem outros recortes', () => {
+  const payload = { periodo: { ano: 2025 } };
+  assert.equal(buildDefaultYearQuery({ ano: '', meses: [], centro_custo: [] }, payload), 'ano=2025');
+  assert.equal(buildDefaultYearQuery({ ano: '2024', meses: [] }, payload), null);
+  assert.equal(buildDefaultYearQuery({ ano: '', meses: [3] }, payload), null);
+  assert.equal(buildDefaultYearQuery({ ano: '' }, {}), null);
 });

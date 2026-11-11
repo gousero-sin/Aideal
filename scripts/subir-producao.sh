@@ -12,7 +12,24 @@ VENV_DIR="$BACKEND_DIR/.venv"
 PYTHON_BIN="$VENV_DIR/bin/python"
 HOST="${AIDEAL_HOST:-0.0.0.0}"
 PORT="${AIDEAL_PORT:-8000}"
-WORKERS="${AIDEAL_WORKERS:-1}"
+
+# Padrão: min(4, CPUs). Seguro com vários processos porque sessão, CSRF e o
+# limite de tentativas de login vivem no SQLite de identidade, e as migrações
+# usam trava de arquivo. Cada worker mantém seus próprios caches de template
+# (~150-250 MB por worker); reduza com AIDEAL_WORKERS em máquinas pequenas.
+default_workers() {
+    local cpus
+    cpus="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || printf '1')"
+    if ! [[ "$cpus" =~ ^[0-9]+$ ]] || [ "$cpus" -lt 1 ]; then
+        cpus=1
+    fi
+    if [ "$cpus" -gt 4 ]; then
+        cpus=4
+    fi
+    printf '%s\n' "$cpus"
+}
+
+WORKERS="${AIDEAL_WORKERS:-$(default_workers)}"
 
 # Endereço que os usuários digitam no navegador. HOST é só a interface de bind;
 # o nome goflowaideal precisa resolver para este servidor (DNS do roteador,
@@ -337,6 +354,7 @@ ensure_template_baselines() {
 }
 
 start_application() {
+    [[ "$WORKERS" =~ ^[1-9][0-9]*$ ]] || die "AIDEAL_WORKERS deve ser um inteiro >= 1 (recebido: $WORKERS)"
     cd "$BACKEND_DIR"
     exec "$PYTHON_BIN" -m uvicorn app.main:app \
         --host "$HOST" \
@@ -377,6 +395,7 @@ main() {
     log "  API + frontend: ${PUBLIC_URL}"
     log "  Health: ${PUBLIC_URL}/health"
     log "  Ready: ${PUBLIC_URL}/ready"
+    log "  Workers: ${WORKERS}"
     log ""
     log "Pressione Ctrl+C para parar."
 

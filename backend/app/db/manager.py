@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from .connection import DatabaseConnection
+from .process_lock import migration_lock
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,11 @@ class MigrationManager:
         return sorted(migrations)
 
     def migrate(self) -> list[tuple[int, str]]:
-        """Executa todas as migrações pendentes."""
+        """Executa todas as migrações pendentes, uma vez só entre processos."""
+        with migration_lock(self.db.db_path):
+            return self._migrate_locked()
+
+    def _migrate_locked(self) -> list[tuple[int, str]]:
         self._ensure_migrations_table()
 
         executed = self._get_executed_migrations()

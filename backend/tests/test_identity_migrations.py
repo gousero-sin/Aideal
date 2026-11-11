@@ -26,6 +26,7 @@ def test_factory_migrates_an_isolated_identity_database(tmp_path):
         "user_permissions",
         "sessions",
         "audit_events",
+        "login_attempts",
     }.issubset(tables)
     user_columns = {row[1] for row in connection.execute("PRAGMA table_info(users)").fetchall()}
     assert "must_change_password" in user_columns
@@ -46,8 +47,8 @@ def test_migrations_are_idempotent(tmp_path):
     first_service = create_identity_service(database_path)
     second_service = create_identity_service(database_path)
 
-    assert first_service.repository.applied_migrations() == (1, 2, 3)
-    assert second_service.repository.applied_migrations() == (1, 2, 3)
+    assert first_service.repository.applied_migrations() == (1, 2, 3, 4)
+    assert second_service.repository.applied_migrations() == (1, 2, 3, 4)
 
 
 def test_identity_database_is_owner_read_write_only(tmp_path):

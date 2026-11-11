@@ -1,4 +1,5 @@
-import React, { useEffect, useId, useMemo, useState } from 'react';
+import React, { memo, useEffect, useId, useMemo, useState } from 'react';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import {
   Area,
   Bar,
@@ -90,48 +91,61 @@ function DonutTooltip({ active, payload }) {
   );
 }
 
-export function ChartCard({ title, subtitle, children, className = '' }) {
-  return (
-    <article className={`aideal-chart-card ${className}`}>
-      <div className="aideal-chart-heading">
-        <h3>{title}</h3>
-        {subtitle && <p>{subtitle}</p>}
-      </div>
-      {children}
-    </article>
-  );
-}
+const COMPACT_CHART_QUERY = '(max-width: 520px)';
+const CHART_RESIZE_DEBOUNCE_MS = 80;
 
-export function MonthlyEvolutionChart({ data, countKey }) {
-  if (!data?.length) {
+// ChartCard mora em PanelShared para não puxar o recharts junto; fica reexportado aqui.
+export { ChartCard } from './PanelShared';
+
+const describeMonthlySeries = (data) => {
+  // Painel DRE usa a linha de Receita Líquida do DRE gerado. Fluxo de Caixa usa brutos.
+  const temImpostos = data.some((item) => item?.impostos != null);
+  const saldoKey = data.some((item) => item?.saldo_final != null) ? 'saldo_final' : 'saldo';
+  return {
+    entradasKey: temImpostos ? 'receita_liquida' : 'credito',
+    saidasKey: temImpostos ? 'saidas_liquidas' : 'debito',
+    entradasName: temImpostos ? 'Receita líquida' : 'Entradas',
+    saidasName: temImpostos ? 'Saídas operacionais' : 'Saídas',
+    saldoKey,
+    saldoName: saldoKey === 'saldo_final' ? 'Saldo final' : 'Saldo',
+  };
+};
+
+export const MonthlyEvolutionChart = memo(function MonthlyEvolutionChart({ data, countKey }) {
+  const compact = useMediaQuery(COMPACT_CHART_QUERY);
+  const series = useMemo(() => (data?.length ? describeMonthlySeries(data) : null), [data]);
+  if (!series) {
     return <div className="aideal-chart-empty">Sem dados para o período filtrado.</div>;
   }
 
-  // Painel DRE usa a linha de Receita Líquida do DRE gerado. Fluxo de Caixa usa brutos.
-  const temImpostos = data.some((item) => item?.impostos != null);
-  const entradasKey = temImpostos ? 'receita_liquida' : 'credito';
-  const saidasKey = temImpostos ? 'saidas_liquidas' : 'debito';
-  const entradasName = temImpostos ? 'Receita líquida' : 'Entradas';
-  const saidasName = temImpostos ? 'Saídas operacionais' : 'Saídas';
-  const saldoKey = data.some((item) => item?.saldo_final != null) ? 'saldo_final' : 'saldo';
-  const saldoName = saldoKey === 'saldo_final' ? 'Saldo final' : 'Saldo';
+  const {
+    entradasKey, saidasKey, entradasName, saidasName, saldoKey, saldoName,
+  } = series;
+  const tickFontSize = compact ? 10 : 12;
 
   return (
     <div className="aideal-chart-frame">
-      <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={data} margin={{ top: 12, right: 8, bottom: 0, left: 0 }}>
+      <ResponsiveContainer width="100%" height="100%" minHeight={220} debounce={CHART_RESIZE_DEBOUNCE_MS}>
+        <ComposedChart data={data} margin={{ top: 12, right: compact ? 2 : 8, bottom: 0, left: compact ? -14 : 0 }}>
           <CartesianGrid stroke="rgba(143,213,255,0.12)" vertical={false} />
-          <XAxis dataKey="mes_label" tick={{ fill: '#a9b9c8', fontSize: 12 }} axisLine={false} tickLine={false} />
+          <XAxis
+            dataKey="mes_label"
+            tick={{ fill: '#a9b9c8', fontSize: tickFontSize }}
+            axisLine={false}
+            tickLine={false}
+            interval="preserveStartEnd"
+            minTickGap={compact ? 2 : 5}
+          />
           <YAxis
             yAxisId="money"
-            tick={{ fill: '#a9b9c8', fontSize: 12 }}
+            tick={{ fill: '#a9b9c8', fontSize: tickFontSize }}
             axisLine={false}
             tickLine={false}
             tickFormatter={(value) => `${Math.round(Number(value) / 1000)}k`}
           />
           <YAxis yAxisId="count" orientation="right" hide />
           <Tooltip content={<ChartTooltip />} />
-          <Legend wrapperStyle={{ color: '#a9b9c8', fontSize: 12 }} />
+          <Legend wrapperStyle={{ color: '#a9b9c8', fontSize: compact ? 11 : 12 }} />
           <Bar yAxisId="money" dataKey={entradasKey} name={entradasName} fill="#35c7f2" radius={[6, 6, 0, 0]} />
           <Bar yAxisId="money" dataKey={saidasKey} name={saidasName} fill="#f01821" radius={[6, 6, 0, 0]} />
           <Line
@@ -155,25 +169,26 @@ export function MonthlyEvolutionChart({ data, countKey }) {
       </ResponsiveContainer>
     </div>
   );
-}
+});
 
-export function RankingChart({ data, countKey }) {
-  const rows = topRows(data, 8);
+export const RankingChart = memo(function RankingChart({ data, countKey }) {
+  const compact = useMediaQuery(COMPACT_CHART_QUERY);
+  const rows = useMemo(() => topRows(data, 8), [data]);
   if (!rows.length) {
     return <div className="aideal-chart-empty">Sem ranking para exibir.</div>;
   }
 
   return (
     <div className="aideal-chart-frame aideal-chart-frame-compact">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minHeight={220} debounce={CHART_RESIZE_DEBOUNCE_MS}>
         <BarChart data={rows} layout="vertical" margin={{ top: 6, right: 12, bottom: 0, left: 8 }}>
           <CartesianGrid stroke="rgba(143,213,255,0.1)" horizontal={false} />
           <XAxis type="number" hide />
           <YAxis
             type="category"
             dataKey="nome"
-            width={126}
-            tick={{ fill: '#a9b9c8', fontSize: 11 }}
+            width={compact ? 92 : 126}
+            tick={{ fill: '#a9b9c8', fontSize: compact ? 10 : 11 }}
             tickFormatter={formatAxisLabel}
             axisLine={false}
             tickLine={false}
@@ -189,9 +204,9 @@ export function RankingChart({ data, countKey }) {
       </ResponsiveContainer>
     </div>
   );
-}
+});
 
-export function CompositionDonut({ data }) {
+export const CompositionDonut = memo(function CompositionDonut({ data }) {
   const gradientPrefix = useId().replace(/:/g, '');
   const [hiddenNames, setHiddenNames] = useState(() => new Set());
   const rows = useMemo(
@@ -218,17 +233,21 @@ export function CompositionDonut({ data }) {
     });
   }, [rows]);
 
+  const visibleRows = useMemo(() => {
+    const total = rows.reduce((sum, item) => sum + item.value, 0);
+    return rows
+      .filter((row) => !hiddenNames.has(row.name))
+      .map((row) => ({
+        ...row,
+        share: total > 0 ? (row.value / total) * 100 : 0,
+      }));
+  }, [hiddenNames, rows]);
+
   if (!rows.length) {
     return <div className="aideal-chart-empty">Sem composição para exibir.</div>;
   }
 
   const total = rows.reduce((sum, item) => sum + item.value, 0);
-  const visibleRows = rows
-    .filter((row) => !hiddenNames.has(row.name))
-    .map((row) => ({
-      ...row,
-      share: total > 0 ? (row.value / total) * 100 : 0,
-    }));
   const visibleTotal = visibleRows.reduce((sum, item) => sum + item.value, 0);
   const hiddenCount = rows.length - visibleRows.length;
 
@@ -249,7 +268,7 @@ export function CompositionDonut({ data }) {
       <div className="aideal-donut-chart-shell">
         <div className="aideal-donut-chart">
           {visibleRows.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={160} debounce={CHART_RESIZE_DEBOUNCE_MS}>
               <PieChart>
                 <defs>
                   {visibleRows.map((row) => (
@@ -320,4 +339,4 @@ export function CompositionDonut({ data }) {
       </div>
     </div>
   );
-}
+});

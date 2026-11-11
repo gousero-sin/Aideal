@@ -747,3 +747,133 @@ function computeUpdatedSummary(dfp) {
     precoPorArea: numberOrZero(dfp.metadata?.area_total) ? roundCurrency(invoice / dfp.metadata.area_total) : 0,
     valorDiaColaborador: peopleDays ? roundCurrency(invoice / peopleDays) : 0 };
 }
+
+// --- Carteira: busca, filtros e ordenação (funções puras, nunca alteram a entrada) ---------
+
+const normalizarBusca = (value) => String(value ?? '')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLocaleLowerCase('pt-BR')
+  .trim();
+
+const SITUACOES_EM_CURSO = Object.freeze(['rascunho', 'em_revisao']);
+
+export const FILTROS_CARTEIRA = Object.freeze([
+  Object.freeze({ value: 'todos', label: 'Todos' }),
+  Object.freeze({ value: 'em_curso', label: 'Em curso' }),
+  Object.freeze({ value: 'pronto_para_proposta', label: 'Prontos' }),
+  Object.freeze({ value: 'emitido', label: 'Emitidos' }),
+  Object.freeze({ value: 'inativo', label: 'Inativos' }),
+]);
+
+export const ORDENACOES_CARTEIRA = Object.freeze([
+  Object.freeze({ value: 'recentes', label: 'Mais recentes' }),
+  Object.freeze({ value: 'codigo', label: 'Código' }),
+  Object.freeze({ value: 'contratante', label: 'Contratante (A–Z)' }),
+  Object.freeze({ value: 'valor', label: 'Maior faturamento' }),
+]);
+
+const correspondeSituacao = (orcamento, situacao) => {
+  const atual = orcamento?.revisaoAtual?.situacao;
+  if (!situacao || situacao === 'todos') return true;
+  if (situacao === 'em_curso') return SITUACOES_EM_CURSO.includes(atual);
+  if (!(situacao in SITUACOES)) return true;
+  return atual === situacao;
+};
+
+const instante = (orcamento) => {
+  const time = Date.parse(orcamento?.createdAt || '');
+  return Number.isFinite(time) ? time : 0;
+};
+
+const COMPARADORES = Object.freeze({
+  recentes: (a, b) => (instante(b) - instante(a)) || ((b.sequencial || 0) - (a.sequencial || 0)),
+  codigo: (a, b) => ((a.sequencial || 0) - (b.sequencial || 0)) || String(a.codigo).localeCompare(String(b.codigo), 'pt-BR'),
+  contratante: (a, b) => String(a.contratante).localeCompare(String(b.contratante), 'pt-BR', { sensitivity: 'base' })
+    || ((a.sequencial || 0) - (b.sequencial || 0)),
+  valor: (a, b) => ((Number(b?.dfpSummary?.precoTotalFaturamento) || 0) - (Number(a?.dfpSummary?.precoTotalFaturamento) || 0))
+    || ((b.sequencial || 0) - (a.sequencial || 0)),
+});
+
+export const filtrarCarteira = (orcamentos, { busca = '', situacao = 'todos', ordem = 'recentes' } = {}) => {
+  const lista = Array.isArray(orcamentos) ? orcamentos : [];
+  const termo = normalizarBusca(busca);
+  const comparar = COMPARADORES[ordem] || COMPARADORES.recentes;
+  return lista
+    .filter((item) => correspondeSituacao(item, situacao))
+    .filter((item) => !termo
+      || normalizarBusca(item?.codigo).includes(termo)
+      || normalizarBusca(item?.contratante).includes(termo))
+    .slice()
+    .sort(comparar);
+};
+
+export const contarFiltrosCarteira = (orcamentos) => {
+  const lista = Array.isArray(orcamentos) ? orcamentos : [];
+  return Object.fromEntries(FILTROS_CARTEIRA.map(({ value }) => [
+    value, lista.filter((item) => correspondeSituacao(item, value)).length,
+  ]));
+};
+
+// Mostra as revisões mais recentes e garante que a atual apareça mesmo se for antiga.
+export const limitarRevisoesVisiveis = (revisoes, atualId, maximo = 4) => {
+  const lista = Array.isArray(revisoes) ? revisoes : [];
+  if (lista.length <= maximo) return { visiveis: lista, ocultas: 0 };
+  const recentes = lista.slice(-maximo);
+  const atual = lista.find((item) => item.id === atualId);
+  const visiveis = atual && !recentes.includes(atual)
+    ? [atual, ...recentes.slice(1)]
+    : recentes;
+  return { visiveis, ocultas: lista.length - visiveis.length };
+};
+
+// --- Histórico de edição: rótulos de negócio no lugar de chaves técnicas ------------------
+
+const camelParaSnake = (field) => field.replace(/[A-Z]/g, (letra) => `_${letra.toLowerCase()}`);
+
+const ROTULOS_HISTORICO = Object.freeze({
+  ...Object.fromEntries(CAMPOS_CABECALHO.map(({ field, label }) => [camelParaSnake(field), label])),
+  prazo_execucao_dias: 'Prazo de execução (dias)',
+  data_inicio: 'Data de início',
+  saldo_mao_de_obra: 'Saldo de Mão de Obra',
+  regime_tributario: 'Forma de tributação',
+  dfp: 'Composição de preços (DFP)',
+  situacao: 'Situação',
+  motivo: 'Motivo da mudança',
+});
+
+export const rotuloCampoHistorico = (chave) => ROTULOS_HISTORICO[String(chave || '')] || null;
+
+const TITULOS_EVENTO = Object.freeze({
+  criacao: 'Criação', edicao: 'Edição', situacao: 'Mudança de situação',
+});
+
+export const resumirEventoHistorico = (entry) => {
+  const antes = entry?.antes || {};
+  const depois = entry?.depois || {};
+  const tipo = String(entry?.tipo || '');
+  const base = { tipo, titulo: TITULOS_EVENTO[tipo] || 'Alteração', campos: [], de: null, para: null, motivo: null };
+  if (tipo === 'criacao') return base;
+  if (tipo === 'situacao') {
+    return {
+      ...base,
+      de: SITUACOES[antes.situacao] || antes.situacao || null,
+      para: SITUACOES[depois.situacao] || depois.situacao || null,
+      motivo: depois.motivo ? String(depois.motivo) : null,
+    };
+  }
+  const campos = Object.keys(depois)
+    .filter((key) => JSON.stringify(antes[key]) !== JSON.stringify(depois[key]))
+    .map(rotuloCampoHistorico)
+    .filter(Boolean);
+  return { ...base, campos: [...new Set(campos)] };
+};
+
+// O backend grava só o id do usuário; mostramos algo legível sem expor o identificador inteiro.
+export const rotuloResponsavel = (userId, currentUserId) => {
+  const id = String(userId ?? '').trim();
+  if (!id) return 'Responsável não registrado';
+  if (currentUserId && id === String(currentUserId)) return 'Você';
+  if (id.toLowerCase() === 'sistema') return 'Sistema';
+  return `Usuário ${id.length > 8 ? `${id.slice(0, 8)}…` : id}`;
+};

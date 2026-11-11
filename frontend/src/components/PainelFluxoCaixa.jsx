@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Landmark,
   RefreshCcw,
@@ -8,12 +8,13 @@ import {
   WalletCards,
 } from 'lucide-react';
 import {
-  ChartCard,
   CompositionDonut,
   MonthlyEvolutionChart,
   RankingChart,
-} from './FinancialCharts';
+  preloadFinancialCharts,
+} from './LazyFinancialCharts';
 import {
+  ChartCard,
   KpiCard,
   PanelHero,
   PanelSkeleton,
@@ -21,10 +22,14 @@ import {
   SituationGrid,
 } from './PanelShared';
 import { FilterDock, MonthSlicer, SearchableSlicer, YearSelect } from './PanelSlicers';
+import { usePanelData } from '../hooks/usePanelData';
+import { panelDataCache } from '../services/panelDataCache';
 import {
   absoluteShare,
+  buildDefaultYearQuery,
   buildFilterSummary,
   buildPanelQuery,
+  buildPanelUrl,
   countSelectedFilters,
   formatCurrency,
   formatNumber,
@@ -89,40 +94,35 @@ function HighlightBalanceCard({ equilibrio }) {
 
 export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
   const [filters, setFilters] = useState(emptyFilters);
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
 
+  const endpoint = `${apiBase}/fluxo_caixa/painel`;
   const query = useMemo(() => buildPanelQuery(filters), [filters]);
-
-  const carregarPainel = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${apiBase}/fluxo_caixa/painel${query ? `?${query}` : ''}`);
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        throw new Error(detail?.detail || 'Erro ao carregar Painel Fluxo de Caixa');
-      }
-      const payload = await response.json();
-      setData(payload);
-      setFilters((prev) => (prev.ano ? prev : { ...prev, ano: String(payload.periodo?.ano || '') }));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiBase, query]);
+  const {
+    data,
+    error,
+    isInitialLoading,
+    isRefreshing,
+    isFetching: loading,
+    refresh: carregarPainel,
+  } = usePanelData(buildPanelUrl(endpoint, query), {
+    errorMessage: 'Erro ao carregar Painel Fluxo de Caixa',
+  });
 
   useEffect(() => {
-    carregarPainel();
-  }, [carregarPainel]);
+    if (!data || filters.ano) return;
+    const defaultYearQuery = buildDefaultYearQuery(filters, data, buildPanelQuery);
+    if (defaultYearQuery) panelDataCache.prime(buildPanelUrl(endpoint, defaultYearQuery), data);
+    if (data.periodo?.ano) setFilters((prev) => (prev.ano ? prev : { ...prev, ano: String(data.periodo.ano) }));
+  }, [data, endpoint, filters]);
 
   useEffect(() => {
-    onBusyChange?.(loading);
-  }, [loading, onBusyChange]);
+    onBusyChange?.(isInitialLoading);
+  }, [isInitialLoading, onBusyChange]);
 
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
+
+  // Baixa os gráficos junto com os dados, sem esperar a primeira resposta.
+  useEffect(() => { preloadFinancialCharts(); }, []);
 
   const updateFilter = (key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -215,7 +215,7 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
   }, [data, saldosPorBanco, seriesComSaldoFinal]);
 
   return (
-    <section className="aideal-panel-page">
+    <section className="aideal-panel-page" aria-busy={isRefreshing || undefined}>
       <PanelHero
         kicker="Painel Fluxo de Caixa"
         title="Entradas, saídas, bancos e classificações"
@@ -225,6 +225,7 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
           { label: 'Recortes', value: activeFilterCount > 0 ? formatNumber(activeFilterCount) : 'Todos' },
           { label: 'Status', value: loading ? 'Atualizando' : 'Pronto para análise' },
         ]}
+        refreshing={isRefreshing}
         actions={(
           <>
             <YearSelect anos={filtros.anos} value={filters.ano || data?.periodo?.ano || ''} onChange={handleYearChange} />
@@ -280,7 +281,7 @@ export default function PainelFluxoCaixa({ apiBase, onBusyChange }) {
         />
       </FilterDock>
 
-      {loading && !data ? (
+      {isInitialLoading ? (
         <PanelSkeleton />
       ) : (
         <>

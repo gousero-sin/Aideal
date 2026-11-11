@@ -1,9 +1,14 @@
-import React from 'react';
+import React, { forwardRef } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 
 const joinClasses = (...classes) => classes.filter(Boolean).join(' ');
 
-export default function GoFlowWindow({
+/**
+ * Janela GoFlow. Para diálogos, anime a camada de fundo com `backdropMotion` e passe
+ * `windowMotion` em `motionProps` aqui: assim só a janela escala, nunca o overlay.
+ * `motionProps` também aceita `layout`, `layoutId` e `exit` (cartões em AnimatePresence).
+ */
+const GoFlowWindow = forwardRef(function GoFlowWindow({
   activationLabel,
   actions,
   as: Element = 'section',
@@ -13,13 +18,15 @@ export default function GoFlowWindow({
   icon: Icon,
   interactive = false,
   motionIndex = 0,
+  motionProps,
   onActivate,
   title,
   titleAs: TitleElement = 'h3',
   ...rest
-}) {
+}, ref) {
   const reducedMotion = useReducedMotion();
-  const MotionElement = interactive ? motion[Element] : Element;
+  const animated = interactive || Boolean(motionProps);
+  const MotionElement = animated ? motion[Element] : Element;
   const interaction = interactive ? {
     initial: reducedMotion ? false : { opacity: 0, y: 12 },
     animate: { opacity: 1, y: 0 },
@@ -28,6 +35,7 @@ export default function GoFlowWindow({
     transition: { duration: reducedMotion ? 0 : .24, opacity: { delay: reducedMotion ? 0 : Math.min(motionIndex, 5) * .035 } },
   } : {};
   const handleClick = (event) => {
+    rest.onClick?.(event);
     if (!interactive || event.defaultPrevented) return;
     onActivate?.(event);
   };
@@ -35,7 +43,9 @@ export default function GoFlowWindow({
   return (
     <MotionElement
       {...interaction}
+      {...motionProps}
       {...rest}
+      ref={ref}
       className={joinClasses('goflow-window', interactive && 'goflow-window--interactive', className)}
       data-goflow-window="true"
       onClick={handleClick}
@@ -62,4 +72,6 @@ export default function GoFlowWindow({
       <div className="goflow-window__content">{children}</div>
     </MotionElement>
   );
-}
+});
+
+export default GoFlowWindow;

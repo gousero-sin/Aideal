@@ -150,3 +150,20 @@ export const buildResultadoLiquidoKpi = (kpis = {}) => {
     : 'resultado líquido do DRE';
   return { value, detail };
 };
+
+export const buildPanelUrl = (endpoint, query) => (query ? `${endpoint}?${query}` : endpoint);
+
+// A API usa o ano mais recente quando `ano` não vem na query. Depois da primeira
+// resposta o painel fixa esse ano nos filtros; esta função devolve a query
+// equivalente para reaproveitar a mesma resposta sem uma segunda requisição.
+// Só vale sem outros recortes, quando as duas consultas são idênticas.
+export const buildDefaultYearQuery = (filters = {}, payload = {}, buildQuery = buildPanelQuery) => {
+  if (filters.ano) return null;
+  const ano = payload?.periodo?.ano;
+  if (!ano) return null;
+  const hasOtherFilters = Object.entries(filters).some(([key, value]) => (
+    key !== 'ano' && (Array.isArray(value) ? value.length > 0 : Boolean(value))
+  ));
+  if (hasOtherFilters) return null;
+  return buildQuery({ ...filters, ano: String(ano) });
+};

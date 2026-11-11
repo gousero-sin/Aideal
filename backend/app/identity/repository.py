@@ -11,6 +11,8 @@ from .database import IdentityDatabase
 from .exceptions import InvalidCredentialsError, UsernameAlreadyExistsError
 from .models import AuditEvent, Session, User
 
+SESSION_TOUCH_SECONDS = 60
+
 
 def _serialize_time(value: datetime) -> str:
     return value.isoformat()
@@ -432,7 +434,10 @@ class IdentityRepository:
 
     def resolve_session(self, token_hash: str, csrf_token: str) -> Session | None:
         now = self.clock()
-        with self.database.transaction() as connection:
+        # Leitura sem trava de escrita: cada requisição autenticada resolve a
+        # sessão (duas vezes quando há CSRF). BEGIN IMMEDIATE aqui serializava
+        # todas as requisições de todos os workers no banco de identidade.
+        with self.database.connection() as connection:
             row = connection.execute(
                 """
                 SELECT s.*, u.active
@@ -450,10 +455,12 @@ class IdentityRepository:
             user_row = connection.execute(
                 "SELECT * FROM users WHERE id = ?", (row["user_id"],)
             ).fetchone()
-            connection.execute(
-                "UPDATE sessions SET last_used_at = ? WHERE id = ?",
-                (_serialize_time(now), row["id"]),
-            )
+            if self._session_touch_due(row["last_used_at"], now):
+                connection.execute(
+                    "UPDATE sessions SET last_used_at = ? WHERE id = ?",
+                    (_serialize_time(now), row["id"]),
+                )
+                connection.commit()
             return Session(
                 id=str(row["id"]),
                 user=self._row_to_user(connection, user_row),
@@ -461,6 +468,56 @@ class IdentityRepository:
                 created_at=_parse_time(str(row["created_at"])),
                 expires_at=_parse_time(str(row["expires_at"])),
             )
+
+    @staticmethod
+    def _session_touch_due(last_used_at: str | None, now: datetime) -> bool:
+        """`last_used_at` é informativo; gravá-lo no máximo uma vez por minuto."""
+        if not last_used_at:
+            return True
+        try:
+            return (now - _parse_time(str(last_used_at))).total_seconds() >= SESSION_TOUCH_SECONDS
+        except (TypeError, ValueError):
+            return True
+
+    def register_login_attempt(
+        self,
+        attempt_key: str,
+        *,
+        now: float,
+        window_seconds: float,
+        max_attempts: int,
+    ) -> bool:
+        """Registra a tentativa se ainda houver cota; devolve False quando bloqueada.
+
+        Contagem e inserção acontecem na mesma transação BEGIN IMMEDIATE, então
+        workers concorrentes não conseguem ultrapassar o limite juntos.
+        """
+        cutoff = now - window_seconds
+        with self.database.transaction() as connection:
+            connection.execute("DELETE FROM login_attempts WHERE attempted_at < ?", (cutoff,))
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM login_attempts
+                WHERE attempt_key = ? AND attempted_at >= ?
+                """,
+                (attempt_key, cutoff),
+            ).fetchone()
+            if int(row["total"]) >= max_attempts:
+                return False
+            connection.execute(
+                "INSERT INTO login_attempts (attempt_key, attempted_at) VALUES (?, ?)",
+                (attempt_key, now),
+            )
+        return True
+
+    def clear_login_attempts(self, attempt_key: str) -> None:
+        with self.database.transaction() as connection:
+            connection.execute("DELETE FROM login_attempts WHERE attempt_key = ?", (attempt_key,))
+
+    def clear_all_login_attempts(self) -> None:
+        with self.database.transaction() as connection:
+            connection.execute("DELETE FROM login_attempts")
 
     def csrf_hash_for_session(self, token_hash: str) -> str | None:
         with self.database.connection() as connection:

@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     cors_origins: str = "http://127.0.0.1:8000,http://localhost:8000"
     sqlite_timeout_seconds: float = 30.0
     sqlite_busy_timeout_ms: int = 5000
+    # Pré-carrega templates e painéis padrão em thread de fundo no startup.
+    warmup_enabled: bool = True
 
     # Admin Banco
     admin_username: str = ""

@@ -20,6 +20,7 @@ from xml.sax.saxutils import escape as _xml_escape
 import xlrd
 
 from ..templates.writer import TemplateWriter
+from .dre_apresentacao import aplicar_apresentacao_dre
 
 logger = logging.getLogger(__name__)
 
@@ -456,6 +457,12 @@ def gerar_dre(
 
         # DRE: oculta colunas dos meses sem dados (patch OOXML direto).
         _ajustar_visibilidade_dre(writer, meses_com_dados)
+
+        # DRE: caixa alta e recuo hierárquico nos rótulos (só exibição). Os
+        # índices de estilo do template continuam válidos no styles.xml regravado,
+        # então a BD_FLUXO em XML puro mantém a formatação.
+        aplicar_apresentacao_dre(writer._wb["DRE"])
+        writer._modified_sheets.add("DRE")
 
         writer.salvar(Path(output_path))
     finally:

@@ -4,6 +4,8 @@ import asyncio
 import logging
 import math
 import tempfile
+import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import date
 from decimal import Decimal
@@ -22,10 +24,13 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
+from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES
+from starlette.types import Scope
 
 from .access_control import (
     AuthenticatedSession,
@@ -186,6 +191,24 @@ def _ensure_runtime_dirs() -> None:
         path.mkdir(parents=True, exist_ok=True)
 
 
+def _aquecer_caches() -> None:
+    """Pré-carrega templates e painéis padrão para o primeiro usuário não pagar o custo.
+
+    Roda em thread daemon: o startup (e /health) não esperam por ela. Falhas são
+    só registradas; a requisição real refaz o trabalho normalmente.
+    """
+    inicio = time.perf_counter()
+    for nome, servico in (("DRE", dre_painel_service), ("Fluxo de Caixa", fluxo_painel_service)):
+        aquecer = getattr(servico, "aquecer", None)
+        if aquecer is None:
+            continue
+        try:
+            aquecer()
+        except Exception as exc:  # noqa: BLE001 - aquecimento é best effort
+            logger.warning("Aquecimento do painel %s falhou: %s", nome, exc)
+    logger.info("Aquecimento dos painéis concluído em %.1fs", time.perf_counter() - inicio)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Inicialização de produção: diretórios e migrações devem estar íntegros."""
@@ -194,6 +217,8 @@ async def lifespan(_app: FastAPI):
     run_migrations()
     get_identity_service()
     logger.info("Migrações executadas com sucesso")
+    if settings.warmup_enabled:
+        threading.Thread(target=_aquecer_caches, name="aideal-warmup", daemon=True).start()
     yield
 
 
@@ -212,6 +237,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# JSON dos painéis comprime ~10x. Planilhas/documentos já são ZIP/PDF e seguem
+# sem compressão (gastaria CPU e quebraria o Content-Length do download).
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=1024,
+    compresslevel=6,
+    exclude_content_types=(
+        *DEFAULT_EXCLUDED_CONTENT_TYPES,
+        EXCEL_MEDIA_TYPE,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/pdf",
+        "application/vnd.ms-excel",
+    ),
+)
+
 # Inicializa serviços
 dre_service = DREProcessamentoService()
 fluxo_service = FluxoCaixaProcessamentoService()
@@ -224,6 +264,40 @@ dashboard_resumo_service = DashboardResumoService()
 dre_painel_service = PainelDREService()
 fluxo_painel_service = PainelFluxoCaixaService()
 competencia_detector_service = CompetenciaDetectorService()
+
+# As rotas pesadas agora rodam em threads. Antes, por bloquearem o event loop,
+# ficavam implicitamente serializadas; os serviços de ingestão compartilham
+# estado de instância (ex.: transformer.erros), então escrita/ingestão segue
+# serializada por processo. Geração de planilhas usa openpyxl (centenas de MB):
+# no máximo duas simultâneas por worker.
+_LOCK_ESCRITA_DADOS = threading.Lock()
+_GERACAO_SLOTS = threading.BoundedSemaphore(2)
+
+
+def _invalidar_caches_paineis() -> None:
+    for servico in (dre_painel_service, fluxo_painel_service):
+        invalidar = getattr(servico, "invalidar_cache", None)
+        if invalidar is not None:
+            invalidar()
+
+
+def _executar_escrita(func, /, *args, **kwargs):
+    """Executa uma operação que altera dados, serializada e invalidando os painéis."""
+    with _LOCK_ESCRITA_DADOS:
+        try:
+            return func(*args, **kwargs)
+        finally:
+            _invalidar_caches_paineis()
+
+
+def _executar_geracao(func, /, *args, **kwargs):
+    with _GERACAO_SLOTS:
+        return func(*args, **kwargs)
+
+
+async def _em_thread(func, /, *args, **kwargs):
+    """Tira trabalho síncrono (openpyxl/pandas/SQLite) do event loop."""
+    return await asyncio.to_thread(func, *args, **kwargs)
 
 
 def _nome_upload_seguro(arquivo: UploadFile) -> str:
@@ -385,7 +459,11 @@ def _excel_file_response(
 async def root():
     index_path = settings.frontend_dist_dir / "index.html"
     if index_path.exists():
-        return FileResponse(path=str(index_path), media_type="text/html")
+        return FileResponse(
+            path=str(index_path),
+            media_type="text/html",
+            headers={"Cache-Control": CACHE_CONTROL_HTML},
+        )
     return {
         "app": settings.app_name,
         "version": settings.version,
@@ -400,7 +478,7 @@ async def health():
 
 
 @app.get("/ready")
-async def ready():
+def ready():
     checks = {
         "database": False,
         "identity_database": False,
@@ -481,21 +559,21 @@ def _authenticate(
 
 
 @app.post("/api/auth/login")
-async def auth_login(payload: AdminLoginRequest, request: Request, response: Response):
+def auth_login(payload: AdminLoginRequest, request: Request, response: Response):
     """Cria uma sessão global, opaca e revogável para o GoFlow."""
     service, credentials, _user = _authenticate(payload, request, response)
     return session_payload(service, credentials.token)
 
 
 @app.get("/api/auth/session")
-async def auth_session(request: Request, _session: AuthenticatedSession):
+def auth_session(request: Request, _session: AuthenticatedSession):
     """Retorna identidade, acessos e módulos visíveis da sessão atual."""
     token = token_from_request(request)
     return session_payload(get_identity_service(), str(token))
 
 
 @app.post("/api/auth/logout")
-async def auth_logout(request: Request, response: Response, session: CsrfSession):
+def auth_logout(request: Request, response: Response, session: CsrfSession):
     """Revoga a sessão no servidor e remove seus cookies."""
     get_identity_service().revoke_session(
         token_from_request(request), actor_user_id=session.user.id
@@ -505,7 +583,7 @@ async def auth_logout(request: Request, response: Response, session: CsrfSession
 
 
 @app.post("/api/auth/change-password")
-async def change_password(
+def change_password(
     payload: ChangePasswordRequest,
     response: Response,
     session: CsrfSession,
@@ -528,7 +606,7 @@ async def change_password(
 
 
 @app.get("/api/admin/users")
-async def list_users(
+def list_users(
     session=Depends(require_permission("users.manage")),
 ):
     """Lista usuários e permissões para administradores autorizados."""
@@ -549,7 +627,7 @@ def _raise_identity_http_error(exc: Exception) -> None:
 
 
 @app.post("/api/admin/users", status_code=201)
-async def create_user(payload: CreateUserRequest, session: CsrfSession):
+def create_user(payload: CreateUserRequest, session: CsrfSession):
     """Cria um usuário com negação padrão e permissões explícitas."""
     try:
         user = get_identity_service().create_user(
@@ -572,7 +650,7 @@ async def create_user(payload: CreateUserRequest, session: CsrfSession):
 
 
 @app.patch("/api/admin/users/{user_id}")
-async def update_user(user_id: str, payload: UpdateUserRequest, session: CsrfSession):
+def update_user(user_id: str, payload: UpdateUserRequest, session: CsrfSession):
     """Atualiza dados e substitui a lista completa de acessos de um usuário."""
     try:
         service = get_identity_service()
@@ -596,7 +674,7 @@ async def update_user(user_id: str, payload: UpdateUserRequest, session: CsrfSes
 
 
 @app.delete("/api/admin/users/{user_id}", status_code=204)
-async def delete_user(user_id: str, session: CsrfSession):
+def delete_user(user_id: str, session: CsrfSession):
     """Exclui um usuário comum com auditoria e revogação das sessões."""
     try:
         get_identity_service().delete_user(user_id, actor_user_id=session.user.id)
@@ -631,7 +709,7 @@ def _raise_orcamento_http_error(exc: Exception) -> None:
 
 
 @app.get("/api/orcamento/orcamentos")
-async def listar_orcamentos(_session=Depends(require_permission("orcamento.view"))):
+def listar_orcamentos(_session=Depends(require_permission("orcamento.view"))):
     """Lista orçamentos com a revisão atual de cada um."""
     service = get_orcamento_service()
     agora = service.clock()
@@ -643,7 +721,7 @@ async def listar_orcamentos(_session=Depends(require_permission("orcamento.view"
 
 
 @app.get("/api/orcamento/schema")
-async def obter_schema_orcamento(
+def obter_schema_orcamento(
     calculation_version: int = Query(default=2, ge=1, le=2),
     _session=Depends(require_permission("orcamento.view")),
 ):
@@ -652,7 +730,7 @@ async def obter_schema_orcamento(
 
 
 @app.post("/api/orcamento/orcamentos", status_code=201)
-async def criar_orcamento(
+def criar_orcamento(
     payload: CreateOrcamentoRequest,
     session=Depends(require_permissions_with_csrf("orcamento.view", "orcamento.edit")),
 ):
@@ -666,7 +744,7 @@ async def criar_orcamento(
 
 
 @app.get("/api/orcamento/orcamentos/{orcamento_id}")
-async def obter_orcamento(
+def obter_orcamento(
     orcamento_id: str,
     _session=Depends(require_permission("orcamento.view")),
 ):
@@ -680,7 +758,7 @@ async def obter_orcamento(
 
 
 @app.post("/api/orcamento/orcamentos/{orcamento_id}/revisoes", status_code=201)
-async def criar_revisao_orcamento(
+def criar_revisao_orcamento(
     orcamento_id: str,
     payload: RevisaoOrcamentoRequest,
     session=Depends(require_permissions_with_csrf("orcamento.view", "orcamento.edit")),
@@ -699,7 +777,7 @@ async def criar_revisao_orcamento(
 
 
 @app.patch("/api/orcamento/revisoes/{revisao_id}")
-async def editar_cabecalho_revisao(
+def editar_cabecalho_revisao(
     revisao_id: str,
     payload: UpdateCabecalhoOrcamentoRequest,
     session=Depends(require_permissions_with_csrf("orcamento.view", "orcamento.edit")),
@@ -722,7 +800,7 @@ async def editar_cabecalho_revisao(
 
 
 @app.post("/api/orcamento/revisoes/{revisao_id}/situacao")
-async def alterar_situacao_revisao(
+def alterar_situacao_revisao(
     revisao_id: str,
     payload: SituacaoRevisaoRequest,
     session=Depends(
@@ -838,13 +916,13 @@ def exportar_orcamento(
 
 # Rotas legadas temporárias: mantêm clientes antigos usando a nova sessão persistida.
 @app.post("/api/admin/login")
-async def admin_login(payload: AdminLoginRequest, request: Request, response: Response):
+def admin_login(payload: AdminLoginRequest, request: Request, response: Response):
     _service, _credentials, user = _authenticate(payload, request, response, legacy=True)
     return {"authenticated": True, "username": user.username}
 
 
 @app.get("/api/admin/session")
-async def admin_session(request: Request):
+def admin_session(request: Request):
     try:
         session = get_identity_service().resolve_session(token_from_request(request))
     except RuntimeError:
@@ -857,7 +935,7 @@ async def admin_session(request: Request):
 
 
 @app.post("/api/admin/logout")
-async def admin_logout(request: Request, response: Response):
+def admin_logout(request: Request, response: Response):
     try:
         get_identity_service().revoke_session(token_from_request(request))
     except RuntimeError:
@@ -870,7 +948,7 @@ async def admin_logout(request: Request, response: Response):
     "/api/dashboard/resumo",
     dependencies=[Depends(require_permissions("dre.view", "fluxo.view"))],
 )
-async def dashboard_resumo(
+def dashboard_resumo(
     ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
     mes: int | None = Query(None, description="Mês de referência 1..12"),
 ):
@@ -891,7 +969,7 @@ async def dashboard_resumo(
 
 
 @app.get("/api/dre/painel", dependencies=[Depends(require_permission("dre.view"))])
-async def painel_dre(
+def painel_dre(
     ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
     meses: list[int] | None = Query(None, description="Meses a incluir, repetível"),
     centro_custo: list[str] | None = Query(None, description="Obras/centros de custo"),
@@ -924,7 +1002,7 @@ async def painel_dre(
     "/api/fluxo_caixa/painel",
     dependencies=[Depends(require_permission("fluxo.view"))],
 )
-async def painel_fluxo_caixa(
+def painel_fluxo_caixa(
     ano: int | None = Query(None, description="Ano de referência (ex: 2025)"),
     meses: list[int] | None = Query(None, description="Meses a incluir, repetível"),
     banco: list[str] | None = Query(None, description="Bancos de origem"),
@@ -970,7 +1048,8 @@ async def detectar_competencia(
             tmp_paths.append(tmp_path)
             arquivos_detector.append((tmp_path, _nome_upload_seguro(upload)))
 
-        return competencia_detector_service.detectar(
+        return await _em_thread(
+            competencia_detector_service.detectar,
             fluxo=fluxo.value,
             arquivos=arquivos_detector,
         )
@@ -985,6 +1064,25 @@ async def detectar_competencia(
         for path in tmp_paths:
             if path.exists():
                 path.unlink()
+
+
+def _validar_arquivo_sync(
+    tmp_path: Path,
+    fluxo: FlowType,
+    competencia: str | None,
+    modo_cumulativo: bool | None,
+) -> dict:
+    flow_key = "dre" if fluxo == FlowType.DRE else "fluxo"
+    dados = ExcelParser(flow_key).ler_arquivo(tmp_path)
+    if fluxo == FlowType.DRE:
+        result = DREValidator().validar(
+            dados,
+            competencia=competencia,
+            modo_cumulativo=modo_cumulativo,
+        )
+    else:
+        result = FluxoCaixaValidator().validar(dados)
+    return result.model_dump(mode="json")
 
 
 @app.post(
@@ -1004,25 +1102,9 @@ async def validar_arquivo(
     tmp_path = None
     try:
         tmp_path = await _salvar_upload_temporario(arquivo)
-
-        # Parse
-        flow_key = "dre" if fluxo == FlowType.DRE else "fluxo"
-        parser = ExcelParser(flow_key)
-        dados = parser.ler_arquivo(tmp_path)
-
-        # Validar
-        if fluxo == FlowType.DRE:
-            validator = DREValidator()
-            result = validator.validar(
-                dados,
-                competencia=competencia,
-                modo_cumulativo=modo_cumulativo,
-            )
-        else:
-            validator = FluxoCaixaValidator()
-            result = validator.validar(dados)
-
-        return result.model_dump(mode="json")
+        return await _em_thread(
+            _validar_arquivo_sync, tmp_path, fluxo, competencia, modo_cumulativo
+        )
 
     except HTTPException:
         raise
@@ -1058,7 +1140,9 @@ async def processar_dre(
     tmp_path = None
     try:
         tmp_path = await _salvar_upload_temporario(arquivo)
-        resultado = dre_service.processar(
+        resultado = await _em_thread(
+            _executar_escrita,
+            dre_service.processar,
             tmp_path,
             _nome_upload_seguro(arquivo),
             competencia,
@@ -1094,7 +1178,12 @@ async def processar_fluxo_caixa(
             tmp_paths.append(tmp_path)
             arquivos_lote.append((tmp_path, _nome_upload_seguro(arquivo)))
 
-        resultado = fluxo_service.processar_lote(arquivos=arquivos_lote, periodo=periodo)
+        resultado = await _em_thread(
+            _executar_escrita,
+            fluxo_service.processar_lote,
+            arquivos=arquivos_lote,
+            periodo=periodo,
+        )
         return resultado.model_dump(mode="json")
 
     except HTTPException:
@@ -1139,7 +1228,23 @@ async def gerar_fluxo_caixa(
 
     if not competencia:
         raise HTTPException(status_code=400, detail="Informe 'competencia' para gerar do banco.")
+    return await _em_thread(
+        _executar_geracao,
+        _gerar_fluxo_caixa_do_banco,
+        competencia=competencia,
+        modo_teste=modo_teste,
+        meses_incluir=meses_incluir,
+        ano_todo=ano_todo,
+    )
 
+
+def _gerar_fluxo_caixa_do_banco(
+    *,
+    competencia: str,
+    modo_teste: bool,
+    meses_incluir: list[int] | None,
+    ano_todo: bool,
+) -> dict:
     try:
         verificacao = fluxo_geracao_db_service.verificar_dados(
             competencia=competencia,
@@ -1183,6 +1288,17 @@ async def gerar_fluxo_caixa(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+def _validar_lote_fluxo_sync(arquivos_lote: list[tuple[Path, str]]) -> dict:
+    parser = ExcelParser("fluxo")
+    lista_dados = []
+    for tmp_path, nome in arquivos_lote:
+        dados = parser.ler_arquivo(tmp_path)
+        # Sobrescrever nome para preservar original
+        dados["arquivo"] = nome
+        lista_dados.append(dados)
+    return FluxoCaixaValidator().validar_lote(lista_dados).model_dump(mode="json")
+
+
 @app.post(
     "/api/validar/fluxo_caixa/lote",
     dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
@@ -1194,21 +1310,12 @@ async def validar_lote_fluxo(
     tmp_paths = []
     try:
         _validar_quantidade_uploads(arquivos)
-        parser = ExcelParser("fluxo")
-        lista_dados = []
-
+        arquivos_lote: list[tuple[Path, str]] = []
         for arquivo in arquivos:
             tmp_path = await _salvar_upload_temporario(arquivo)
             tmp_paths.append(tmp_path)
-
-            dados = parser.ler_arquivo(tmp_path)
-            # Sobrescrever nome para preservar original
-            dados["arquivo"] = _nome_upload_seguro(arquivo)
-            lista_dados.append(dados)
-
-        validator = FluxoCaixaValidator()
-        result = validator.validar_lote(lista_dados)
-        return result.model_dump(mode="json")
+            arquivos_lote.append((tmp_path, _nome_upload_seguro(arquivo)))
+        return await _em_thread(_validar_lote_fluxo_sync, arquivos_lote)
 
     except HTTPException:
         raise
@@ -1224,7 +1331,7 @@ async def validar_lote_fluxo(
 @app.get(
     "/api/templates/info/{fluxo}", dependencies=[Depends(require_permission("admin_banco.use"))]
 )
-async def info_template(fluxo: FlowType):
+def info_template(fluxo: FlowType):
     """Retorna informações estruturais do template oficial."""
     try:
         if fluxo == FlowType.DRE:
@@ -1261,7 +1368,7 @@ async def info_template(fluxo: FlowType):
 
 
 @app.get("/api/config/{fluxo}", dependencies=[Depends(require_permission("admin_banco.use"))])
-async def get_config(fluxo: FlowType):
+def get_config(fluxo: FlowType):
     """Retorna configuração de mapeamento do fluxo."""
     import json
 
@@ -1278,7 +1385,7 @@ async def get_config(fluxo: FlowType):
 
 
 @app.get("/api/logs", dependencies=[Depends(require_permission("admin_banco.use"))])
-async def listar_logs():
+def listar_logs():
     """Lista logs de processamento disponíveis."""
     logs = []
     if settings.logs_dir.exists():
@@ -1295,7 +1402,7 @@ async def listar_logs():
     response_model=DREProcessamentoResponse,
     dependencies=[Depends(require_permission("admin_banco.use"))],
 )
-async def obter_processamento(processamento_id: str):
+def obter_processamento(processamento_id: str):
     """Consulta o status persistido de um processamento (DRE ou Fluxo)."""
     resultado = dre_service.obter_processamento(processamento_id)
     if not resultado:
@@ -1309,7 +1416,7 @@ async def obter_processamento(processamento_id: str):
     "/api/processamentos/{processamento_id}/download",
     dependencies=[Depends(require_permission("admin_banco.use"))],
 )
-async def download_processamento(processamento_id: str):
+def download_processamento(processamento_id: str):
     """Baixa o arquivo final gerado por um processamento (DRE ou Fluxo)."""
     arquivo_saida = dre_service.obter_arquivo_saida(processamento_id)
     if not arquivo_saida:
@@ -1320,7 +1427,7 @@ async def download_processamento(processamento_id: str):
 
 
 @app.get("/api/etapa1/status", dependencies=[Depends(require_permission("admin_banco.use"))])
-async def status_etapa1():
+def status_etapa1():
     """Resumo de prontidão da Etapa 1 (fundação e arquitetura)."""
     baseline_dir = settings.config_dir / "template_baselines"
     dre_baseline = baseline_dir / "dre_template_baseline.json"
@@ -1367,7 +1474,9 @@ async def ingestao_dre(
     try:
         tmp_path = await _salvar_upload_temporario(arquivo)
 
-        resultado = dre_ingestao_service.ingestar(
+        resultado = await _em_thread(
+            _executar_escrita,
+            dre_ingestao_service.ingestar,
             arquivo_path=tmp_path,
             arquivo_nome=_nome_upload_seguro(arquivo),
             competencia=competencia,
@@ -1393,7 +1502,7 @@ async def ingestao_dre(
 @app.get(
     "/api/dre/ingestoes/{upload_id}", dependencies=[Depends(require_permission("admin_banco.use"))]
 )
-async def obter_status_ingestao(upload_id: str):
+def obter_status_ingestao(upload_id: str):
     """Consulta o status de uma ingestão DRE."""
     resultado = dre_ingestao_service.obter_status(upload_id)
     if not resultado:
@@ -1402,7 +1511,7 @@ async def obter_status_ingestao(upload_id: str):
 
 
 @app.get("/api/dre/ingestoes", dependencies=[Depends(require_permission("admin_banco.use"))])
-async def listar_ingestoes(
+def listar_ingestoes(
     ano: int | None = None,
     mes: int | None = None,
     limit: int = 100,
@@ -1419,7 +1528,7 @@ async def listar_ingestoes(
     "/api/dre/admin/limpar",
     dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
 )
-async def limpar_base_dre(
+def limpar_base_dre(
     ano: int | None = Form(None, description="Ano opcional (ex: 2025)"),
     mes: int | None = Form(None, description="Mês opcional 1..12 (requer ano)"),
     confirmar: bool = Form(False, description="Confirmação explícita da limpeza"),
@@ -1438,7 +1547,9 @@ async def limpar_base_dre(
                 detail="Parametro 'mes' deve estar entre 1 e 12.",
             )
 
-        resultado = dre_geracao_service.repository.limpar_dados(ano=ano, mes=mes)
+        resultado = _executar_escrita(
+            dre_geracao_service.repository.limpar_dados, ano=ano, mes=mes
+        )
         return {
             "success": True,
             "ano": ano,
@@ -1456,7 +1567,7 @@ async def limpar_base_dre(
     "/api/dre/admin/indicadores",
     dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
 )
-async def consultar_indicadores_manuais_dre(
+def consultar_indicadores_manuais_dre(
     ano: int = Query(..., description="Ano da competência"),
     mes: int = Query(..., description="Mês da competência"),
 ):
@@ -1472,7 +1583,7 @@ async def consultar_indicadores_manuais_dre(
 @app.post(
     "/api/dre/admin/indicadores", dependencies=[Depends(require_permission("admin_banco.use"))]
 )
-async def salvar_indicadores_manuais_dre(
+def salvar_indicadores_manuais_dre(
     ano: int = Form(..., description="Ano da competência"),
     mes: int = Form(..., description="Mês da competência"),
     contas_pagar: float = Form(0, description="Contas a pagar"),
@@ -1501,7 +1612,7 @@ async def salvar_indicadores_manuais_dre(
             total_impostos_retidos,
         ),
     )
-    salvo = dre_painel_service.indicadores_manuais.upsert(registro)
+    salvo = _executar_escrita(dre_painel_service.indicadores_manuais.upsert, registro)
     return _payload_indicadores_manuais(salvo, True)
 
 
@@ -1509,7 +1620,7 @@ async def salvar_indicadores_manuais_dre(
     "/api/fluxo_caixa/admin/indicadores",
     dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
 )
-async def consultar_indicadores_manuais_fluxo(
+def consultar_indicadores_manuais_fluxo(
     ano: int = Query(..., description="Ano de referência do Fluxo de Caixa"),
 ):
     """Consulta indicadores manuais anuais do Fluxo de Caixa na ADM."""
@@ -1525,7 +1636,7 @@ async def consultar_indicadores_manuais_fluxo(
     "/api/fluxo_caixa/admin/indicadores",
     dependencies=[Depends(require_permission("admin_banco.use"))],
 )
-async def salvar_indicadores_manuais_fluxo(
+def salvar_indicadores_manuais_fluxo(
     ano: int = Form(..., description="Ano de referência do Fluxo de Caixa"),
     saldo_ano_anterior: float = Form(0, description="Saldo do ano anterior"),
     confirmar: bool = Form(False, description="Confirmação explícita do salvamento"),
@@ -1540,7 +1651,7 @@ async def salvar_indicadores_manuais_fluxo(
             saldo_ano_anterior,
         ),
     )
-    salvo = fluxo_painel_service.indicadores_manuais.upsert(registro)
+    salvo = _executar_escrita(fluxo_painel_service.indicadores_manuais.upsert, registro)
     return _payload_indicadores_manuais_fluxo(salvo, True)
 
 
@@ -1572,7 +1683,9 @@ async def ingestao_fluxo_caixa(
             tmp_paths.append(tmp_path)
             arquivos_lote.append((tmp_path, _nome_upload_seguro(arquivo)))
 
-        resultado = fluxo_ingestao_service.ingestar_lote(
+        resultado = await _em_thread(
+            _executar_escrita,
+            fluxo_ingestao_service.ingestar_lote,
             arquivos=arquivos_lote,
             competencia=competencia,
             replace=replace,
@@ -1597,7 +1710,7 @@ async def ingestao_fluxo_caixa(
 @app.get(
     "/api/fluxo_caixa/ingestoes", dependencies=[Depends(require_permission("admin_banco.use"))]
 )
-async def listar_ingestoes_fluxo_caixa(
+def listar_ingestoes_fluxo_caixa(
     ano: int | None = None,
     mes: int | None = None,
     limit: int = 100,
@@ -1614,7 +1727,7 @@ async def listar_ingestoes_fluxo_caixa(
     "/api/fluxo_caixa/admin/limpar",
     dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
 )
-async def limpar_base_fluxo_caixa(
+def limpar_base_fluxo_caixa(
     ano: int | None = Form(None, description="Ano opcional (ex: 2025)"),
     mes: int | None = Form(None, description="Mês opcional 1..12 (requer ano)"),
     confirmar: bool = Form(False, description="Confirmação explícita da limpeza"),
@@ -1633,7 +1746,9 @@ async def limpar_base_fluxo_caixa(
                 detail="Parametro 'mes' deve estar entre 1 e 12.",
             )
 
-        resultado = fluxo_ingestao_service.repository.limpar_dados(ano=ano, mes=mes)
+        resultado = _executar_escrita(
+            fluxo_ingestao_service.repository.limpar_dados, ano=ano, mes=mes
+        )
         return {
             "success": True,
             "ano": ano,
@@ -1651,7 +1766,7 @@ async def limpar_base_fluxo_caixa(
     "/api/dre/gerar",
     dependencies=[Depends(require_permission_with_csrf("admin_banco.use"))],
 )
-async def gerar_dre_cumulativo(
+def gerar_dre_cumulativo(
     competencia: str = Form(..., description="Competência alvo no formato MM/AAAA"),
     centro_custo: str | None = Form(None, description="Filtrar por obra/centro de custo"),
     modo_teste: bool = Form(False, description="Se True, apenas verifica sem gerar arquivo"),
@@ -1703,7 +1818,8 @@ async def gerar_dre_cumulativo(
             }
 
         # 2. Gerar arquivo
-        resultado = dre_geracao_completa_service.gerar_arquivo(
+        resultado = _executar_geracao(
+            dre_geracao_completa_service.gerar_arquivo,
             competencia=competencia,
             centro_custo=centro_custo,
             meses_incluir=meses_incluir,
@@ -1749,7 +1865,7 @@ async def gerar_dre_cumulativo(
     "/api/dre/exportar",
     dependencies=[Depends(require_permission_with_csrf("dre.view"))],
 )
-async def exportar_dre_por_centro_custo(
+def exportar_dre_por_centro_custo(
     competencia: str = Form(..., description="Competência alvo no formato MM/AAAA"),
     centro_custo: str = Form(..., description="Obra/centro de custo a exportar"),
     meses_incluir: list[int] | None = Form(None),
@@ -1770,7 +1886,8 @@ async def exportar_dre_por_centro_custo(
                 status_code=400,
                 detail=verificacao.get("error", "Dados insuficientes para exportação."),
             )
-        resultado = dre_geracao_completa_service.gerar_arquivo(
+        resultado = _executar_geracao(
+            dre_geracao_completa_service.gerar_arquivo,
             competencia=competencia,
             centro_custo=obra,
             meses_incluir=meses_incluir,
@@ -1792,7 +1909,7 @@ async def exportar_dre_por_centro_custo(
 
 
 @app.get("/api/dre/lancamentos", dependencies=[Depends(require_permission("admin_banco.use"))])
-async def listar_lancamentos(
+def listar_lancamentos(
     ano: int,
     mes: int,
     ate_mes: int | None = None,
@@ -1854,7 +1971,7 @@ async def listar_lancamentos(
 
 
 @app.get("/api/dre/resumo", dependencies=[Depends(require_permission("admin_banco.use"))])
-async def resumo_dre(
+def resumo_dre(
     ano: int,
     mes: int | None = None,
 ):
@@ -1889,7 +2006,7 @@ async def resumo_dre(
     "/api/dre/download/{arquivo_nome:path}",
     dependencies=[Depends(require_permission("admin_banco.use"))],
 )
-async def download_dre(arquivo_nome: str):
+def download_dre(arquivo_nome: str):
     """Download de arquivo DRE gerado."""
     arquivo_path = _resolver_output_xlsx(arquivo_nome)
     return _excel_file_response(arquivo_path, arquivo_path.name)
@@ -1899,15 +2016,38 @@ async def download_dre(arquivo_nome: str):
     "/api/fluxo_caixa/download/{arquivo_nome:path}",
     dependencies=[Depends(require_permission("admin_banco.use"))],
 )
-async def download_fluxo_caixa(arquivo_nome: str):
+def download_fluxo_caixa(arquivo_nome: str):
     """Download de arquivo Fluxo de Caixa gerado."""
     arquivo_path = _resolver_output_xlsx(arquivo_nome)
     return _excel_file_response(arquivo_path, arquivo_path.name)
 
 
+CACHE_CONTROL_ASSETS = "public, max-age=31536000, immutable"
+CACHE_CONTROL_HTML = "no-cache"
+
+
+class FrontendStaticFiles(StaticFiles):
+    """Arquivos do Vite: /assets/* tem hash no nome e pode ficar em cache para sempre.
+
+    O index.html precisa ser revalidado a cada carga para apontar sempre para os
+    assets do build atual.
+    """
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        if response.status_code not in (200, 304):
+            return response
+        normalizado = path.replace("\\", "/").lstrip("./")
+        if normalizado.startswith("assets/"):
+            response.headers["Cache-Control"] = CACHE_CONTROL_ASSETS
+        elif response.headers.get("content-type", "").startswith("text/html"):
+            response.headers["Cache-Control"] = CACHE_CONTROL_HTML
+        return response
+
+
 if settings.frontend_dist_dir.exists():
     app.mount(
         "/",
-        StaticFiles(directory=str(settings.frontend_dist_dir), html=True),
+        FrontendStaticFiles(directory=str(settings.frontend_dist_dir), html=True),
         name="frontend",
     )

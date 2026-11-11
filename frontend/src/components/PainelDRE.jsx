@@ -1,5 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { fetchWithCsrfRecovery } from '../auth/csrfFetch';
+import { usePanelData } from '../hooks/usePanelData';
+import { panelDataCache } from '../services/panelDataCache';
 import {
   BarChart3,
   Download,
@@ -10,12 +12,9 @@ import {
   RotateCcw,
   TrendingUp,
 } from 'lucide-react';
+import { MonthlyEvolutionChart, RankingChart, preloadFinancialCharts } from './LazyFinancialCharts';
 import {
   ChartCard,
-  MonthlyEvolutionChart,
-  RankingChart,
-} from './FinancialCharts';
-import {
   FinancialHealthCard,
   KpiCard,
   PanelHero,
@@ -25,9 +24,11 @@ import {
 } from './PanelShared';
 import { FilterDock, MonthSlicer, SearchableSlicer, YearSelect } from './PanelSlicers';
 import {
+  buildDefaultYearQuery,
   buildDREExportRequest,
   buildFilterSummary,
   buildDREPanelQuery,
+  buildPanelUrl,
   buildResultadoLiquidoKpi,
   countSelectedFilters,
   formatCurrency,
@@ -144,41 +145,36 @@ function DREAnalysisPanel({ title, subtitle, items, emptyText, type }) {
 
 export default function PainelDRE({ apiBase, csrfToken, onBusyChange, onNotify }) {
   const [filters, setFilters] = useState(emptyFilters);
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
 
+  const endpoint = `${apiBase}/dre/painel`;
   const query = useMemo(() => buildDREPanelQuery(filters), [filters]);
-
-  const carregarPainel = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${apiBase}/dre/painel${query ? `?${query}` : ''}`);
-      if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        throw new Error(detail?.detail || 'Erro ao carregar Painel DRE');
-      }
-      const payload = await response.json();
-      setData(payload);
-      setFilters((prev) => (prev.ano ? prev : { ...prev, ano: String(payload.periodo?.ano || '') }));
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [apiBase, query]);
+  const {
+    data,
+    error,
+    isInitialLoading,
+    isRefreshing,
+    isFetching: loading,
+    refresh: carregarPainel,
+  } = usePanelData(buildPanelUrl(endpoint, query), { errorMessage: 'Erro ao carregar Painel DRE' });
 
   useEffect(() => {
-    carregarPainel();
-  }, [carregarPainel]);
+    if (!data || filters.ano) return;
+    const defaultYearQuery = buildDefaultYearQuery(filters, data, buildDREPanelQuery);
+    if (defaultYearQuery) panelDataCache.prime(buildPanelUrl(endpoint, defaultYearQuery), data);
+    if (data.periodo?.ano) setFilters((prev) => (prev.ano ? prev : { ...prev, ano: String(data.periodo.ano) }));
+  }, [data, endpoint, filters]);
 
+  // O loader de tela inteira só cobre a primeira carga e a exportação; trocas de
+  // filtro mantêm os dados atuais na tela com um indicador discreto.
   useEffect(() => {
-    onBusyChange?.(loading || exporting);
-  }, [exporting, loading, onBusyChange]);
+    onBusyChange?.(isInitialLoading || exporting);
+  }, [exporting, isInitialLoading, onBusyChange]);
 
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
+
+  // Baixa os gráficos junto com os dados, sem esperar a primeira resposta.
+  useEffect(() => { preloadFinancialCharts(); }, []);
 
   const updateFilter = (key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -336,7 +332,7 @@ export default function PainelDRE({ apiBase, csrfToken, onBusyChange, onNotify }
   ]);
 
   return (
-    <section className="aideal-panel-page">
+    <section className="aideal-panel-page" aria-busy={isRefreshing || undefined}>
       <PanelHero
         kicker="Painel DRE"
         title="Resultado por obra e centro de custos"
@@ -346,6 +342,7 @@ export default function PainelDRE({ apiBase, csrfToken, onBusyChange, onNotify }
           { label: 'Recortes', value: activeFilterCount > 0 ? formatNumber(activeFilterCount) : 'Todos' },
           { label: 'Status', value: loading ? 'Atualizando' : 'Pronto para análise' },
         ]}
+        refreshing={isRefreshing}
         actions={(
           <>
             <YearSelect anos={filtros.anos} value={filters.ano || data?.periodo?.ano || ''} onChange={handleYearChange} />
@@ -405,7 +402,7 @@ export default function PainelDRE({ apiBase, csrfToken, onBusyChange, onNotify }
         />
       </FilterDock>
 
-      {loading && !data ? (
+      {isInitialLoading ? (
         <PanelSkeleton />
       ) : (
         <>

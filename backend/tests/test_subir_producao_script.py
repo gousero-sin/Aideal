@@ -45,6 +45,59 @@ def test_host_pode_ser_restrito_por_variavel_de_ambiente():
     assert result.stdout == "127.0.0.1"
 
 
+def _fake_nproc(tmp_path: Path, cpus: int) -> Path:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    nproc = bin_dir / "nproc"
+    nproc.write_text(f"#!/usr/bin/env bash\nprintf '{cpus}\\n'\n", encoding="utf-8")
+    nproc.chmod(0o755)
+    return bin_dir
+
+
+def test_workers_padrao_usa_cpus_ate_quatro(tmp_path):
+    bin_dir = _fake_nproc(tmp_path, 2)
+    result = run_bash(
+        "unset AIDEAL_WORKERS; "
+        f"export PATH={shlex.quote(str(bin_dir))}:$PATH; "
+        f"source {shlex.quote(str(SCRIPT_PATH))}; "
+        "printf '%s' \"$WORKERS\""
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "2"
+
+
+def test_workers_padrao_limita_em_quatro(tmp_path):
+    bin_dir = _fake_nproc(tmp_path, 16)
+    result = run_bash(
+        "unset AIDEAL_WORKERS; "
+        f"export PATH={shlex.quote(str(bin_dir))}:$PATH; "
+        f"source {shlex.quote(str(SCRIPT_PATH))}; "
+        "printf '%s' \"$WORKERS\""
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "4"
+
+
+def test_workers_pode_ser_definido_por_variavel_de_ambiente():
+    result = run_bash(
+        f"AIDEAL_WORKERS=1 source {shlex.quote(str(SCRIPT_PATH))}; printf '%s' \"$WORKERS\""
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "1"
+
+
+def test_workers_invalido_aborta_antes_de_subir():
+    result = run_bash(
+        f"AIDEAL_WORKERS=zero source {shlex.quote(str(SCRIPT_PATH))}; start_application"
+    )
+
+    assert result.returncode != 0
+    assert "AIDEAL_WORKERS" in result.stderr
+
+
 def test_instalacao_frontend_roda_npm_ci_com_dev_deps_mesmo_com_node_modules(tmp_path):
     frontend_dir = tmp_path / "frontend"
     frontend_dir.mkdir()

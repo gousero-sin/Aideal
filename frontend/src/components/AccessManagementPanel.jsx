@@ -63,6 +63,9 @@ export default function AccessManagementPanel({
   const [deleteUserId, setDeleteUserId] = useState(null);
   const [error, setError] = useState(null);
   const busy = loading || creating || savingUserId !== null || actionUserId !== null;
+  // Recargas depois de salvar não cobrem a tela: só a primeira leitura e as gravações.
+  const [loadedOnce, setLoadedOnce] = useState(false);
+  const screenBusy = (loading && !loadedOnce) || creating || savingUserId !== null || actionUserId !== null;
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -73,6 +76,7 @@ export default function AccessManagementPanel({
       setError(requestError.message);
     } finally {
       setLoading(false);
+      setLoadedOnce(true);
     }
   }, [client]);
 
@@ -81,8 +85,8 @@ export default function AccessManagementPanel({
   }, [loadUsers]);
 
   useEffect(() => {
-    onBusyChange?.(busy);
-  }, [busy, onBusyChange]);
+    onBusyChange?.(screenBusy);
+  }, [screenBusy, onBusyChange]);
 
   useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
 

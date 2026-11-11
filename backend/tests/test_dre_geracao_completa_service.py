@@ -178,9 +178,15 @@ def _copiar_template(tmp_path: Path) -> Path:
     return destino
 
 
+def _normalizar_rotulo_teste(texto: object) -> str:
+    return " ".join(str(texto or "").split()).casefold()
+
+
 def _celula_dre_por_rotulo(ws, rotulo: str, coluna: str) -> object:
+    """Valor da célula pelo rótulo da coluna A (o DRE gerado exibe caixa alta)."""
+    alvo = _normalizar_rotulo_teste(rotulo)
     for linha in range(1, ws.max_row + 1):
-        if ws.cell(linha, 1).value == rotulo:
+        if _normalizar_rotulo_teste(ws.cell(linha, 1).value) == alvo:
             return ws[f"{coluna}{linha}"].value
     raise AssertionError(f"Rótulo DRE ausente: {rotulo}")
 
@@ -401,13 +407,13 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     assert ws_apoio_valores["C7"].value == 1300
     assert ws_apoio_valores["C8"].value == 1000
     assert _celula_apoio_por_rotulo(ws_apoio_valores, "DIFAL ICMS", "C") == -20
-    assert ws_dre_valores["B6"].value == 1300
-    assert ws_dre_valores["B7"].value == 0
-    assert ws_dre_valores["B11"].value == 0
-    assert ws_dre_valores["B16"].value == 1300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)Receita Bruta", "B") == 1300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Deduções sobre vendas", "B") == 0
+    assert _celula_dre_por_rotulo(ws_dre_valores, "IR Retido", "B") == 0
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)Receita Líquida", "B") == 1300
     assert _celula_dre_por_rotulo(ws_dre_valores, "DIFAL ICMS", "B") == -20
     assert _celula_dre_por_rotulo(ws_dre_valores, "Fornecedores", "B") == -20
-    assert ws_dre_valores["B31"].value == 1280
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)Margem de Contribuição", "B") == 1280
     assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "B") == 1280
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "B") == -300
     assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "B") == -100
@@ -415,11 +421,11 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
     assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO LÍQUIDO", "B") == 1080
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Investimentos", "B") == -50
     assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO GERENCIAL", "B") == 1030
-    assert ws_dre_valores["AH6"].value == 1300
-    assert ws_dre_valores["AH7"].value == 0
-    assert ws_dre_valores["AH11"].value == 0
-    assert ws_dre_valores["AH16"].value == 1300
-    assert ws_dre_valores["AH31"].value == 1280
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)Receita Bruta", "AH") == 1300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(-)Deduções sobre vendas", "AH") == 0
+    assert _celula_dre_por_rotulo(ws_dre_valores, "IR Retido", "AH") == 0
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)Receita Líquida", "AH") == 1300
+    assert _celula_dre_por_rotulo(ws_dre_valores, "(=)Margem de Contribuição", "AH") == 1280
     assert _celula_dre_por_rotulo(ws_dre_valores, "(=)RESULTADO OPERACIONAL", "AH") == 1280
     assert _celula_dre_por_rotulo(ws_dre_valores, "(-)IRPJ/CSLL", "AH") == -300
     assert _celula_dre_por_rotulo(ws_dre_valores, "CSLL", "AH") == -100
@@ -430,9 +436,9 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
 
     wb_formulas = load_workbook(output_path, data_only=False)
     ws_dre_formulas = wb_formulas["DRE"]
-    assert not isinstance(ws_dre_formulas["B16"].value, str)
-    assert ws_dre_formulas["B16"].value == 1300
-    assert ws_dre_formulas["B31"].value == 1280
+    assert not isinstance(_celula_dre_por_rotulo(ws_dre_formulas, "(=)Receita Líquida", "B"), str)
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)Receita Líquida", "B") == 1300
+    assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)Margem de Contribuição", "B") == 1280
     assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO OPERACIONAL", "B") == 1280
     assert _celula_dre_por_rotulo(ws_dre_formulas, "(-)IRPJ/CSLL", "B") == -300
     assert _celula_dre_por_rotulo(ws_dre_formulas, "(=)RESULTADO LÍQUIDO", "B") == 1080
@@ -440,7 +446,12 @@ def test_gerar_arquivo_materializa_receita_liquida_e_resultado_gerencial(tmp_pat
 
 
 def _linha_dre_por_rotulo(ws, rotulo: str) -> int:
-    linhas = [linha for linha in range(1, ws.max_row + 1) if ws.cell(linha, 1).value == rotulo]
+    alvo = _normalizar_rotulo_teste(rotulo)
+    linhas = [
+        linha
+        for linha in range(1, ws.max_row + 1)
+        if _normalizar_rotulo_teste(ws.cell(linha, 1).value) == alvo
+    ]
     assert len(linhas) == 1, f"Rótulo DRE ausente ou duplicado: {rotulo} -> {linhas}"
     return linhas[0]
 
@@ -812,10 +823,10 @@ def test_materializar_gastos_fixos_e_a_soma_exata_dos_filhos(tmp_path):
         service._materializar_dre(writer)
         ws_dre = writer._wb["DRE"]
 
-        assert ws_dre["B33"].value == -10.60
-        assert ws_dre["B61"].value == -20.60
-        assert round(ws_dre["B32"].value, 2) == -31.20
-        assert _arredondar_inteiro(ws_dre["B32"].value) == -31
+        assert _celula_dre_por_rotulo(ws_dre, "Despesas com Pessoal", "B") == -10.60
+        assert _celula_dre_por_rotulo(ws_dre, "Serviços de Terceiros", "B") == -20.60
+        assert round(_celula_dre_por_rotulo(ws_dre, "(-)Gastos Fixos", "B"), 2) == -31.20
+        assert _arredondar_inteiro(_celula_dre_por_rotulo(ws_dre, "(-)Gastos Fixos", "B")) == -31
 
 
 def test_materializar_gastos_fixos_e_a_soma_dos_nove_subtotais_filhos(tmp_path):
@@ -886,9 +897,7 @@ def test_agregar_apoio_17_8_iss_e_despesa_administrativa_e_nao_soma_iss_retido()
         plano = service._ler_plano_contas(writer, aplicar_overrides_dre_gerado=True)
 
     lancamentos = [
-        _lancamento_receita_bruta(
-            2, "NF 10", "1.1.1 - Recebimento de Clientes", credito="1000.00"
-        ),
+        _lancamento_receita_bruta(2, "NF 10", "1.1.1 - Recebimento de Clientes", credito="1000.00"),
         _lancamento_receita_bruta(2, "ISS NF 10", "ISS", debito="80.00"),
         _lancamento_receita_bruta(2, "Guia ISS", "17.8 - ISS", debito="7.00"),
     ]
@@ -1116,12 +1125,16 @@ def test_materializar_financeiro_soma_subtotais_filhos_arredondados(tmp_path):
         service._materializar_dre(writer)
         ws_dre = writer._wb["DRE"]
 
-        assert ws_dre["J153"].value == 1.19
-        assert round(ws_dre["J157"].value, 2) == -44942.61
-        assert ws_dre["J152"].value == _arredondar_inteiro(
-            ws_dre["J153"].value
-        ) + _arredondar_inteiro(ws_dre["J157"].value)
-        assert ws_dre["J152"].value == -44942
+        assert _celula_dre_por_rotulo(ws_dre, "(+) Receitas Financeiras", "J") == 1.19
+        assert (
+            round(_celula_dre_por_rotulo(ws_dre, "(-) Despesas Financeiras", "J"), 2) == -44942.61
+        )
+        assert _celula_dre_por_rotulo(
+            ws_dre, "(+/-)Despesas e Receitas Financeiras", "J"
+        ) == _arredondar_inteiro(
+            _celula_dre_por_rotulo(ws_dre, "(+) Receitas Financeiras", "J")
+        ) + _arredondar_inteiro(_celula_dre_por_rotulo(ws_dre, "(-) Despesas Financeiras", "J"))
+        assert _celula_dre_por_rotulo(ws_dre, "(+/-)Despesas e Receitas Financeiras", "J") == -44942
 
 
 def test_materializar_receita_liquida_parte_da_receita_bruta_exibida_em_reais(tmp_path):
@@ -1164,9 +1177,9 @@ def test_materializar_receita_liquida_parte_da_receita_bruta_exibida_em_reais(tm
         service._materializar_dre(writer)
         ws_dre = writer._wb["DRE"]
 
-        assert ws_dre["B6"].value == 1000
-        assert ws_dre["B7"].value == -100
-        assert ws_dre["B16"].value == 900
+        assert _celula_dre_por_rotulo(ws_dre, "(=)Receita Bruta", "B") == 1000
+        assert _celula_dre_por_rotulo(ws_dre, "(-)Deduções sobre vendas", "B") == -100
+        assert _celula_dre_por_rotulo(ws_dre, "(=)Receita Líquida", "B") == 900
 
 
 def test_subtotal_financeiro_trimestral_soma_os_meses_ja_arredondados():

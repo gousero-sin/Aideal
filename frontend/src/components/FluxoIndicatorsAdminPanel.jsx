@@ -9,6 +9,7 @@ import {
   Save,
   WalletCards,
 } from 'lucide-react';
+import { invalidatePanelData } from '../services/panelDataCache';
 
 const hoje = () => new Date();
 
@@ -152,6 +153,8 @@ export default function FluxoIndicatorsAdminPanel({
         saldo_ano_anterior: inputValue(indicadores.saldo_ano_anterior),
       });
       setRecordInfo({ existe: true, updatedAt: payload?.updated_at || null });
+      // Indicadores manuais entram nos KPIs do painel; a resposta em cache ficou velha.
+      invalidatePanelData(`${apiBase}/fluxo_caixa/`);
       onNotify?.({ type: 'success', message: `Indicadores Fluxo ${ano} salvos.` });
     } catch (err) {
       setError(err.message);

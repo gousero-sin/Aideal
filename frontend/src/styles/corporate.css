@@ -3061,3 +3061,246 @@ a:focus-visible {
     max-width: 100%;
   }
 }
+
+/* ============================================================
+   Carregamento progressivo e responsividade (360px–1280px)
+   ============================================================
+   Fica no fim do arquivo de propósito: as grades abaixo substituem as
+   colunas fixas e os empilhamentos das media queries anteriores. */
+
+.aideal-page-kicker-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.aideal-refresh-indicator {
+  align-items: center;
+  color: var(--aideal-cyan);
+  display: inline-flex;
+  font-size: 0.72rem;
+  font-weight: 800;
+  gap: 5px;
+  min-height: 18px;
+}
+
+.aideal-refresh-indicator:empty {
+  display: none;
+}
+
+.aideal-refresh-indicator svg {
+  animation: aideal-spin 0.9s linear infinite;
+}
+
+[aria-busy="true"] .aideal-insight-grid,
+[aria-busy="true"] .aideal-indicator-grid,
+[aria-busy="true"] .aideal-analytics-grid {
+  opacity: 0.72;
+  transition: opacity 160ms ease;
+}
+
+.aideal-view-fallback {
+  background: rgba(7, 9, 13, 0.42);
+  border: 1px solid var(--aideal-border);
+  border-radius: 12px;
+  display: grid;
+  gap: 14px;
+  min-height: 220px;
+  padding: clamp(16px, 3vw, 28px);
+}
+
+.aideal-view-fallback .aideal-skeleton-line.is-wide {
+  border-radius: 10px;
+  height: 120px;
+  width: 100%;
+}
+
+.aideal-chart-placeholder {
+  animation: aideal-skeleton 1.4s ease-in-out infinite;
+  background:
+    linear-gradient(90deg, transparent, rgba(143, 213, 255, 0.08), transparent) 0 0 / 200% 100%,
+    rgba(143, 213, 255, 0.05);
+  border-radius: 8px;
+}
+
+@keyframes aideal-skeleton {
+  from { background-position: 100% 0, 0 0; }
+  to { background-position: -100% 0, 0 0; }
+}
+
+.aideal-view-error {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+}
+
+/* Header: o chip do painel ativo encolhe com reticências em telas estreitas. */
+.aideal-header-actions {
+  min-width: 0;
+}
+
+.aideal-context-chip {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.aideal-context-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Grades de KPIs e cards: colunas fluidas em vez de contagens fixas. Em telas
+   largas o resultado é o mesmo de antes (7 indicadores e 5 KPIs por linha). */
+.aideal-insight-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(176px, 100%), 1fr));
+}
+
+.aideal-situation-grid,
+.aideal-highlight-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(136px, 100%), 1fr));
+}
+
+.aideal-indicator-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(138px, 100%), 1fr));
+}
+
+.aideal-analytics-grid {
+  grid-template-columns: minmax(0, 1.45fr) minmax(min(320px, 100%), 0.8fr);
+}
+
+.aideal-analytics-grid-full {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.aideal-analytics-grid-three {
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+}
+
+.aideal-dashboard-grid-secondary {
+  grid-template-columns: minmax(0, 1.1fr) minmax(min(300px, 100%), 0.9fr);
+}
+
+.aideal-project-balance-row {
+  grid-template-columns: repeat(auto-fit, minmax(min(132px, 100%), 1fr));
+  min-width: 0;
+  width: min(560px, 100%);
+}
+
+.aideal-month-flags {
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+}
+
+.aideal-table-list {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 1100px) {
+  .aideal-analytics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 980px) {
+  .aideal-project-balance-row {
+    width: 100%;
+  }
+}
+
+@media (max-width: 520px) {
+  .aideal-insight-grid,
+  .aideal-situation-grid,
+  .aideal-highlight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .aideal-indicator-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .aideal-insight-kpi,
+  .aideal-situation-card {
+    min-height: 96px;
+    padding: 11px;
+  }
+
+  .aideal-insight-kpi strong {
+    font-size: 1.02rem;
+  }
+
+  .aideal-indicator-card,
+  .aideal-highlight-card {
+    min-height: 118px;
+  }
+
+  .aideal-context-chip span {
+    max-width: 58vw;
+  }
+}
+
+@media (max-width: 359px) {
+  .aideal-insight-grid,
+  .aideal-situation-grid,
+  .aideal-highlight-grid,
+  .aideal-indicator-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Alvos de toque de 44px em telas de toque e celulares. */
+@media (pointer: coarse), (max-width: 767px) {
+  .aideal-action,
+  .aideal-year-select select,
+  .aideal-filter-actions button,
+  .aideal-filter-toggle,
+  .aideal-slicer-heading button,
+  .aideal-selected-strip button,
+  .aideal-slicer-chip,
+  .aideal-slicer-option,
+  .aideal-slicer-search input,
+  .aideal-admin-flow-tab,
+  .aideal-month-flag,
+  .aideal-year-stepper > button,
+  .aideal-donut-legend-row,
+  .access-sidebar-item,
+  .access-sidebar-logout,
+  .access-primary-button,
+  .access-secondary-button,
+  .access-management input:not([type="checkbox"]):not([type="radio"]),
+  .access-management select,
+  .aideal-admin-page select,
+  .aideal-admin-page input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) {
+    min-height: 44px;
+  }
+
+  .aideal-year-stepper {
+    grid-template-columns: 44px 1fr 44px;
+  }
+
+  .aideal-slicer-heading button,
+  .aideal-selected-strip button {
+    min-width: 44px;
+  }
+
+  .aideal-donut-dot {
+    position: relative;
+  }
+
+  /* O ponto continua com 16px; a área de toque cresce para 44px. */
+  .aideal-donut-dot::after {
+    content: "";
+    inset: -14px;
+    position: absolute;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aideal-refresh-indicator svg,
+  .aideal-chart-placeholder {
+    animation: none;
+  }
+}

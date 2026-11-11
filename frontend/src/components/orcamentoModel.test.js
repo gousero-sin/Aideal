@@ -627,3 +627,107 @@ test('avisa sobre estrutura administrativa contada por dois caminhos', () => {
 test('revisões da versão anterior não recebem avisos das regras novas', () => {
   assert.deepEqual(collectOrcamentoWarnings({ calculation_version: 1, metadata: {} }), []);
 });
+
+// --- Carteira: filtro, contagem e histórico -------------------------------------------------
+import {
+  FILTROS_CARTEIRA,
+  ORDENACOES_CARTEIRA,
+  contarFiltrosCarteira,
+  filtrarCarteira,
+  limitarRevisoesVisiveis,
+  resumirEventoHistorico,
+  rotuloCampoHistorico,
+} from './orcamentoModel.js';
+
+const carteiraFixture = () => normalizeOrcamentos({ orcamentos: [
+  { id: 'a', sequencial: 1, codigo: 'ORC-0001', contratante: 'Ambev Anápolis', created_at: '2026-01-01T10:00:00',
+    revisao_atual: { id: 'ra', numero: 0, situacao: 'rascunho' }, dfp_summary: { preco_total_faturamento: 500 } },
+  { id: 'b', sequencial: 2, codigo: 'ORC-0002', contratante: 'Bunge', created_at: '2026-02-01T10:00:00',
+    revisao_atual: { id: 'rb', numero: 1, situacao: 'pronto_para_proposta' }, dfp_summary: { preco_total_faturamento: 9000 } },
+  { id: 'c', sequencial: 3, codigo: 'ORC-0003', contratante: 'Cargill', created_at: '2026-03-01T10:00:00',
+    revisao_atual: { id: 'rc', numero: 0, situacao: 'em_revisao' }, dfp_summary: { preco_total_faturamento: 100 } },
+  { id: 'd', sequencial: 4, codigo: 'ORC-0004', contratante: 'ambev Jundiaí', created_at: '2026-04-01T10:00:00',
+    revisao_atual: { id: 'rd', numero: 2, situacao: 'inativo' }, dfp_summary: { preco_total_faturamento: 0 } },
+] });
+
+test('filtra a carteira por código ou contratante sem diferenciar acento e caixa', () => {
+  const carteira = carteiraFixture();
+  assert.deepEqual(filtrarCarteira(carteira, { busca: 'AMBEV' }).map((b) => b.id).sort(), ['a', 'd']);
+  assert.deepEqual(filtrarCarteira(carteira, { busca: 'anapolis' }).map((b) => b.id), ['a']);
+  assert.deepEqual(filtrarCarteira(carteira, { busca: 'orc-0003' }).map((b) => b.id), ['c']);
+  assert.deepEqual(filtrarCarteira(carteira, { busca: '   ' }).length, 4);
+});
+
+test('filtra por situação, inclusive o grupo em curso, e não altera a lista original', () => {
+  const carteira = carteiraFixture();
+  const antes = carteira.map((b) => b.id);
+  assert.deepEqual(filtrarCarteira(carteira, { situacao: 'em_curso' }).map((b) => b.id).sort(), ['a', 'c']);
+  assert.deepEqual(filtrarCarteira(carteira, { situacao: 'pronto_para_proposta' }).map((b) => b.id), ['b']);
+  assert.deepEqual(filtrarCarteira(carteira, { situacao: 'todos' }).length, 4);
+  assert.deepEqual(filtrarCarteira(carteira, { situacao: 'desconhecida' }).length, 4);
+  assert.deepEqual(carteira.map((b) => b.id), antes);
+});
+
+test('ordena por recentes, código, contratante e valor', () => {
+  const carteira = carteiraFixture();
+  assert.deepEqual(filtrarCarteira(carteira, { ordem: 'recentes' }).map((b) => b.id), ['d', 'c', 'b', 'a']);
+  assert.deepEqual(filtrarCarteira(carteira, { ordem: 'codigo' }).map((b) => b.id), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(filtrarCarteira(carteira, { ordem: 'contratante' }).map((b) => b.id), ['a', 'd', 'b', 'c']);
+  assert.deepEqual(filtrarCarteira(carteira, { ordem: 'valor' }).map((b) => b.id), ['b', 'a', 'c', 'd']);
+  assert.ok(ORDENACOES_CARTEIRA.every(({ value, label }) => value && label));
+  assert.deepEqual(filtrarCarteira(null), []);
+});
+
+test('conta cada filtro da carteira', () => {
+  const contagem = contarFiltrosCarteira(carteiraFixture());
+  assert.deepEqual(contagem, { todos: 4, em_curso: 2, pronto_para_proposta: 1, emitido: 0, inativo: 1 });
+  assert.deepEqual(FILTROS_CARTEIRA.map(({ value }) => value), Object.keys(contagem));
+});
+
+test('limita chips de revisão mantendo a atual visível', () => {
+  const revisoes = Array.from({ length: 9 }, (_, numero) => ({ id: `r${numero}`, numero }));
+  const { visiveis, ocultas } = limitarRevisoesVisiveis(revisoes, 'r8', 4);
+  assert.deepEqual(visiveis.map((r) => r.id), ['r5', 'r6', 'r7', 'r8']);
+  assert.equal(ocultas, 5);
+  const atualAntiga = limitarRevisoesVisiveis(revisoes, 'r0', 4);
+  assert.ok(atualAntiga.visiveis.some((r) => r.id === 'r0'));
+  assert.equal(atualAntiga.visiveis.length, 4);
+  assert.deepEqual(limitarRevisoesVisiveis(revisoes.slice(0, 2), 'r1', 4), { visiveis: revisoes.slice(0, 2), ocultas: 0 });
+});
+
+test('histórico usa rótulos de negócio e ignora chaves técnicas', () => {
+  assert.equal(rotuloCampoHistorico('prazo_execucao_dias'), 'Prazo de execução (dias)');
+  assert.equal(rotuloCampoHistorico('dados_contratante'), 'Dados da Contratante');
+  assert.equal(rotuloCampoHistorico('dfp'), 'Composição de preços (DFP)');
+  assert.equal(rotuloCampoHistorico('updated_at'), null);
+  assert.equal(rotuloCampoHistorico('autor_user_id'), null);
+
+  const edicao = resumirEventoHistorico({
+    tipo: 'edicao',
+    antes: { escopo: 'A', modalidade: 'Spot', updated_at: '1', dfp: { a: 1 } },
+    depois: { escopo: 'B', modalidade: 'Spot', updated_at: '2', dfp: { a: 2 } },
+  });
+  assert.deepEqual(edicao.campos, ['Escopo do Serviço', 'Composição de preços (DFP)']);
+
+  const situacao = resumirEventoHistorico({
+    tipo: 'situacao', antes: { situacao: 'rascunho' }, depois: { situacao: 'em_revisao', motivo: 'conferir' },
+  });
+  assert.equal(situacao.titulo, 'Mudança de situação');
+  assert.equal(situacao.de, 'Rascunho');
+  assert.equal(situacao.para, 'Em revisão');
+  assert.equal(situacao.motivo, 'conferir');
+  assert.deepEqual(situacao.campos, []);
+
+  const criacao = resumirEventoHistorico({ tipo: 'criacao', antes: {}, depois: { escopo: 'x', id: 'abc' } });
+  assert.equal(criacao.titulo, 'Criação');
+  assert.deepEqual(criacao.campos, []);
+});
+
+import { rotuloResponsavel } from './orcamentoModel.js';
+
+test('responsável aparece legível no histórico', () => {
+  assert.equal(rotuloResponsavel('abc', 'abc'), 'Você');
+  assert.equal(rotuloResponsavel('sistema'), 'Sistema');
+  assert.equal(rotuloResponsavel('0123456789abcdef'), 'Usuário 01234567…');
+  assert.equal(rotuloResponsavel(''), 'Responsável não registrado');
+});

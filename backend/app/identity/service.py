@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import re
 import secrets
+import time
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -327,6 +328,25 @@ class IdentityService:
         if not token:
             return False
         return self.repository.revoke_session(self._hash_token(token), actor_user_id)
+
+    def register_login_attempt(
+        self,
+        attempt_key: str,
+        *,
+        window_seconds: float,
+        max_attempts: int,
+        now: float | None = None,
+    ) -> bool:
+        """Consome uma tentativa de login; False quando o limite da janela foi atingido."""
+        return self.repository.register_login_attempt(
+            self._hash_token(attempt_key),
+            now=time.time() if now is None else now,
+            window_seconds=window_seconds,
+            max_attempts=max_attempts,
+        )
+
+    def clear_login_attempts(self, attempt_key: str) -> None:
+        self.repository.clear_login_attempts(self._hash_token(attempt_key))
 
     def verify_csrf(self, token: str | None, csrf_token: str | None) -> bool:
         if not token or not csrf_token or self.resolve_session(token) is None:

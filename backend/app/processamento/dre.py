@@ -21,6 +21,7 @@ from ..repository.dre_repository import DRERepository
 from ..templates.writer import TemplateWriter
 from ..transformacao.engine import DRETransformer
 from ..validacao.validators import DREValidator
+from .dre_apresentacao import aplicar_apresentacao_dre
 from .dre_geracao_completa import DREGeracaoCompletaService
 
 logger = logging.getLogger(__name__)
@@ -516,6 +517,11 @@ class DREProcessamentoService:
             # 3. Reescrever APOIO com dados agregados
             self._escrever_apoio(writer, lote, plano)
             DREGeracaoCompletaService._proteger_formulas_apoio(writer)
+
+            # Caixa alta e recuo hierárquico nos rótulos da aba DRE (só exibição).
+            if "DRE" in writer.listar_sheets():
+                aplicar_apresentacao_dre(writer._wb["DRE"])
+                writer._modified_sheets.add("DRE")
 
             # 4. Gerenciar linhas ocultas
             writer.definir_linhas_ocultas(sheet_name, row_inicio, row_fim, ocultar=False)

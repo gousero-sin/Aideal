@@ -1,18 +1,68 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, Calculator, Database, Loader2, Users, WalletCards } from 'lucide-react';
 import { useLiquidLoaderController } from 'goflow-core';
 import AidealKineticLoader from './components/AidealKineticLoader';
-import AccessManagementPanel from './components/AccessManagementPanel';
-import AdminPanel from './components/AdminPanel';
 import AppSidebar from './components/AppSidebar';
-import PainelDRE from './components/PainelDRE';
-import OrcamentoPanel from './components/OrcamentoPanel';
-import PainelFluxoCaixa from './components/PainelFluxoCaixa';
+import ViewErrorBoundary from './components/ViewErrorBoundary';
 import { filterAccessibleModules } from './components/accessControlModel';
 import { LoginScreen, PasswordChangeScreen, useAuth } from './auth';
+import { clearPanelData, panelDataCache } from './services/panelDataCache';
 import './styles/access-control.css';
 
 const API_BASE = '/api';
+
+// Cada painel vira um chunk próprio; o import é memorizado pelo navegador, então
+// pré-carregar no hover/foco da sidebar e renderizar depois usam o mesmo módulo.
+const VIEW_LOADERS = Object.freeze({
+  dre: () => import('./components/PainelDRE'),
+  fluxo_caixa: () => import('./components/PainelFluxoCaixa'),
+  admin_banco: () => import('./components/AdminPanel'),
+  usuarios: () => import('./components/AccessManagementPanel'),
+  orcamento: () => import('./components/OrcamentoPanel'),
+});
+
+// Primeira consulta de cada painel financeiro (sem filtros). Ela sai junto com o
+// download do chunk; o hook do painel reaproveita a mesma requisição em voo.
+const VIEW_INITIAL_DATA = Object.freeze({
+  dre: { url: `${API_BASE}/dre/painel`, errorMessage: 'Erro ao carregar Painel DRE' },
+  fluxo_caixa: {
+    url: `${API_BASE}/fluxo_caixa/painel`,
+    errorMessage: 'Erro ao carregar Painel Fluxo de Caixa',
+  },
+});
+
+const PainelDRE = lazy(VIEW_LOADERS.dre);
+const PainelFluxoCaixa = lazy(VIEW_LOADERS.fluxo_caixa);
+const AdminPanel = lazy(VIEW_LOADERS.admin_banco);
+const AccessManagementPanel = lazy(VIEW_LOADERS.usuarios);
+const OrcamentoPanel = lazy(VIEW_LOADERS.orcamento);
+
+const prefetchView = (view) => {
+  VIEW_LOADERS[view]?.().catch(() => {
+    // Falha de rede na pré-carga é tratada quando o painel for aberto.
+  });
+};
+
+const scheduleIdle = (callback) => {
+  if (typeof window === 'undefined') return () => {};
+  if (typeof window.requestIdleCallback === 'function') {
+    const handle = window.requestIdleCallback(callback, { timeout: 4000 });
+    return () => window.cancelIdleCallback(handle);
+  }
+  const handle = window.setTimeout(callback, 1800);
+  return () => window.clearTimeout(handle);
+};
+
+function ViewFallback() {
+  return (
+    <section className="aideal-view-fallback" role="status" aria-label="Carregando painel">
+      <span className="aideal-skeleton-line is-short" />
+      <span className="aideal-skeleton-line is-wide" />
+      <span className="aideal-skeleton-line is-medium" />
+    </section>
+  );
+}
+
 
 const VIEW_META = Object.freeze({
   dre: {
@@ -71,6 +121,22 @@ export default function App() {
   );
   const canRenderActiveView = activeView !== null && visibleIds.includes(activeView);
   const activeMeta = canRenderActiveView ? VIEW_META[activeView] : null;
+  const userId = auth.user?.id || null;
+
+  // Respostas em cache pertencem à sessão que as buscou.
+  useEffect(() => () => clearPanelData(), [userId]);
+
+  useEffect(() => {
+    if (auth.status !== 'authenticated' || auth.passwordChangeRequired || !canRenderActiveView) return;
+    const initialData = VIEW_INITIAL_DATA[activeView];
+    if (initialData) panelDataCache.load(initialData.url, { errorMessage: initialData.errorMessage }).catch(() => {});
+  }, [activeView, auth.passwordChangeRequired, auth.status, canRenderActiveView]);
+
+  // Depois que a tela atual assentar, baixa os outros painéis liberados em segundo plano.
+  useEffect(() => {
+    if (auth.status !== 'authenticated' || auth.passwordChangeRequired) return undefined;
+    return scheduleIdle(() => visibleIds.forEach(prefetchView));
+  }, [auth.passwordChangeRequired, auth.status, visibleIds]);
 
   useEffect(() => {
     if (auth.status !== 'authenticated') return;
@@ -96,17 +162,18 @@ export default function App() {
     }
   }, [busy, loader]);
 
-  const handleSelectView = (view) => {
+  const handleSelectView = useCallback((view) => {
     if (!visibleIds.includes(view)) return;
     setNotification(null);
     setActiveView(view);
-  };
+  }, [visibleIds]);
 
   const handleLogout = async () => {
     setSidebarOpen(false);
     setNotification(null);
     try {
       await auth.logout();
+      clearPanelData();
       setActiveView(null);
     } catch (requestError) {
       setNotification({
@@ -143,6 +210,7 @@ export default function App() {
         onLogout={handleLogout}
         open={sidebarOpen}
         onOpenChange={setSidebarOpen}
+        onPrefetchView={prefetchView}
       />
 
       <main className="aideal-shell access-app-main">
@@ -164,9 +232,9 @@ export default function App() {
           </div>
           {activeMeta && (
             <div className="aideal-header-actions">
-              <div className="aideal-context-chip">
+              <div className="aideal-context-chip" title={activeMeta.title}>
                 <ActiveIcon size={15} aria-hidden="true" />
-                {activeMeta.title}
+                <span>{activeMeta.title}</span>
               </div>
             </div>
           )}
@@ -190,47 +258,52 @@ export default function App() {
           </section>
         )}
 
-        {canRenderActiveView && activeView === 'dre' && (
-          <PainelDRE
-            apiBase={API_BASE}
-            csrfToken={auth.csrfToken}
-            onBusyChange={setBusy}
-            onNotify={setNotification}
-          />
-        )}
+        <ViewErrorBoundary resetKey={activeView}>
+          <Suspense fallback={<ViewFallback />}>
+            {canRenderActiveView && activeView === 'dre' && (
+              <PainelDRE
+                apiBase={API_BASE}
+                csrfToken={auth.csrfToken}
+                onBusyChange={setBusy}
+                onNotify={setNotification}
+              />
+            )}
 
-        {canRenderActiveView && activeView === 'fluxo_caixa' && (
-          <PainelFluxoCaixa apiBase={API_BASE} onBusyChange={setBusy} />
-        )}
+            {canRenderActiveView && activeView === 'fluxo_caixa' && (
+              <PainelFluxoCaixa apiBase={API_BASE} onBusyChange={setBusy} />
+            )}
 
-        {canRenderActiveView && activeView === 'admin_banco' && (
-          <AdminPanel
-            apiBase={API_BASE}
-            user={auth.user}
-            csrfToken={auth.csrfToken}
-            onNotify={setNotification}
-            onBusyChange={setBusy}
-          />
-        )}
+            {canRenderActiveView && activeView === 'admin_banco' && (
+              <AdminPanel
+                apiBase={API_BASE}
+                user={auth.user}
+                csrfToken={auth.csrfToken}
+                onNotify={setNotification}
+                onBusyChange={setBusy}
+              />
+            )}
 
-        {canRenderActiveView && activeView === 'usuarios' && (
-          <AccessManagementPanel
-            apiBase={API_BASE}
-            csrfToken={auth.csrfToken}
-            currentUserId={auth.user?.id}
-            onNotify={setNotification}
-            onBusyChange={setBusy}
-          />
-        )}
+            {canRenderActiveView && activeView === 'usuarios' && (
+              <AccessManagementPanel
+                apiBase={API_BASE}
+                csrfToken={auth.csrfToken}
+                currentUserId={auth.user?.id}
+                onNotify={setNotification}
+                onBusyChange={setBusy}
+              />
+            )}
 
-        {canRenderActiveView && activeView === 'orcamento' && (
-          <OrcamentoPanel
-            apiBase={API_BASE}
-            csrfToken={auth.csrfToken}
-            onNotify={setNotification}
-            permissions={auth.permissions}
-          />
-        )}
+            {canRenderActiveView && activeView === 'orcamento' && (
+              <OrcamentoPanel
+                apiBase={API_BASE}
+                csrfToken={auth.csrfToken}
+                currentUserId={auth.user?.id}
+                onNotify={setNotification}
+                permissions={auth.permissions}
+              />
+            )}
+          </Suspense>
+        </ViewErrorBoundary>
       </main>
     </div>
   );

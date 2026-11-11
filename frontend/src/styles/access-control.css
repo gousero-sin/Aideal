@@ -260,9 +260,9 @@
   color: var(--aideal-text, #edf7ff);
   cursor: pointer;
   display: none;
-  height: 42px;
+  height: 44px;
   justify-content: center;
-  width: 42px;
+  width: 44px;
 }
 
 .access-sidebar-nav {
@@ -375,9 +375,9 @@
 }
 
 .access-sidebar-trigger {
-  left: 14px;
+  left: calc(12px + env(safe-area-inset-left, 0px));
   position: fixed;
-  top: 14px;
+  top: calc(12px + env(safe-area-inset-top, 0px));
   z-index: 59;
 }
 
@@ -623,25 +623,57 @@
   to { transform: rotate(360deg); }
 }
 
+/* Trava a rolagem da página enquanto a gaveta está aberta. Usa uma classe no
+   <html> para não disputar body.style.overflow com os modais do Orçamento. */
+html.access-drawer-open,
+html.access-drawer-open body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 @media (max-width: 900px) {
   .access-app-layout {
     display: block;
   }
 
   .access-app-main .aideal-header {
-    padding-left: 62px;
+    padding-left: calc(64px + env(safe-area-inset-left, 0px));
   }
 
   .access-sidebar {
     bottom: 0;
+    box-shadow: none;
+    height: 100dvh;
+    max-width: calc(100vw - 48px);
+    overscroll-behavior: contain;
+    padding:
+      calc(16px + env(safe-area-inset-top, 0px))
+      14px
+      calc(16px + env(safe-area-inset-bottom, 0px))
+      calc(14px + env(safe-area-inset-left, 0px));
     position: fixed;
     top: 0;
     transform: translateX(-105%);
-    transition: transform 220ms ease;
+    transition: transform 220ms ease, visibility 0s linear 220ms;
+    visibility: hidden;
+    width: min(300px, 86vw);
+    z-index: 60;
   }
 
   .access-sidebar.is-open {
+    box-shadow: 18px 0 48px rgba(0, 0, 0, 0.5);
     transform: translateX(0);
+    transition: transform 220ms ease, visibility 0s;
+    visibility: visible;
+  }
+
+  .access-sidebar-nav {
+    overscroll-behavior: contain;
+  }
+
+  .access-sidebar-backdrop {
+    -webkit-tap-highlight-color: transparent;
+    z-index: 58;
   }
 
   .access-sidebar-trigger,
@@ -698,6 +730,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .access-sidebar,
+  .access-sidebar.is-open,
   .access-primary-button,
   .access-secondary-button,
   .access-sidebar-logout {

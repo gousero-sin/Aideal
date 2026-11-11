@@ -186,7 +186,7 @@ test('barras de rolagem superior e inferior da tabela ficam sincronizadas', asyn
   expect(alinhados).toBe(true);
 });
 
-test('campo de dias mostra o valor herdado e o resumo avisa sobre jornada zerada', async ({ page }) => {
+test('campo de dias mostra o valor herdado e jornada zerada não zera a mão de obra', async ({ page }) => {
   const { editor } = await setupBudget(page, (dfp) => ({
     ...dfp,
     metadata: { ...dfp.metadata, quantidade_dias_semana: 20, horas_semana: 0 },
@@ -202,12 +202,10 @@ test('campo de dias mostra o valor herdado e o resumo avisa sobre jornada zerada
   await expect(dias).toHaveValue('');
   await expect(dias).toHaveAttribute('placeholder', '20');
 
-  // Jornada zerada com dias lançados zera a mão de obra; o resumo precisa dizer isso.
-  const avisos = editor.locator('.orc-summary-warnings');
-  await expect(avisos).toBeVisible();
-  await expect(avisos).toContainText('jornada correspondente está zerada');
-
-  // Preencher a jornada faz o aviso sair.
-  await editor.getByRole('spinbutton', { name: 'Horas por dia de semana' }).fill('8');
-  await expect(avisos).toHaveCount(0);
+  // Desde a regra 220/30 cada diária vale 220/30 h: a jornada diária não entra no cálculo,
+  // some da tela e, zerada, não gera aviso (4 pessoas × 20 dias × 220/30 = 586,67 h).
+  await expect(editor.getByRole('spinbutton', { name: 'Mão de Obra Direta · Pintor · Horas trabalhadas (equipe)' }))
+    .toHaveValue('586.67');
+  await expect(editor.getByRole('spinbutton', { name: /^Horas (por dia de )?semana$/ })).toHaveCount(0);
+  await expect(editor.locator('.orc-summary-warnings', { hasText: /jornada/i })).toHaveCount(0);
 });

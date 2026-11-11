@@ -9,6 +9,7 @@ import {
   Receipt,
   Save,
 } from 'lucide-react';
+import { invalidatePanelData } from '../services/panelDataCache';
 
 const pad = (value) => String(value).padStart(2, '0');
 const MESES_LABEL = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -185,6 +186,8 @@ export default function DREIndicatorsAdminPanel({
         total_impostos_retidos: inputValue(indicadores.total_impostos_retidos),
       });
       setRecordInfo({ existe: true, updatedAt: payload?.updated_at || null });
+      // Indicadores manuais entram nos KPIs do painel; a resposta em cache ficou velha.
+      invalidatePanelData(`${apiBase}/dre/`);
       onNotify?.({ type: 'success', message: `Indicadores DRE ${competenciaLabel} salvos.` });
     } catch (err) {
       setError(err.message);

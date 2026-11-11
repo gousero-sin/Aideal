@@ -1,0 +1,168 @@
+/* Editor DFP/HH do Orçamento. Importado pelo DfpEditor depois de orcamento.css; todos os
+   seletores ficam sob .orc-root para não vazar para o restante do app. */
+
+/* --- Barra de título: nome longo trunca sem empurrar os controles ------------------------ */
+.orc-root .orc-editor-titlebar .goflow-window__bar { gap: 12px; }
+.orc-root .orc-editor-titlebar .goflow-window__identity { flex: 1 1 auto; max-width: none; min-width: 0; }
+.orc-root .orc-editor-titlebar .goflow-window__identity > div { min-width: 0; }
+.orc-root .orc-editor-titlebar .goflow-window__actions { flex: 0 0 auto; }
+.orc-root .orc-editor-titlebar .goflow-window__eyebrow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orc-root .orc-editor-titlebar__name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Alinha a descrição ao texto do título: padding da barra + ícone (38px) + espaço (12px). */
+.orc-root .orc-editor-titlebar .goflow-window__content { padding: 10px 20px 14px calc(20px + 38px + 12px); }
+.orc-root .orc-editor-titlebar p { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.orc-root .orc-dirty-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--orc-amber); box-shadow: 0 0 0 3px rgba(255, 214, 10, .16); }
+.orc-root .orc-editor-dialog.is-minimized .orc-editor-titlebar { border-radius: 21px; }
+
+/* --- Navegação por seções (botões) ------------------------------------------------------ */
+.orc-root .orc-editor-nav__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 10px 11px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--orc-muted);
+  font: inherit;
+  font-size: .74rem;
+  text-align: left;
+  cursor: pointer;
+  transition: color 160ms ease, background 160ms ease;
+}
+.orc-root .orc-editor-nav__item:hover { background: rgba(10, 132, 255, .14); color: #fff; }
+.orc-root .orc-editor-nav__item:focus-visible { outline: 2px solid rgba(100, 210, 255, .8); outline-offset: 1px; color: #fff; }
+.orc-root .orc-editor-nav__item[aria-current] { color: #e3f3ff; }
+.orc-root .orc-nav-badge {
+  position: relative;
+  z-index: 1;
+  display: inline-grid;
+  flex: 0 0 auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(255, 69, 58, .22);
+  color: #ffc2be;
+  font-size: .66rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  place-items: center;
+}
+
+/* --- Tabelas ---------------------------------------------------------------------------- */
+.orc-root .orc-table-scroll-top[hidden] { display: none; }
+.orc-root .orc-table-empty { margin: 0; padding: 14px 16px; color: var(--orc-muted); font-size: .76rem; }
+.orc-root .orc-dfp-table .orc-btn--compact svg,
+.orc-root .orc-percent-field .orc-btn--compact svg,
+.orc-root .orc-percent-group > .orc-btn--compact svg { width: 13px; height: 13px; }
+@media (pointer: coarse) {
+  /* Alvos de toque de pelo menos 44px nas tabelas e ações compactas. */
+  .orc-root .orc-dfp-table input,
+  .orc-root .orc-field--inline input,
+  .orc-root .orc-field--inline .orc-input-suffix b { min-height: 44px; }
+  .orc-root .orc-btn--compact { min-height: 44px; padding: 0 12px; }
+  .orc-root .orc-check-cell input { width: 24px; height: 24px; }
+  .orc-root .orc-editor-nav__item { min-height: 44px; }
+  .orc-root .orc-icon-btn { width: 44px; height: 44px; }
+}
+
+/* --- Resumo ----------------------------------------------------------------------------- */
+.orc-root .orc-summary-warnings { padding: 12px 14px; list-style: none; }
+.orc-root .orc-summary-warnings li { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 8px; }
+.orc-root .orc-summary-warnings svg { width: 16px; height: 16px; margin-top: 2px; color: #ffbe5a; }
+.orc-root .orc-summary-grid > div { position: relative; transition: border-color 240ms ease, background-color 240ms ease, box-shadow 240ms ease; }
+.orc-root .orc-summary-grid > div.is-changed { border-color: rgba(100, 210, 255, .55); background-color: rgba(10, 132, 255, .14); box-shadow: 0 0 0 3px rgba(100, 210, 255, .12); }
+.orc-root .orc-summary-delta {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: .68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.orc-root .orc-summary-delta[data-trend="up"] { background: rgba(48, 209, 88, .16); color: #9ff0b5; }
+.orc-root .orc-summary-delta[data-trend="down"] { background: rgba(255, 159, 10, .16); color: #ffd39a; }
+.orc-root .orc-summary-window.is-collapsed .orc-summary-grid { grid-template-columns: minmax(0, 1fr); }
+.orc-root .orc-summary-window.is-collapsed .orc-summary-total { grid-column: auto; }
+.orc-root .orc-summary-window .goflow-window__actions .orc-btn svg { width: 14px; height: 14px; }
+
+/* --- Rodapé fixo ------------------------------------------------------------------------ */
+.orc-root .orc-editor-footer__error { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 8px; margin: 0 0 12px; }
+.orc-root .orc-editor-footer__error svg { width: 16px; height: 16px; margin-top: 1px; }
+.orc-root .orc-validation-error:focus { outline: 2px solid rgba(255, 159, 154, .8); outline-offset: 2px; }
+.orc-root .orc-editor-footer__row { flex-wrap: wrap; }
+.orc-root .orc-editor-footer__row > p { flex: 1 1 200px; min-width: 0; }
+.orc-root .orc-editor-footer__status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-width: 0; }
+.orc-root .orc-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--orc-line);
+  border-radius: 999px;
+  color: var(--orc-muted);
+  font-size: .72rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.orc-root .orc-save-state svg { width: 14px; height: 14px; }
+.orc-root .orc-save-state[data-state="dirty"] { border-color: rgba(255, 214, 10, .4); background: rgba(255, 214, 10, .1); color: #ffe68a; }
+.orc-root .orc-save-state[data-state="clean"] { color: #9ff0b5; }
+.orc-root .orc-save-state[data-state="invalid"] { border-color: rgba(255, 69, 58, .4); background: rgba(255, 69, 58, .1); color: #ffc2be; }
+.orc-root .orc-editor-footer__total { display: grid; gap: 1px; min-width: 0; }
+.orc-root .orc-editor-footer__total small { color: var(--orc-muted); font-size: .64rem; letter-spacing: .06em; text-transform: uppercase; }
+.orc-root .orc-editor-footer__total strong { color: #bcecff; font-size: 1.02rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.orc-root .orc-editor-footer .orc-button-row { flex-wrap: wrap; justify-content: flex-end; }
+.orc-root .orc-editor-footer .orc-btn[aria-busy="true"] { cursor: progress; }
+
+.orc-root .orc-editor-dialog .orc-spin { animation: orc-spin .9s linear infinite; }
+
+/* --- Importação HH ---------------------------------------------------------------------- */
+.orc-root .orc-hh-dropzone {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px dashed rgba(142, 218, 255, .35);
+  border-radius: 17px;
+  background: rgba(10, 132, 255, .05);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+.orc-root .orc-hh-dropzone.is-dragging { border-color: rgba(100, 210, 255, .85); background: rgba(10, 132, 255, .14); }
+.orc-root .orc-hh-dropzone.is-busy { border-style: solid; }
+.orc-root .orc-hh-dropzone__icon { width: 26px; height: 26px; color: #8edaff; }
+.orc-root .orc-hh-dropzone__copy { display: grid; gap: 4px; min-width: 0; }
+.orc-root .orc-hh-dropzone__copy strong { color: #fff; font-size: .8rem; overflow-wrap: anywhere; }
+.orc-root .orc-hh-dropzone__copy > span:not(.orc-progress) { color: var(--orc-muted); font-size: .72rem; }
+.orc-root .orc-hh-dropzone__error { color: #ff9f9a; font-size: .72rem; font-weight: 560; }
+.orc-root .orc-progress { position: relative; display: block; height: 4px; margin-top: 6px; overflow: hidden; border-radius: 999px; background: rgba(255, 255, 255, .08); }
+.orc-root .orc-progress--indeterminate > span { position: absolute; inset: 0 auto 0 0; width: 40%; border-radius: inherit; background: linear-gradient(90deg, #0a84ff, #64d2ff); animation: orc-progress-slide 1.2s ease-in-out infinite; }
+@keyframes orc-progress-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+
+/* --- Telas estreitas -------------------------------------------------------------------- */
+@media (max-width: 720px) {
+  .orc-root .orc-editor-titlebar .goflow-window__content { padding-left: 14px; }
+  .orc-root .orc-editor-footer__row > p { display: none; }
+  .orc-root .orc-editor-footer .orc-button-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .orc-root .orc-editor-footer .orc-button-row .orc-btn { justify-content: center; min-width: 0; padding-inline: 10px; white-space: normal; text-align: center; line-height: 1.2; }
+  .orc-root .orc-save-state[data-state="clean"] { display: none; }
+  .orc-root .orc-hh-dropzone { grid-template-columns: minmax(0, 1fr); justify-items: start; }
+  .orc-root .orc-hh-dropzone .orc-btn { width: 100%; justify-content: center; }
+}
+@media (max-width: 400px) {
+  .orc-root .orc-editor-titlebar .goflow-window__eyebrow { letter-spacing: .08em; }
+  .orc-root .orc-editor-titlebar .goflow-window__icon { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orc-root .orc-progress--indeterminate > span { animation: none; width: 100%; opacity: .6; }
+  .orc-root .orc-editor-dialog .orc-spin { animation: none; }
+}
