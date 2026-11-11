@@ -12,6 +12,10 @@ import re
 import unicodedata
 from collections.abc import Iterable
 
+# Centro de custo de apoio: não fatura, então não tem receita 1.1.x como base
+# para os percentuais do DRE nem para impostos de nota.
+CENTRO_CUSTO_ADMINISTRATIVO = "ADMINISTRATIVO"
+
 
 def normalizar_centro_custo(value: object) -> str:
     """Normaliza para comparação: maiúsculas, sem acento/pontuação, espaços simples."""
@@ -20,6 +24,11 @@ def normalizar_centro_custo(value: object) -> str:
     texto = "".join(ch for ch in texto if not unicodedata.combining(ch))
     texto = re.sub(r"[^A-Z0-9]+", " ", texto)
     return " ".join(texto.split())
+
+
+def eh_centro_administrativo(value: object) -> bool:
+    """Indica se o centro de custo é a ADMINISTRATIVO, ignorando grafia."""
+    return normalizar_centro_custo(value) == CENTRO_CUSTO_ADMINISTRATIVO
 
 
 def resolver_centros_custo(termo: str, candidatos: Iterable[str]) -> list[str]:

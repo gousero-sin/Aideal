@@ -23,6 +23,7 @@ from openpyxl.utils.cell import coordinate_to_tuple, range_boundaries
 from ..config import settings
 from ..contracts.persistence import DRELancamentoDB
 from ..db.connection import DatabaseConnection
+from ..repository.centro_custo_match import eh_centro_administrativo
 from ..repository.dre_repository import DRERepository
 from ..templates.writer import TemplateWriter
 
@@ -271,6 +272,13 @@ _FORMULA_DIV_RE = re.compile(
     r"(?P<den>\$?[A-Z]{1,3}\$?\d+)\s*$",
     re.IGNORECASE,
 )
+
+
+def _eh_somente_administrativo(lancamentos: list[DRELancamentoDB]) -> bool:
+    """True quando a DRE foi gerada só com lançamentos da obra ADMINISTRATIVO."""
+    return bool(lancamentos) and all(
+        eh_centro_administrativo(lanc.centro_custo) for lanc in lancamentos
+    )
 
 
 def _extrair_codigo_gerencial(texto: Any) -> str | None:
@@ -869,9 +877,28 @@ class DREGeracaoCompletaService:
 
         return float(sum(_arredondar_inteiro_dre(valores.get(mes_ref, 0.0)) for mes_ref in meses))
 
+    @classmethod
+    def _colunas_percentual_sem_receita(
+        cls,
+        apoio_por_rotulo: dict[str, dict[int, float]],
+        apoio_por_rotulo_normalizado: dict[str, dict[int, float]],
+    ) -> frozenset[int]:
+        """Colunas de % cujo período (mês, trimestre ou ano) não tem Receita Bruta."""
+        return frozenset(
+            coluna_percentual
+            for coluna_percentual in _DRE_COLUNAS_PERCENTUAL
+            if not cls._receita_bruta_arredondada(
+                coluna_percentual - 1,
+                apoio_por_rotulo,
+                apoio_por_rotulo_normalizado,
+            )
+        )
+
     def _materializar_dre(
         self,
         writer: TemplateWriter,
+        *,
+        somente_administrativo: bool = False,
     ) -> dict[str, Any]:
         """Resolve fórmulas do bloco gerencial da DRE para evitar cache antigo no XLSX.
 
@@ -879,6 +906,10 @@ class DREGeracaoCompletaService:
         mesmo em leitores que não recalculam fórmulas. A Receita Líquida segue a
         estrutura do DRE: Receita Bruta menos deduções sobre vendas; IR é lançado
         depois, no bloco IRPJ/CSLL.
+
+        Na DRE só da ADMINISTRATIVO, períodos sem Receita Bruta ficam com a
+        coluna de % vazia: não há base, e centavos de dedução sem venda gerariam
+        percentuais sem sentido.
         """
         if (
             not writer._wb
@@ -950,11 +981,20 @@ class DREGeracaoCompletaService:
                     celula.value = valor_calculado
                     celulas_materializadas += 1
 
+        colunas_percentual_sem_base = (
+            self._colunas_percentual_sem_receita(apoio_por_rotulo, apoio_por_rotulo_normalizado)
+            if somente_administrativo
+            else frozenset()
+        )
+
         for linha in range(6, ws_dre.max_row + 1):
             for coluna in _DRE_COLUNAS_PERCENTUAL:
                 celula = ws_dre.cell(row=linha, column=coluna)
                 valor_atual = celula.value
                 if not isinstance(valor_atual, str) or not valor_atual.startswith("="):
+                    continue
+                if coluna in colunas_percentual_sem_base:
+                    celula.value = None
                     continue
                 valor_calculado = self._avaliar_formula_dre(
                     ws=ws_dre,
@@ -1597,7 +1637,10 @@ class DREGeracaoCompletaService:
             )
 
             # 4f. Materializar a DRE para evitar cache antigo de fórmulas no XLSX.
-            dre_meta = self._materializar_dre(writer)
+            dre_meta = self._materializar_dre(
+                writer,
+                somente_administrativo=_eh_somente_administrativo(lancamentos),
+            )
 
             # 4g. Aba de detalhamento para uso operacional no workspace/painel.
             detalhe_meta = self._escrever_aba_detalhamento_mensal(

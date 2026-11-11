@@ -19,9 +19,13 @@ from ..contracts.fluxo_caixa import (
     eh_transferencia_classificacao,
 )
 from ..ingestao.parser import ExcelParser
+from ..repository.centro_custo_match import eh_centro_administrativo
 from ..validacao.codigos_gerenciais import extrair_codigo_gerencial, montar_rotulo_gerencial
 
 logger = logging.getLogger(__name__)
+
+# Receita operacional (Faturamento) do plano gerencial: 1.1.1, 1.1.2, 1.1.3...
+_CODIGO_RECEITA_OPERACIONAL = "1.1"
 
 _IMPOSTOS_ENTRADA: tuple[tuple[str, str], ...] = (
     ("ir", "IR"),
@@ -93,6 +97,13 @@ def _safe_codigo_gerencial(value) -> str:
 
     match = re.fullmatch(r"\d+(?:\.\d+)*", texto)
     return match.group(0) if match else ""
+
+
+def _eh_codigo_receita_operacional(codigo: str) -> bool:
+    """True para contas de receita 1.1.x, identificadas pelo código gerencial."""
+    return codigo == _CODIGO_RECEITA_OPERACIONAL or codigo.startswith(
+        f"{_CODIGO_RECEITA_OPERACIONAL}."
+    )
 
 
 def _normalizar_ascii(value) -> str:
@@ -246,6 +257,9 @@ class DRETransformer:
         """
         impostos: list[DRELancamento] = []
 
+        if self._ignorar_impostos_fora_da_receita_adm(row, mapeamento, idx, aba, lanc_base):
+            return impostos
+
         for campo, rotulo in _IMPOSTOS_ENTRADA:
             coluna = mapeamento.get(campo)
             if not coluna:
@@ -273,6 +287,51 @@ class DRETransformer:
             )
 
         return impostos
+
+    def _ignorar_impostos_fora_da_receita_adm(
+        self,
+        row: pd.Series,
+        mapeamento: dict[str, str | None],
+        idx: int,
+        aba: str,
+        lanc_base: DRELancamento,
+    ) -> bool:
+        """Na ADMINISTRATIVO, impostos de nota só valem sobre receita 1.1.x.
+
+        O ERP às vezes traz ISS/INSS/PIS/COFINS/IR/CSLL em lançamentos que não
+        são receita (ex.: juros 1.2.3). Expandidos, viram "Deduções sobre
+        vendas" sem venda e distorcem a base dos percentuais do DRE da ADM.
+        """
+        if not eh_centro_administrativo(lanc_base.centro_custo):
+            return False
+
+        codigo = _safe_codigo_gerencial(lanc_base.natureza)
+        if _eh_codigo_receita_operacional(codigo):
+            return False
+
+        tem_imposto = any(
+            _safe_decimal(row.get(coluna)) > 0
+            for campo, _ in _IMPOSTOS_ENTRADA
+            if (coluna := mapeamento.get(campo))
+        )
+        if not tem_imposto:
+            return False
+
+        mensagem = (
+            f"Linha {idx + 2}: impostos ignorados — lançamento da ADMINISTRATIVO na conta "
+            f"{codigo or 'sem código'} não é receita 1.1.x."
+        )
+        logger.warning(mensagem)
+        self.erros.append(
+            ValidationError(
+                campo="impostos",
+                mensagem=mensagem,
+                severidade=ErrorSeverity.WARNING,
+                linha=idx + 2,
+                aba=aba,
+            )
+        )
+        return True
 
     def _converter_linha(
         self, row: pd.Series, mapeamento: dict, idx: int, aba: str

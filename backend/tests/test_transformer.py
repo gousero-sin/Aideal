@@ -348,3 +348,54 @@ class TestDRETransformerErros:
         lote = t.transformar(_dados_dre(df), "05/2025")
         # Deve processar pelo menos 1 registro (ambos se _safe_decimal não falha)
         assert lote.total_registros >= 1
+
+
+def _df_juros_com_impostos(centro_custo: str, codigo_gerencial: str) -> pd.DataFrame:
+    """Linha do ERP como em julho/2026: juros de R$ 0,01 com impostos de nota."""
+    return pd.DataFrame(
+        {
+            "Emissão": ["13/07/2026"],
+            "Descri.": ["AIDEAL SOLUÇÕES ANTICORROSIVAS"],
+            "Vlr.bruto (R$)": [0.01],
+            "C. gerencial": [codigo_gerencial],
+            "CLASSIFICAÇÃO": ["1 - ENTRADA"],
+            "Obra/\nCentro custo": [centro_custo],
+            "IR (R$)": [0.000204],
+            "ISS (R$)": [0.0005],
+            "INSS (R$)": [0.00035],
+            "PIS (R$)": [0.000065],
+            "COFINS (R$)": [0.0003],
+            "CSLL (R$)": [0.000111],
+        }
+    )
+
+
+class TestDRETransformerImpostosAdministrativo:
+    """Na ADMINISTRATIVO, impostos só viram lançamento em receita 1.1.x."""
+
+    def test_adm_sem_receita_ignora_impostos_e_avisa(self):
+        df = _df_juros_com_impostos("ADMINISTRATIVO", "1.2.3 - Origens Financeiras")
+        t = DRETransformer()
+        lote = t.transformar(_dados_dre(df), "07/2026")
+
+        assert [lanc.natureza for lanc in lote.lancamentos] == ["1.2.3 - Origens Financeiras"]
+        assert lote.total_debito == Decimal("0")
+        avisos = [erro for erro in t.erros if erro.campo == "impostos"]
+        assert len(avisos) == 1
+        assert avisos[0].linha == 2
+        assert "1.2.3" in avisos[0].mensagem
+
+    def test_adm_com_receita_mantem_impostos(self):
+        df = _df_juros_com_impostos("ADMINISTRATIVO", "1.1.1 - Recebimento de Clientes")
+        t = DRETransformer()
+        lote = t.transformar(_dados_dre(df), "07/2026")
+
+        assert lote.total_registros == 7
+        assert not [erro for erro in t.erros if erro.campo == "impostos"]
+
+    def test_outra_obra_mantem_impostos_em_qualquer_conta(self):
+        df = _df_juros_com_impostos("NIOBIO CMOC", "1.2.3 - Origens Financeiras")
+        t = DRETransformer()
+        lote = t.transformar(_dados_dre(df), "07/2026")
+
+        assert lote.total_registros == 7
