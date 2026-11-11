@@ -207,6 +207,26 @@ def _aquecer_caches() -> None:
         except Exception as exc:  # noqa: BLE001 - aquecimento é best effort
             logger.warning("Aquecimento do painel %s falhou: %s", nome, exc)
     logger.info("Aquecimento dos painéis concluído em %.1fs", time.perf_counter() - inicio)
+    _manter_paineis_quentes()
+
+
+def _manter_paineis_quentes() -> None:
+    """Reconfere os painéis padrão periodicamente neste worker.
+
+    Com o cache válido, a chamada só devolve a cópia em memória. Quando os dados
+    mudam (nova ingestão, outro worker grava) ou o TTL vence, o recálculo
+    acontece aqui, fora da requisição do usuário.
+    """
+    intervalo = float(settings.painel_refresh_segundos or 0)
+    if intervalo <= 0:
+        return
+    while True:
+        time.sleep(intervalo)
+        for nome, servico in (("DRE", dre_painel_service), ("Fluxo de Caixa", fluxo_painel_service)):
+            try:
+                servico.obter_painel()
+            except Exception as exc:  # noqa: BLE001 - manutenção é best effort
+                logger.warning("Atualização em segundo plano do painel %s falhou: %s", nome, exc)
 
 
 @asynccontextmanager

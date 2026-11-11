@@ -158,7 +158,9 @@ def _indicador_indisponivel(
 class _PainelBaseService:
     def __init__(self, db: DatabaseConnection | None = None) -> None:
         self.db = db or DatabaseConnection()
-        self._cache_respostas = PainelRespostaCache()
+        self._cache_respostas = PainelRespostaCache(
+            ttl_segundos=settings.painel_cache_ttl_segundos
+        )
         db_path = getattr(self.db, "db_path", None)
         self._versao_banco = VersaoBancoSQLite(db_path) if db_path else None
 
@@ -960,7 +962,7 @@ class PainelDREService(_PainelBaseService):
             if cache and cache[0] == str(caminho) and cache[1] == mtime:
                 return cache[2]
             try:
-                with TemplateWriter(caminho) as writer:
+                with TemplateWriter(caminho, ler_pivots_uma_vez=True) as writer:
                     plano = DREGeracaoCompletaService._ler_plano_contas(
                         writer,
                         aplicar_overrides_dre_gerado=True,
@@ -1519,8 +1521,36 @@ class PainelDREService(_PainelBaseService):
             receita_bruta += max(valor_bruto, credito, valor)
         return receita_bruta, encontrado
 
+    _CAMPOS_MATCH_DRE = (
+        "codigo_conta",
+        "natureza_raw",
+        "rubrica",
+        "conta_filho",
+        "conta_pai",
+        "natureza_norm",
+        "_plano_contas_resolvido",
+    )
+
     @staticmethod
     def _row_dre_matches(row: Any, aliases: set[str], componente: str) -> bool:
+        """Decide se a linha entra no componente; memoizado pelos campos de conta.
+
+        O resultado depende só dos campos em ``_CAMPOS_MATCH_DRE`` e do componente,
+        e o painel repete as mesmas combinações milhares de vezes por período.
+        Aliases fora das tabelas da classe seguem sem cache.
+        """
+        if aliases is not PainelDREService.COMPONENTES_DRE.get(componente):
+            return PainelDREService._row_dre_matches_calcular(row, aliases, componente)
+        campos = tuple(
+            PainelDREService._row_get(row, campo) for campo in PainelDREService._CAMPOS_MATCH_DRE
+        )
+        try:
+            return _row_dre_matches_memo(componente, campos)
+        except TypeError:  # valor não hasheável vindo de fonte externa
+            return PainelDREService._row_dre_matches_calcular(row, aliases, componente)
+
+    @staticmethod
+    def _row_dre_matches_calcular(row: Any, aliases: set[str], componente: str) -> bool:
         codigo_conta = PainelDREService._codigo_conta_row(row)
         resolvido_plano = bool(PainelDREService._row_get(row, "_plano_contas_resolvido"))
 
@@ -2581,7 +2611,7 @@ class PainelFluxoCaixaService(_PainelBaseService):
     def _carregar_fluxo_template_context(
         self, caminho: Path
     ) -> tuple[Any, dict[str, str]] | None:
-        writer = TemplateWriter(caminho)
+        writer = TemplateWriter(caminho, ler_pivots_uma_vez=True)
         writer.abrir()
         wb = writer._wb
         if (
@@ -3275,3 +3305,12 @@ class PainelFluxoCaixaService(_PainelBaseService):
             tuple(params),
         ).fetchall()
         return self._filter_option_rows(rows)
+
+
+@lru_cache(maxsize=65536)
+def _row_dre_matches_memo(componente: str, campos: tuple[Any, ...]) -> bool:
+    """Cache puro de ``_row_dre_matches`` para os aliases canônicos da classe."""
+    row = dict(zip(PainelDREService._CAMPOS_MATCH_DRE, campos, strict=True))
+    return PainelDREService._row_dre_matches_calcular(
+        row, PainelDREService.COMPONENTES_DRE[componente], componente
+    )

@@ -23,6 +23,7 @@ from openpyxl.workbook import Workbook
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from ..config import settings
+from .leitura_rapida import carregar_workbook_pivots_unicos
 from .slicer_builder import (
     ResolvedSlicerSpec,
     build_drawing_slicer_anchor,
@@ -80,8 +81,10 @@ class TemplateWriter:
     NS_X15 = "http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"
     SHEETS_MERGE_VISUAL = {"DRE", "BD_FLUXO"}
 
-    def __init__(self, template_path: Path):
+    def __init__(self, template_path: Path, *, ler_pivots_uma_vez: bool = False):
         self.template_path = Path(template_path)
+        # Leitura rápida para caminhos que só consultam o template (painéis).
+        self._ler_pivots_uma_vez = ler_pivots_uma_vez
         self._wb: Workbook | None = None
         self._original_sheets: list[str] = []
         self._original_defined_names: list[str] = []
@@ -128,12 +131,15 @@ class TemplateWriter:
         if not self.template_path.exists():
             raise FileNotFoundError(f"Template não encontrado: {self.template_path}")
 
-        self._wb = load_workbook(
-            self.template_path,
-            keep_vba=False,
-            keep_links=True,
-            data_only=False,
-        )
+        if self._ler_pivots_uma_vez:
+            self._wb = carregar_workbook_pivots_unicos(self.template_path)
+        else:
+            self._wb = load_workbook(
+                self.template_path,
+                keep_vba=False,
+                keep_links=True,
+                data_only=False,
+            )
         self._original_sheets = list(self._wb.sheetnames)
         self._original_defined_names = list(self._wb.defined_names.keys())
         self._original_tables = self._listar_tabelas()

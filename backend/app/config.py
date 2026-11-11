@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     sqlite_busy_timeout_ms: int = 5000
     # Pré-carrega templates e painéis padrão em thread de fundo no startup.
     warmup_enabled: bool = True
+    # Intervalo (s) em que cada worker reconfere os painéis padrão e recalcula em
+    # segundo plano se os dados mudaram. 0 desliga.
+    painel_refresh_segundos: float = 45.0
+    # Teto de validade das respostas de painel; a invalidação real é pela versão
+    # do banco e pelo mtime dos templates.
+    painel_cache_ttl_segundos: float = 3600.0
 
     # Admin Banco
     admin_username: str = ""

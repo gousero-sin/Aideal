@@ -5,6 +5,10 @@ import shutil
 import tempfile
 from pathlib import Path
 
+# Sem a manutenção periódica dos painéis: cada TestClient com lifespan criaria
+# uma thread recalculando painéis em paralelo com a suíte.
+os.environ["AIDEAL_PAINEL_REFRESH_SEGUNDOS"] = "0"
+
 # O banco operacional precisa ser isolado ANTES de importar o app: os serviços
 # de app.main são singletons criados no import e guardam settings.db_path.
 # Sem isso, testes de API gravam em data/aideal.db e apagam lançamentos reais.
