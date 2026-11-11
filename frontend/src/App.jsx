@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, Calculator, Database, Loader2, Users, WalletCards } from 'lucide-react';
 import { useLiquidLoaderController } from 'goflow-core';
-import AidealPartnershipLoader from './components/AidealPartnershipLoader';
+import AidealKineticLoader from './components/AidealKineticLoader';
 import AccessManagementPanel from './components/AccessManagementPanel';
 import AdminPanel from './components/AdminPanel';
 import AppSidebar from './components/AppSidebar';
@@ -57,8 +57,8 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const loader = useLiquidLoaderController({
     intervalMs: 3200,
-    minVisibleMs: 1400,
-    exitMs: 420,
+    minVisibleMs: 1700,
+    exitMs: 720,
   });
   const loaderVisibleRef = useRef(false);
   const visibleModules = useMemo(
@@ -146,7 +146,7 @@ export default function App() {
       />
 
       <main className="aideal-shell access-app-main">
-        <AidealPartnershipLoader
+        <AidealKineticLoader
           visible={loader.visible}
           exiting={loader.exiting}
           scene={loader.scene}

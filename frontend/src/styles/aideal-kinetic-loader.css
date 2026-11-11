@@ -1,0 +1,639 @@
+/* Tela de carregamento "Pinceladas Cinéticas" (AidealKineticLoader).
+   Linha do tempo: intro 0–1300ms, revezamento a cada 3200ms (= intervalMs do
+   controller) a partir de 1400ms e saída de 720ms (= exitMs). Só transform e
+   opacity são animados; cada fase anima um wrapper próprio. Entradas de uma
+   vez usam fill "backwards": o último quadro é igual ao estilo base e, ao
+   terminar, a animação sai de cena e não prende camadas extras no loop. */
+
+.aideal-kinetic-loader {
+  --akl-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --akl-in-expo: cubic-bezier(0.7, 0, 0.84, 0);
+  --akl-overshoot: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --akl-sine: cubic-bezier(0.37, 0, 0.63, 1);
+  --akl-cycle: 3200ms;
+  --akl-loop-start: 1400ms;
+  --akl-skew: -10deg;
+  --akl-stage-size: min(78vmin, 820px);
+
+  contain: strict;
+  inset: 0;
+  isolation: isolate;
+  overflow: hidden;
+  pointer-events: all;
+  position: fixed;
+  z-index: 990;
+}
+
+.aideal-kinetic-loader.is-exiting {
+  animation: akl-fade-out 460ms cubic-bezier(0.65, 0, 0.35, 1) 260ms both;
+  pointer-events: none;
+}
+
+.akl-defs {
+  height: 0;
+  overflow: hidden;
+  position: absolute;
+  width: 0;
+}
+
+.akl-backdrop,
+.akl-auroras,
+.akl-speed,
+.akl-perspective {
+  inset: 0;
+  position: absolute;
+}
+
+.akl-backdrop {
+  animation: akl-fade-in 220ms linear backwards;
+  background: rgba(5, 7, 11, 0.96);
+}
+
+/* Reaberto durante a saída: o fundo já cobria a tela, então não pisca de novo. */
+.aideal-kinetic-loader.is-replay .akl-backdrop {
+  animation: none;
+}
+
+/* Ambiente: manchas de luz nas cores da marca; a da fase ativa acende. Ficam
+   paradas e com a vinheta na mesma camada estática: assim o fundo é
+   rasterizado uma vez e não soma composição por quadro (pesa sem GPU). */
+.akl-auroras {
+  animation: akl-fade-in 700ms var(--akl-sine) 60ms backwards;
+}
+
+.akl-auroras::after {
+  background: radial-gradient(ellipse 72% 68% at 50% 50%, transparent 50%, rgba(0, 0, 0, 0.62) 100%);
+  content: "";
+  inset: 0;
+  position: absolute;
+}
+
+.akl-aurora {
+  aspect-ratio: 1;
+  background: radial-gradient(closest-side, var(--akl-glow), transparent);
+  border-radius: 50%;
+  opacity: 0.18;
+  position: absolute;
+  transition: opacity 600ms var(--akl-sine);
+  width: 70vmin;
+}
+
+.akl-aurora--yellow {
+  --akl-glow: rgba(255, 184, 0, 0.55);
+  right: 6%;
+  top: -6%;
+}
+
+.akl-aurora--blue {
+  --akl-glow: rgba(0, 150, 255, 0.6);
+  left: -2%;
+  top: 24%;
+}
+
+.akl-aurora--red {
+  --akl-glow: rgba(227, 20, 27, 0.55);
+  bottom: -10%;
+  right: 16%;
+}
+
+.aideal-kinetic-loader[data-loader-phase="0"] .akl-aurora--yellow,
+.aideal-kinetic-loader[data-loader-phase="1"] .akl-aurora--blue,
+.aideal-kinetic-loader[data-loader-phase="2"] .akl-aurora--red,
+.aideal-kinetic-loader[data-loader-phase="3"] .akl-aurora--blue {
+  opacity: 0.5;
+}
+
+/* Linhas de velocidade no mesmo eixo inclinado das pinceladas. */
+.akl-speed {
+  animation: akl-fade-in 500ms var(--akl-sine) 300ms backwards;
+}
+
+.akl-speed-field {
+  inset: -30% -5%;
+  position: absolute;
+  transform: skewY(var(--akl-skew));
+}
+
+.akl-speed-line {
+  animation: akl-speed var(--akl-dur) linear var(--akl-delay) infinite both;
+  background: linear-gradient(90deg, transparent, var(--akl-c) 72%, #fff 94%, transparent);
+  border-radius: 999px;
+  height: 2px;
+  left: 0;
+  opacity: var(--akl-o);
+  position: absolute;
+  top: var(--akl-top);
+  width: var(--akl-w);
+}
+
+/* Palco: entrada em escala, flutuação 3D contínua e explosão na saída. */
+.akl-perspective {
+  display: grid;
+  place-items: center;
+}
+
+.akl-stage {
+  animation: akl-stage-in 1300ms var(--akl-out-expo) backwards;
+  height: var(--akl-stage-size);
+  position: relative;
+  width: var(--akl-stage-size);
+  will-change: transform, opacity;
+}
+
+.akl-tilt,
+.akl-strokes {
+  inset: 0;
+  position: absolute;
+}
+
+.akl-tilt {
+  animation: akl-tilt 6400ms var(--akl-sine) var(--akl-loop-start) infinite alternate both;
+}
+
+.akl-ring {
+  animation:
+    akl-ring 600ms var(--akl-out-expo) 760ms 1 none,
+    akl-ring-loop var(--akl-cycle) linear calc(var(--akl-loop-start) + 180ms) infinite none;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+  box-shadow:
+    0 0 32px rgba(53, 199, 242, 0.45),
+    inset 0 0 32px rgba(53, 199, 242, 0.3);
+  inset: 6%;
+  opacity: 0;
+  position: absolute;
+}
+
+/* O logo inclina as pinceladas com cisalhamento vertical: cortes das pontas
+   continuam verticais e a espessura vertical é constante. */
+.akl-strokes {
+  transform: skewY(var(--akl-skew));
+}
+
+.akl-stroke {
+  aspect-ratio: 630 / 184;
+  left: var(--akl-left);
+  position: absolute;
+  top: var(--akl-top);
+  width: var(--akl-width);
+}
+
+.akl-stroke-exit,
+.akl-stroke-intro,
+.akl-stroke-loop,
+.akl-stroke-body,
+.akl-ghost,
+.akl-ghost-loop {
+  inset: 0;
+  position: absolute;
+}
+
+.akl-stroke-intro {
+  animation: akl-stroke-in 620ms var(--akl-out-expo) var(--akl-intro-delay) backwards;
+}
+
+.akl-stroke-loop {
+  animation: akl-dash var(--akl-cycle) linear calc(var(--akl-loop-start) + var(--akl-loop-delay)) infinite both;
+  will-change: transform, opacity;
+}
+
+.akl-stroke-svg {
+  display: block;
+  height: 100%;
+  overflow: visible;
+  width: 100%;
+}
+
+/* Brilho próprio: cópia borrada e estática da pincelada, rasterizada uma vez. */
+.akl-stroke-glow {
+  filter: blur(1.8vmin);
+  inset: 0;
+  opacity: 0.5;
+  position: absolute;
+}
+
+/* Luz recortada no contorno da pincelada: flash branco na aterrissagem (sem
+   brightness(), que estourava o laranja em amarelo-limão e o azul em ciano) e
+   um reflexo que varre a pincelada depois que ela assenta. */
+.akl-stroke-light {
+  inset: 0;
+  -webkit-mask: var(--akl-mask) center / 100% 100% no-repeat;
+  mask: var(--akl-mask) center / 100% 100% no-repeat;
+  overflow: hidden;
+  position: absolute;
+}
+
+.akl-stroke-flash {
+  animation:
+    akl-flash 320ms ease-out calc(var(--akl-intro-delay) + 230ms) 1 none,
+    akl-flash-loop var(--akl-cycle) linear calc(var(--akl-loop-start) + var(--akl-loop-delay)) infinite none;
+  background: #fff;
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+}
+
+.akl-stroke-sheen {
+  animation:
+    akl-sheen-intro 640ms cubic-bezier(0.45, 0, 0.2, 1) calc(var(--akl-intro-delay) + 680ms) 1 none,
+    akl-sheen var(--akl-cycle) linear calc(var(--akl-loop-start) + var(--akl-loop-delay)) infinite none;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.55) 50%, rgba(255, 255, 255, 0) 100%);
+  inset: 0 auto 0 0;
+  position: absolute;
+  transform: translateX(-110%);
+  width: 34%;
+}
+
+/* Rastros: cópias borradas que repetem o mesmo movimento com atraso e só
+   aparecem enquanto a pincelada está em trânsito. */
+.akl-ghost--near {
+  --akl-lag: 40ms;
+  --akl-ghost-o: 0.45;
+  --akl-ghost-sx: 1.25;
+}
+
+.akl-ghost--far {
+  --akl-lag: 90ms;
+  --akl-ghost-o: 0.25;
+  --akl-ghost-sx: 1.6;
+}
+
+.akl-ghost {
+  animation: akl-stroke-in 620ms var(--akl-out-expo) calc(var(--akl-intro-delay) + var(--akl-lag)) backwards;
+}
+
+.akl-ghost-loop {
+  animation: akl-dash var(--akl-cycle) linear calc(var(--akl-loop-start) + var(--akl-loop-delay) + var(--akl-lag)) infinite both;
+}
+
+.akl-ghost-body {
+  animation:
+    akl-ghost-intro 620ms linear calc(var(--akl-intro-delay) + var(--akl-lag)) 1 none,
+    akl-ghost-loop var(--akl-cycle) linear calc(var(--akl-loop-start) + var(--akl-loop-delay) + var(--akl-lag)) infinite none;
+  background: linear-gradient(90deg, var(--akl-c0), var(--akl-c1) 45%, var(--akl-c2));
+  border-radius: 999px;
+  filter: blur(18px);
+  inset: 14% 2%;
+  opacity: 0;
+  position: absolute;
+  transform: scaleX(var(--akl-ghost-sx));
+}
+
+/* Saída: cada pincelada acende, dispara para fora deixando rastro atrás de si
+   e a aplicação aparece por trás. */
+.aideal-kinetic-loader.is-exiting .akl-stroke-exit {
+  animation: akl-stroke-out 380ms var(--akl-in-expo) var(--akl-exit-delay) both;
+}
+
+/* Nome próprio: se reusasse akl-flash, o navegador casaria pelo nome com a
+   animação da intro, já terminada, e o flash não repetiria. */
+.aideal-kinetic-loader.is-exiting .akl-stroke-flash {
+  animation: akl-flash-exit 300ms ease-out var(--akl-exit-delay) 1 none;
+}
+
+.aideal-kinetic-loader.is-exiting .akl-ghost-body {
+  animation: akl-ghost-exit 380ms linear calc(var(--akl-exit-delay) + var(--akl-lag)) both;
+  transform-origin: calc(50% + var(--akl-dir) * 50%) 50%;
+}
+
+.aideal-kinetic-loader.is-exiting .akl-perspective {
+  animation: akl-stage-out 480ms var(--akl-in-expo) both;
+}
+
+.aideal-kinetic-loader.is-exiting .akl-speed {
+  animation: akl-fade-out 300ms ease-out both;
+}
+
+@keyframes akl-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes akl-fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes akl-speed {
+  from {
+    transform: translateX(-60vmax);
+  }
+
+  to {
+    transform: translateX(160vmax);
+  }
+}
+
+@keyframes akl-stage-in {
+  from {
+    transform: scale(0.9);
+  }
+
+  to {
+    transform: scale(1);
+  }
+}
+
+@keyframes akl-stage-out {
+  from {
+    transform: scale(1);
+  }
+
+  to {
+    transform: scale(1.18);
+  }
+}
+
+@keyframes akl-tilt {
+  0% {
+    transform: perspective(1200px) rotateX(5deg) rotateY(-9deg) scale(0.98);
+  }
+
+  35% {
+    transform: perspective(1200px) rotateX(-6deg) rotateY(-3deg) scale(1.01);
+  }
+
+  70% {
+    transform: perspective(1200px) rotateX(-2deg) rotateY(7deg) scale(1.03);
+  }
+
+  100% {
+    transform: perspective(1200px) rotateX(6deg) rotateY(9deg) scale(1);
+  }
+}
+
+@keyframes akl-ring {
+  from {
+    opacity: 0.55;
+    transform: scale(0.55);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+@keyframes akl-ring-loop {
+  0%,
+  37.99% {
+    opacity: 0;
+    transform: scale(0.55);
+  }
+
+  38% {
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0.55;
+    transform: scale(0.55);
+  }
+
+  56.75%,
+  100% {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+@keyframes akl-stroke-in {
+  0% {
+    opacity: 0;
+    transform: translateX(calc(var(--akl-dir) * -260%)) scaleX(2.4);
+  }
+
+  35% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateX(0) scaleX(1);
+  }
+}
+
+@keyframes akl-flash {
+  from {
+    opacity: 0.6;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+/* Revezamento: antecipação, disparo para fora, teleporte invisível para o
+   lado oposto, reentrada com overshoot e repouso até o próximo ciclo. */
+@keyframes akl-dash {
+  0% {
+    animation-timing-function: cubic-bezier(0.37, 0, 0.63, 1);
+    opacity: 1;
+    transform: translateX(0) scaleX(1);
+  }
+
+  8% {
+    animation-timing-function: cubic-bezier(0.7, 0, 0.84, 0);
+    opacity: 1;
+    transform: translateX(calc(var(--akl-dir) * -7%)) scaleX(0.95);
+  }
+
+  21% {
+    animation-timing-function: step-end;
+    opacity: 0;
+    transform: translateX(calc(var(--akl-dir) * 190%)) scaleX(1.9);
+  }
+
+  21.01% {
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    opacity: 0;
+    transform: translateX(calc(var(--akl-dir) * -190%)) scaleX(1.9);
+  }
+
+  38% {
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+    opacity: 1;
+    transform: translateX(calc(var(--akl-dir) * 4%)) scaleX(1.05);
+  }
+
+  46%,
+  100% {
+    opacity: 1;
+    transform: translateX(0) scaleX(1);
+  }
+}
+
+@keyframes akl-flash-exit {
+  from {
+    opacity: 0.6;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes akl-flash-loop {
+  0%,
+  37.99% {
+    opacity: 0;
+  }
+
+  38% {
+    animation-timing-function: ease-out;
+    opacity: 0.6;
+  }
+
+  48%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes akl-sheen-intro {
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(300%);
+  }
+}
+
+/* Reflexo do loop: começa com as três pinceladas já assentadas. */
+@keyframes akl-sheen {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  56% {
+    animation-timing-function: cubic-bezier(0.45, 0, 0.2, 1);
+    transform: translateX(-110%);
+  }
+
+  80%,
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@keyframes akl-ghost-intro {
+  0% {
+    opacity: 0;
+  }
+
+  12%,
+  45% {
+    opacity: var(--akl-ghost-o);
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes akl-ghost-loop {
+  0%,
+  10% {
+    opacity: 0;
+  }
+
+  16%,
+  30% {
+    opacity: var(--akl-ghost-o);
+  }
+
+  44%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes akl-ghost-exit {
+  0% {
+    opacity: 0;
+  }
+
+  35%,
+  70% {
+    opacity: var(--akl-ghost-o);
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes akl-stroke-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scaleX(1);
+  }
+
+  60% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateX(calc(var(--akl-dir) * 320%)) scaleX(2.6);
+  }
+}
+
+@keyframes akl-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.72;
+  }
+}
+
+@media (max-width: 520px) {
+  .aideal-kinetic-loader {
+    --akl-stage-size: 86vmin;
+  }
+}
+
+/* Movimento reduzido: símbolo parado na posição final, só opacidade. */
+@media (prefers-reduced-motion: reduce) {
+  .aideal-kinetic-loader .akl-speed,
+  .aideal-kinetic-loader .akl-ghost,
+  .aideal-kinetic-loader .akl-ring,
+  .aideal-kinetic-loader .akl-stroke-light {
+    display: none;
+  }
+
+  .aideal-kinetic-loader .akl-perspective,
+  .aideal-kinetic-loader.is-exiting .akl-perspective,
+  .aideal-kinetic-loader .akl-stage,
+  .aideal-kinetic-loader .akl-tilt,
+  .aideal-kinetic-loader .akl-stroke-intro,
+  .aideal-kinetic-loader .akl-stroke-exit,
+  .aideal-kinetic-loader.is-exiting .akl-stroke-exit {
+    animation: none;
+  }
+
+  .aideal-kinetic-loader .akl-backdrop,
+  .aideal-kinetic-loader .akl-auroras,
+  .aideal-kinetic-loader .akl-strokes {
+    animation: akl-fade-in 200ms ease-out backwards;
+  }
+
+  .aideal-kinetic-loader .akl-stroke-loop {
+    animation: akl-pulse 2400ms ease-in-out calc(var(--akl-index) * 300ms) infinite both;
+  }
+
+  .aideal-kinetic-loader.is-exiting {
+    animation: akl-fade-out 200ms ease-out both;
+  }
+}
