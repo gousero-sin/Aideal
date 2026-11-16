@@ -1,0 +1,169 @@
+/* Tela de entrada do Orçamento (goflowOS). Seletores sob .orc-root.
+   O estado base de cada elemento é o estado final e parado; as animações só descrevem como
+   chegar nele (fill backwards) e o que continua em laço. Assim, com movimento reduzido
+   (animation: none em orcamento.css) a marca aparece inteira, sem regra extra.
+   Linha do tempo da montagem: anel 0 s · órbita do preço 0,15 s · semicírculo 0,4 s ·
+   esfera 0,55 s · onda 0,7 s · letras 0,75 s · rótulo 1,15 s. Só transform, opacity e traço. */
+
+.orc-root .orc-loading-screen {
+  --orc-lm-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --orc-lm-overshoot: cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  display: grid;
+  min-height: min(720px, 78dvh);
+  padding: 40px 24px;
+  overflow: hidden;
+  border: 1px solid var(--orc-line);
+  border-radius: var(--orc-radius);
+  background: radial-gradient(ellipse at 50% 40%, #13263a 0%, #0c1622 46%, #080e16 100%);
+  text-align: center;
+  place-content: center;
+  justify-items: center;
+  isolation: isolate;
+}
+
+/* Feixe de luz girando atrás da marca, nas cores das partes do preço. */
+.orc-root .orc-lm-sweep {
+  position: absolute;
+  z-index: -1;
+  top: 40%;
+  left: 50%;
+  width: min(120vmin, 1100px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: conic-gradient(from 0deg,
+    transparent 0deg, rgba(47, 139, 216, 0.5) 40deg, transparent 95deg,
+    transparent 150deg, rgba(255, 198, 41, 0.26) 185deg, transparent 230deg,
+    transparent 280deg, rgba(240, 68, 75, 0.24) 315deg, transparent 360deg);
+  filter: blur(46px);
+  opacity: 0.75;
+  translate: -50% -50%;
+  animation: orc-lm-fade 900ms ease-out backwards, orc-lm-spin 9s linear infinite;
+}
+
+.orc-root .orc-loading-mark {
+  width: clamp(230px, 42vmin, 440px);
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 0 26px rgba(95, 178, 236, 0.28));
+}
+.orc-root .orc-loading-mark * { transform-box: view-box; transform-origin: 200px 200px; }
+
+.orc-root .orc-lm-ticks {
+  stroke: rgba(167, 205, 235, 0.42);
+  stroke-width: 7;
+  stroke-dasharray: 0.5 3.5;
+  animation: orc-lm-fade 800ms ease-out 200ms backwards, orc-lm-spin 46s linear infinite;
+}
+
+.orc-root .orc-lm-ring {
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  animation: orc-lm-ring-draw 950ms var(--orc-lm-out) backwards;
+}
+
+/* Órbita: cada arco cresce a partir do seu início enquanto o conjunto gira. */
+.orc-root .orc-lm-orbit { animation: orc-lm-orbit-in 1100ms var(--orc-lm-out) backwards, orc-lm-spin 11s linear 1100ms infinite; }
+.orc-root .orc-lm-arc {
+  stroke: var(--part);
+  stroke-width: 7;
+  stroke-linecap: round;
+  stroke-dasharray: var(--orc-lm-length) 100;
+  stroke-dashoffset: calc(var(--orc-lm-start) * -1);
+  animation: orc-lm-arc-grow 760ms var(--orc-lm-out) calc(150ms + var(--orc-lm-index) * 90ms) backwards;
+}
+.orc-root .orc-lm-arc[data-part="diretos"] { --part: var(--orc-comp-diretos); }
+.orc-root .orc-lm-arc[data-part="indiretos"] { --part: var(--orc-comp-indiretos); }
+.orc-root .orc-lm-arc[data-part="lucro"] { --part: var(--orc-comp-lucro); }
+.orc-root .orc-lm-arc[data-part="impostos"] { --part: var(--orc-comp-impostos); }
+
+.orc-root .orc-lm-counter { animation: orc-lm-fade 600ms ease-out 350ms backwards, orc-lm-spin 3.4s linear infinite reverse; }
+.orc-root .orc-lm-counter circle { stroke: rgba(214, 238, 255, 0.5); stroke-width: 1.5; stroke-linecap: round; stroke-dasharray: 9 16 3 22; }
+
+/* Semicírculo da marca: dá a volta em chicote, com dois rastros atrasados. */
+.orc-root .orc-lm-whip { animation: orc-lm-whip 1500ms cubic-bezier(0.76, 0, 0.18, 1) 450ms infinite; }
+.orc-root .orc-lm-whip path {
+  stroke-width: 11;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  animation: orc-lm-ring-draw 420ms var(--orc-lm-out) 400ms backwards;
+}
+.orc-root .orc-lm-whip[data-trail="near"] { opacity: 0.32; animation-delay: 505ms; }
+.orc-root .orc-lm-whip[data-trail="far"] { opacity: 0.14; animation-delay: 560ms; }
+.orc-root .orc-lm-whip:not([data-trail="head"]) path { stroke-width: 15; }
+
+.orc-root .orc-lm-core { animation: orc-lm-pop 560ms var(--orc-lm-overshoot) 550ms backwards, orc-lm-breathe 2.6s ease-in-out 1200ms infinite; }
+.orc-root .orc-lm-shock {
+  stroke: rgba(214, 238, 255, 0.9);
+  stroke-width: 1.4;
+  opacity: 0;
+  animation: orc-lm-shock 2600ms var(--orc-lm-out) 700ms infinite;
+}
+.orc-root .orc-lm-shock--late { animation-delay: 1050ms; }
+
+.orc-root .orc-loading-copy { display: grid; justify-items: center; margin-top: clamp(18px, 3vmin, 34px); gap: 10px; }
+.orc-root .orc-loading-copy strong {
+  display: flex;
+  color: #f4faff;
+  font-size: clamp(2.2rem, 5.2vmin, 3.5rem);
+  font-stretch: 125%;
+  font-weight: 640;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+.orc-root .orc-loading-copy strong span {
+  display: inline-block;
+  animation: orc-lm-letter 640ms var(--orc-lm-out) calc(750ms + var(--orc-lm-index) * 45ms) backwards;
+}
+.orc-root .orc-loading-copy > span {
+  margin-right: -0.3em;
+  color: #a9cbe6;
+  font-size: 0.84rem;
+  font-weight: 560;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  animation: orc-lm-label 800ms var(--orc-lm-out) 1150ms backwards;
+}
+/* Fio de progresso indeterminado: um trecho claro corre da esquerda para a direita. */
+.orc-root .orc-lm-progress {
+  position: relative;
+  display: block;
+  width: min(220px, 52vw);
+  height: 2px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  animation: orc-lm-fade 500ms ease-out 1250ms backwards;
+}
+.orc-root .orc-lm-progress::after {
+  position: absolute;
+  inset: 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--orc-cyan), #fff);
+  content: "";
+  animation: orc-lm-run 1300ms cubic-bezier(0.65, 0, 0.35, 1) 1250ms infinite backwards;
+}
+
+@keyframes orc-lm-spin { to { rotate: 360deg; } }
+@keyframes orc-lm-fade { from { opacity: 0; } }
+@keyframes orc-lm-ring-draw { from { stroke-dashoffset: 1; rotate: -150deg; opacity: 0; } 20% { opacity: 1; } }
+@keyframes orc-lm-orbit-in { from { scale: 1.5; rotate: -200deg; opacity: 0; } 35% { opacity: 1; } }
+@keyframes orc-lm-arc-grow { from { stroke-dasharray: 0 100; } }
+@keyframes orc-lm-whip { from { rotate: 0deg; } 82%, to { rotate: 360deg; } }
+@keyframes orc-lm-pop { from { scale: 0; opacity: 0; } }
+@keyframes orc-lm-breathe { 50% { scale: 1.07; } }
+@keyframes orc-lm-shock {
+  from { scale: 1; opacity: 0.85; }
+  42%, to { scale: 4.6; opacity: 0; }
+}
+@keyframes orc-lm-letter { from { translate: 0 0.7em; opacity: 0; filter: blur(8px); } }
+@keyframes orc-lm-label { from { letter-spacing: 0.9em; opacity: 0; } }
+@keyframes orc-lm-run { from { translate: -110% 0; } to { translate: 250% 0; } }
+
+/* Com movimento reduzido nada entra nem gira; o fio de progresso vira um traço parado. */
+@media (prefers-reduced-motion: reduce) {
+  .orc-root .orc-lm-progress::after { width: 100%; opacity: 0.5; }
+}

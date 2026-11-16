@@ -25,9 +25,9 @@ import {
 } from './orcamentoModel';
 
 const HH_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
-// A tela goflowOS fica à vista o bastante para a marca terminar de se desenhar, mesmo quando
-// os dados chegam antes disso; sem ela a entrada no módulo pisca.
-const MIN_LOADER_MS = 1100;
+// A tela goflowOS fica à vista até a marca terminar de se montar (cerca de 1,6 s, ver
+// orcamento-loader.css) e dar uma volta, mesmo quando os dados chegam antes disso.
+const MIN_LOADER_MS = 2200;
 const DEFAULT_PORTFOLIO_VIEW = Object.freeze({ query: '', filter: 'todos', order: 'recentes' });
 
 function PortfolioSkeleton({ count = 2 }) {

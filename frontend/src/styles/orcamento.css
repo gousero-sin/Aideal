@@ -715,13 +715,7 @@
 .orc-root .orc-hh-total-line strong { color: #fff; font-variant-numeric: tabular-nums; }
 
 /* 13. Loader e skeletons ----------------------------------------------------------------- */
-/* Uma esfera, um semicírculo e um círculo externo formam a marca GoFlow. */
-.orc-root .orc-loading-screen { display: grid; min-height: min(620px, 70dvh); padding: 48px 24px; border: 1px solid var(--orc-line); border-radius: var(--orc-radius); background: radial-gradient(ellipse at 50% 38%, rgba(36, 107, 169, 0.2), transparent 55%), var(--orc-glass-strong); text-align: center; place-content: center; justify-items: center; }
-.orc-root .orc-loading-mark { width: clamp(130px, 17vw, 184px); height: auto; overflow: visible; filter: drop-shadow(0 0 16px rgba(97, 195, 255, 0.15)); }
-.orc-root .orc-loading-copy { display: grid; justify-items: center; margin-top: 26px; gap: 10px; }
-.orc-root .orc-loading-copy strong { color: #f1f8ff; font-size: clamp(1.8rem, 3vw, 2.4rem); font-weight: 620; letter-spacing: -0.065em; }
-.orc-root .orc-loading-copy span { color: #a7c8e3; font-size: 0.78rem; letter-spacing: 0.19em; text-transform: uppercase; }
-.orc-root .orc-loading-copy p { margin: 14px 0 0; color: var(--orc-muted); font-size: 0.76rem; }
+/* A tela de entrada (marca GoFlow) fica em orcamento-loader.css. */
 .orc-root .orc-skeleton {
   display: block;
   border-radius: 10px;
