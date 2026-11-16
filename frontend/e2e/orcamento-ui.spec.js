@@ -51,10 +51,13 @@ test('loader permanece durante requests iniciais e revela a carteira ao concluir
   await expect(loader).toHaveCount(0);
 });
 
-test('carregamento rápido conclui sem manter loader artificialmente', async ({ page }) => {
+test('carregamento rápido ainda apresenta a tela goflowOS antes da carteira', async ({ page }) => {
   await login(page);
+  const loader = loaderFor(page);
+  await expect(loader).toBeVisible();
+  await expect(loader.getByText('goflowOS', { exact: true })).toBeVisible();
   await ready(page);
-  await expect(loaderFor(page)).toHaveCount(0);
+  await expect(loader).toHaveCount(0);
 });
 
 test('erro inicial permite tentar novamente', async ({ page }) => {

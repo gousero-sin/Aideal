@@ -25,6 +25,9 @@ import {
 } from './orcamentoModel';
 
 const HH_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
+// A tela goflowOS fica à vista o bastante para a marca terminar de se desenhar, mesmo quando
+// os dados chegam antes disso; sem ela a entrada no módulo pisca.
+const MIN_LOADER_MS = 1100;
 const DEFAULT_PORTFOLIO_VIEW = Object.freeze({ query: '', filter: 'todos', order: 'recentes' });
 
 function PortfolioSkeleton({ count = 2 }) {
@@ -59,6 +62,7 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUse
   const [newRevisionTarget, setNewRevisionTarget] = useState(null);
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState(false);
+  const [introDone, setIntroDone] = useState(false);
   const [view, setView] = useState(DEFAULT_PORTFOLIO_VIEW);
   const [exporting, setExporting] = useState(() => new Set());
   const [toast, setToast] = useState(null);
@@ -154,6 +158,11 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUse
       requestsRef.current.clear();
     };
   }, [load]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setIntroDone(true), MIN_LOADER_MS);
+    return () => clearTimeout(timer);
+  }, []);
 
   // O alerta da página recebe foco para ser lido e ficar à vista.
   useEffect(() => {
@@ -427,7 +436,7 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUse
     <MotionConfig reducedMotion="user">
     <section className="orc-root" aria-label="Orçamento">
       <AnimatePresence mode="wait" initial={false}>
-      {!initialized && loading ? <OrcamentoLoadingScreen key="loading" /> : !initialized ? (
+      {(!initialized && loading) || (initialized && !introDone) ? <OrcamentoLoadingScreen key="loading" /> : !initialized ? (
         <motion.div key="initial-error" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
           <GoFlowWindow className="orc-error-window" icon={CircleAlert} role="alert" title="Não foi possível carregar os orçamentos">
             <p>{loadError}</p>
