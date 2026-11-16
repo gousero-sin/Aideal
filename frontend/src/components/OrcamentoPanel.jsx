@@ -1,69 +1,31 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, MotionConfig, motion, useReducedMotion } from 'framer-motion';
+import '@fontsource-variable/archivo/wdth.css';
 import '../styles/orcamento.css';
 import OrcamentoLoadingScreen from './orcamento/OrcamentoLoadingScreen';
-import {
-  Calculator, ChevronDown, CircleAlert, Eraser, FilePlus2, GitBranch, History, Loader2, ScrollText, SearchX, Sparkles, X,
-} from 'lucide-react';
+import { Calculator, CircleAlert, GitBranch, History, Plus, SearchX, SlidersHorizontal, X } from 'lucide-react';
 import { readApiError } from '../auth/authClient';
 import { fetchWithCsrfRecovery } from '../auth/csrfFetch';
 import { GoFlowWindow } from './goflow-window';
-import DfpEditor, { LocationHeaderField } from './orcamento/DfpEditor';
-import AnimatedNumber from './orcamento/AnimatedNumber';
+import DfpEditor from './orcamento/DfpEditor';
 import BudgetCard from './orcamento/BudgetCard';
 import CatalogoPanel from './orcamento/CatalogoPanel';
 import ConfirmDialog from './orcamento/ConfirmDialog';
+import CreateBudgetDialog from './orcamento/CreateBudgetDialog';
+import OrcamentoDialog from './orcamento/OrcamentoDialog';
+import PortfolioHeader from './orcamento/PortfolioHeader';
 import HistoryDrawer from './orcamento/HistoryDrawer';
 import OrcamentoToast from './orcamento/OrcamentoToast';
 import PortfolioToolbar from './orcamento/PortfolioToolbar';
-import StartDateField from './orcamento/StartDateField';
 import TransitionDialog from './orcamento/TransitionDialog';
 import {
-  CAMPOS_CABECALHO, SITUACOES, applyHeaderChange, applyDfpChange, buildOrcamentoPayload, buildRevisaoPatchPayload,
+  SITUACOES, applyHeaderChange, applyDfpChange, buildOrcamentoPayload, buildRevisaoPatchPayload,
   contarFiltrosCarteira, createEmptyOrcamentoForm, createRevisaoForm, filtrarCarteira, herdarCabecalho, normalizeOrcamentos,
   resolveOrcamentoCapabilities, resumoCarteira, stripDerivedIdentity, validateOrcamentoForm, validateRevisaoForm,
 } from './orcamentoModel';
 
-const formatMoney = (value) => Number(value || 0).toLocaleString('pt-BR', {
-  style: 'currency', currency: 'BRL', maximumFractionDigits: 0,
-});
-const formatCount = (value) => Number(value || 0).toLocaleString('pt-BR');
 const HH_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
-const CREATE_COLLAPSED_KEY = 'aideal.orcamento.criarRecolhido';
 const DEFAULT_PORTFOLIO_VIEW = Object.freeze({ query: '', filter: 'todos', order: 'recentes' });
-
-const readCollapsedPreference = () => {
-  try { return window.localStorage.getItem(CREATE_COLLAPSED_KEY) === '1'; } catch { return false; }
-};
-const writeCollapsedPreference = (collapsed) => {
-  try { window.localStorage.setItem(CREATE_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch { /* modo privado */ }
-};
-
-function CreateFields({ disabled, errors, form, onChange, onDfpChange }) {
-  return (
-    <div className="orc-field-grid orc-create-grid">
-      {CAMPOS_CABECALHO.map(({ field, label, long, options, type }) => field === 'regiao' ? (
-        <LocationHeaderField disabled={disabled} error={errors[field]} form={form} idPrefix="orc-create-location" key={field} onDfpChange={onDfpChange} />
-      ) : field === 'dataInicio' ?
-        <StartDateField key={field} value={form[field]} disabled={disabled} error={errors[field]} onChange={(value) => onChange(field, value)} /> : (
-        <label className={`orc-field ${long ? 'orc-field--wide' : ''}`} key={field}>
-          <span>{label}</span>
-          {long ? (
-            <textarea aria-invalid={Boolean(errors[field])} disabled={disabled} onChange={(event) => onChange(field, event.target.value)} rows="2" value={form[field] ?? ''} />
-          ) : options ? (
-            <select aria-invalid={Boolean(errors[field])} disabled={disabled} onChange={(event) => onChange(field, event.target.value)} value={form[field] ?? ''}>
-              <option value="">Selecione</option>
-              {options.map((option) => <option value={option} key={option}>{option}</option>)}
-            </select>
-          ) : (
-            <input aria-invalid={Boolean(errors[field])} disabled={disabled} min={type === 'number' ? '0' : undefined} onChange={(event) => onChange(field, event.target.value)} type={type || 'text'} value={form[field] ?? ''} />
-          )}
-          {errors[field] && <small role="alert">{errors[field]}</small>}
-        </label>
-      ))}
-    </div>
-  );
-}
 
 function PortfolioSkeleton({ count = 2 }) {
   return Array.from({ length: count }, (_, index) => (
@@ -74,13 +36,6 @@ function PortfolioSkeleton({ count = 2 }) {
     </li>
   ));
 }
-
-const METRICAS = Object.freeze([
-  Object.freeze({ key: 'total', label: 'Carteira', view: { filter: 'todos' }, format: formatCount }),
-  Object.freeze({ key: 'emAndamento', label: 'Em curso', view: { filter: 'em_curso' }, format: formatCount }),
-  Object.freeze({ key: 'prontos', label: 'Prontos', view: { filter: 'pronto_para_proposta' }, format: formatCount }),
-  Object.freeze({ key: 'totalFaturamento', label: 'Faturamento', view: { filter: 'todos', order: 'valor' }, format: formatMoney }),
-]);
 
 export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUserId, permissions = [] }) {
   const endpoint = useMemo(() => `${String(apiBase).replace(/\/$/, '')}/orcamento`, [apiBase]);
@@ -93,7 +48,10 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUse
   const [createForm, setCreateForm] = useState(createEmptyOrcamentoForm);
   const [createErrors, setCreateErrors] = useState({});
   const [reuseId, setReuseId] = useState('');
-  const [createCollapsed, setCreateCollapsed] = useState(readCollapsedPreference);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogDirty, setCatalogDirty] = useState(false);
+  const [confirmCatalogDiscard, setConfirmCatalogDiscard] = useState(false);
   const [editor, setEditor] = useState(null);
   const [editorForm, setEditorForm] = useState(() => createRevisaoForm(null));
   const [editorErrors, setEditorErrors] = useState({});
@@ -110,7 +68,6 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUse
   const historyControllerRef = useRef(null);
   const exportingRef = useRef(new Set());
   const pageErrorRef = useRef(null);
-  const createWindowRef = useRef(null);
   const reducedMotion = useReducedMotion();
   const [saving, setSaving] = useState(false);
   // Erros por superfície: o da página nunca aparece dentro de um diálogo e vice-versa.
@@ -127,7 +84,6 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUse
   );
   const filtersActive = view.query.trim() !== '' || view.filter !== 'todos';
   const { canEdit, canTransition } = useMemo(() => resolveOrcamentoCapabilities(permissions), [permissions]);
-  const createOpen = budgets.length === 0 || !createCollapsed;
 
   const notifySuccess = useCallback((message) => setToast({ id: Date.now(), message }), []);
   const dismissToast = useCallback(() => setToast(null), []);
@@ -264,25 +220,39 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUse
     const created = await runMutation(
       () => request('/orcamentos', { body: buildOrcamentoPayload(createForm, { hhDefaults: schema?.hh?.defaults }), method: 'POST' }),
       'Orçamento criado com a revisão 0 em rascunho.',
-      { title: 'Não foi possível criar o orçamento' },
+      { scope: 'dialog' },
     );
-    if (created) resetCreateForm();
+    if (!created) return;
+    resetCreateForm();
+    setCreateOpen(false);
   };
 
-  const toggleCreate = () => {
-    const next = !createCollapsed;
-    setCreateCollapsed(next);
-    writeCollapsedPreference(next);
+  const openCreate = () => {
+    setDialogError('');
+    setCreateOpen(true);
   };
 
-  const openCreateAndFocus = () => {
-    setCreateCollapsed(false);
-    writeCollapsedPreference(false);
-    requestAnimationFrame(() => {
-      const node = createWindowRef.current;
-      node?.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
-      node?.querySelector('form input, form textarea')?.focus({ preventScroll: true });
-    });
+  const closeCreate = () => {
+    setCreateOpen(false);
+    setDialogError('');
+  };
+
+  const openCatalog = () => {
+    setDialogError('');
+    setCatalogOpen(true);
+  };
+
+  const closeCatalog = () => {
+    setCatalogOpen(false);
+    setCatalogDirty(false);
+    setConfirmCatalogDiscard(false);
+    setDialogError('');
+  };
+
+  // Fechar o diálogo desmonta o rascunho do catálogo: com alterações pendentes, confirma antes.
+  const requestCloseCatalog = () => {
+    if (catalogDirty) setConfirmCatalogDiscard(true);
+    else closeCatalog();
   };
 
   const openEditor = (budget, revision = budget.revisaoAtual, readOnly = false) => {
@@ -468,87 +438,11 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUse
       <motion.div key="content" className="orc-content" aria-busy={busy}
         initial={{ opacity: reducedMotion ? 1 : 0 }} animate={{ opacity: 1 }} transition={{ duration: reducedMotion ? 0 : .24 }}>
 
-      <GoFlowWindow className="orc-hero" eyebrow="AIDEAL · GoFlowOS" icon={Calculator} title="Central de Orçamentos" titleAs="h2">
-        <div className="orc-hero-copy">
-          <div>
-            <p>Componha custos, acompanhe revisões e prepare cada orçamento com clareza.</p>
-            <span className="orc-schema-version">{schema?.version ? `Catálogo ${schema.version}` : 'Formação de preços'}</span>
-          </div>
-          <div aria-label="Indicadores da carteira" className="orc-metrics" role="group">
-            {METRICAS.map(({ key, label, view: metricView, format }) => {
-              const active = view.filter === metricView.filter && (!metricView.order || view.order === metricView.order)
-                && (key !== 'total' || view.order !== 'valor');
-              return (
-                <button aria-pressed={active} className="orc-metric" key={key} onClick={() => applyView(metricView)}
-                  title={`Filtrar carteira: ${label}`} type="button">
-                  <span className="orc-metric__label">{label}</span>
-                  <strong className="orc-metric__value"><AnimatedNumber format={format} value={summary[key]} /></strong>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </GoFlowWindow>
+      <PortfolioHeader budgets={budgets} canEdit={canEdit} filter={view.filter} onCatalog={openCatalog} onCreate={openCreate}
+        onFilter={(filter) => applyView({ filter })} summary={summary} />
 
-      {canEdit ? (
-        <GoFlowWindow
-          actions={budgets.length > 0 && (
-            <button aria-controls="orc-create-body" aria-expanded={createOpen} className="orc-btn orc-btn--quiet orc-collapse-toggle" onClick={toggleCreate} type="button">
-              {createOpen ? 'Recolher' : 'Novo orçamento'}<ChevronDown aria-hidden="true" />
-            </button>
-          )}
-          className="orc-create-window"
-          data-collapsed={!createOpen || undefined}
-          eyebrow="Novo orçamento"
-          icon={FilePlus2}
-          ref={createWindowRef}
-          title="Criar orçamento"
-        >
-          <AnimatePresence initial={false}>
-            {createOpen && (
-              <motion.div
-                animate={{ height: 'auto', opacity: 1 }}
-                className="orc-collapsible"
-                exit={{ height: 0, opacity: 0 }}
-                id="orc-create-body"
-                initial={{ height: 0, opacity: 0 }}
-                transition={{ duration: reducedMotion ? 0 : 0.24 }}
-              >
-                <div className="orc-reuse-row">
-                  <label className="orc-field orc-reuse-field">
-                    <span>Preencher a partir de orçamento existente</span>
-                    <select disabled={busy} onChange={(event) => reuseBudget(event.target.value)} value={reuseId}>
-                      <option value="">Selecione para reaproveitar dados</option>
-                      {budgets.map((b) => <option key={b.id} value={b.id}>{b.codigo} — {b.contratante}</option>)}
-                    </select>
-                  </label>
-                  <button className="orc-btn orc-btn--quiet" disabled={busy} onClick={resetCreateForm} type="button"><Eraser aria-hidden="true" /> Limpar formulário</button>
-                </div>
-                <form onSubmit={handleCreate}>
-                  <CreateFields disabled={busy} errors={createErrors} form={createForm} onChange={updateCreateForm} onDfpChange={updateCreateDfp} />
-                  <div className="orc-create-actions">
-                    <p>Comece pela contratante. Você poderá completar os detalhes no editor.</p>
-                    <button className="orc-btn orc-btn--primary" disabled={busy} type="submit">
-                      {saving ? <Loader2 className="orc-spin" aria-hidden="true" /> : <Sparkles aria-hidden="true" />} Criar orçamento
-                    </button>
-                  </div>
-                </form>
-              </motion.div>
-            )}
-          </AnimatePresence>
-          {!createOpen && <p className="orc-note">Formulário recolhido. Use “Novo orçamento” para abrir.</p>}
-        </GoFlowWindow>
-      ) : (
-        <GoFlowWindow className="orc-readonly-window" icon={History} title="Acesso somente leitura">
-          <p>Você pode consultar cada snapshot e o histórico, sem alterar os dados.</p>
-        </GoFlowWindow>
-      )}
-
-      {canEdit && (
-        <GoFlowWindow className="orc-catalog-window" title="Cadastros do orçamento">
-          <CatalogoPanel busy={busy} catalogo={catalogo} currentUserId={currentUserId} historico={catalogoHistorico}
-            onSave={(data) => runMutation(() => request('/catalogo', { body: data, method: 'POST' }), 'Catálogo salvo.', { title: 'Não foi possível salvar o catálogo' })} />
-        </GoFlowWindow>
+      {!canEdit && (
+        <p className="orc-readonly-note"><History aria-hidden="true" /> Acesso somente leitura: você consulta cada revisão e o histórico, sem alterar os dados.</p>
       )}
 
       <AnimatePresence initial={false}>
@@ -570,22 +464,20 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUse
         )}
       </AnimatePresence>
 
-      <GoFlowWindow className="orc-portfolio-title" eyebrow="Seus orçamentos" icon={ScrollText} title="Carteira">
-        <p aria-live="polite">
-          {loading ? <span className="orc-skeleton orc-skeleton--pill" aria-label="Atualizando carteira" role="img" />
-            : filtersActive ? `${visibleBudgets.length} de ${budgets.length} orçamento(s)` : `${budgets.length} orçamento(s) disponível(is)`}
-        </p>
-      </GoFlowWindow>
-
       {budgets.length > 0 && (
         <PortfolioToolbar counts={counts} filter={view.filter} onFilter={(filter) => applyView({ filter })}
           onOrder={(order) => applyView({ order })} onQuery={(query) => applyView({ query })} order={view.order} query={view.query} />
       )}
 
+      <p aria-live="polite" className="orc-portfolio-count">
+        {loading ? <span className="orc-skeleton orc-skeleton--pill" aria-label="Atualizando carteira" role="img" />
+          : filtersActive ? `Mostrando ${visibleBudgets.length} de ${budgets.length} orçamentos` : ''}
+      </p>
+
       {budgets.length === 0 && !loading && (
         <GoFlowWindow className="orc-empty" icon={Calculator} title="Carteira vazia">
           <p>{canEdit ? 'Crie o primeiro orçamento. Ele receberá o código ORC-0001.' : 'Nenhum orçamento foi criado ainda.'}</p>
-          {canEdit && <button className="orc-btn orc-btn--primary" onClick={openCreateAndFocus} type="button"><Sparkles aria-hidden="true" /> Criar o primeiro orçamento</button>}
+          {canEdit && <button className="orc-btn orc-btn--primary" onClick={openCreate} type="button"><Plus aria-hidden="true" /> Criar o primeiro orçamento</button>}
         </GoFlowWindow>
       )}
 
@@ -637,6 +529,30 @@ export default function OrcamentoPanel({ apiBase = '/api', csrfToken, currentUse
             return rest;
           });
         }} serverError={dialogError} onSave={handleSaveRevision} revision={editor.revision} schema={editorForm.dfp?.calculation_version === 2 ? schema : legacySchema || schema} />
+      )}
+      </AnimatePresence>
+      <AnimatePresence>
+      {createOpen && canEdit && (
+        <CreateBudgetDialog budgets={budgets} busy={busy} error={dialogError} errors={createErrors} form={createForm} key="create"
+          onChange={updateCreateForm} onClose={closeCreate} onDfpChange={updateCreateDfp} onReset={resetCreateForm}
+          onReuse={reuseBudget} onSubmit={handleCreate} reuseId={reuseId} saving={saving} />
+      )}
+      </AnimatePresence>
+      <AnimatePresence>
+      {catalogOpen && canEdit && (
+        <OrcamentoDialog className="orc-catalog-window" icon={SlidersHorizontal} key="catalog" onClose={requestCloseCatalog} title="Cadastros do orçamento">
+          <CatalogoPanel busy={busy} catalogo={catalogo} currentUserId={currentUserId} embedded historico={catalogoHistorico} onDirtyChange={setCatalogDirty}
+            onSave={(data) => runMutation(() => request('/catalogo', { body: data, method: 'POST' }), 'Catálogo salvo.', { scope: 'dialog' })} />
+          {dialogError && <p className="orc-validation-error" role="alert">{dialogError}</p>}
+        </OrcamentoDialog>
+      )}
+      </AnimatePresence>
+      <AnimatePresence>
+      {confirmCatalogDiscard && (
+        <ConfirmDialog cancelLabel="Continuar editando" confirmLabel="Descartar e fechar" eyebrow="Alterações não salvas" icon={CircleAlert}
+          key="catalog-discard" onCancel={() => setConfirmCatalogDiscard(false)} onConfirm={closeCatalog} title="Descartar alterações dos cadastros?" tone="danger">
+          <p>As mudanças em funções, itens ou custo administrativo ainda não foram salvas. Ao fechar, elas serão perdidas.</p>
+        </ConfirmDialog>
       )}
       </AnimatePresence>
       <AnimatePresence>

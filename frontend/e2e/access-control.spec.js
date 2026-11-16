@@ -197,6 +197,7 @@ test('Orcamento so aparece para quem tem orcamento.view e preserva revisoes', as
   expect((await page.request.get('/api/admin/users')).status()).toBe(403);
   expect((await page.request.get('/api/orcamento/orcamentos')).status()).toBe(200);
 
+  await page.getByRole('button', { name: 'Novo orçamento', exact: true }).click();
   const novo = page.locator('.orc-create-window');
   await novo.getByLabel('Contratante', { exact: true }).fill(contratante);
   await novo.getByLabel('Dados da Contratante').fill('AMBEV S.A. — Anápolis');

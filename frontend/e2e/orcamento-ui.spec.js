@@ -27,6 +27,7 @@ async function delayInitial(page) {
 
 async function createAndOpen(page) {
   const name = `UI motion ${Date.now()}`;
+  await page.getByRole('button', { name: 'Novo orçamento', exact: true }).click();
   await page.locator('.orc-create-window').getByLabel('Contratante', { exact: true }).fill(name);
   await page.getByRole('button', { name: 'Criar orçamento', exact: true }).click();
   const opener = page.locator('.orc-card', { hasText: name }).getByRole('button', { name: /^Abrir / });
@@ -261,6 +262,7 @@ test('carteira filtra por busca, confirma nova revisão e abre histórico em gav
   await login(page);
   await ready(page);
   const name = `UI carteira ${Date.now()}`;
+  await page.getByRole('button', { name: 'Novo orçamento', exact: true }).click();
   await page.locator('.orc-create-window').getByLabel('Contratante', { exact: true }).fill(name);
   await page.getByRole('button', { name: 'Criar orçamento', exact: true }).click();
   const card = page.locator('.orc-card', { hasText: name });

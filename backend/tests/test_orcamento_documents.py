@@ -101,3 +101,54 @@ def test_export_handles_control_characters_from_historical_data(revision, fmt):
     data, _, _ = export_orcamento_document({'codigo': 'ORC-0007'}, revision, fmt)
     assert data
     assert revision == original
+
+
+def _docx_text(data):
+    doc = Document(BytesIO(data))
+    cells = [c.text for t in doc.tables for r in t.rows for c in r.cells]
+    return "\n".join([p.text for p in doc.paragraphs] + cells)
+
+
+def _pdf_text(data):
+    return "\n".join(page.extract_text() for page in PdfReader(BytesIO(data)).pages)
+
+
+@pytest.mark.parametrize("fmt", ["docx", "pdf"])
+def test_export_shows_price_composition_and_line_totals(revision, fmt):
+    revision["dfp"]["bdi"] = {"factor_percent": 10}
+    revision["dfp"]["impostos"] = {"items": [{"id": "iss", "label": "ISS", "aliquot_percent": 5}]}
+    data, _, _ = export_orcamento_document({"codigo": "ORC-0007"}, revision, fmt)
+    text = _docx_text(data) if fmt == "docx" else _pdf_text(data)
+    # 2 x 123,45 = 246,90 de custo direto; lucro de 10 %; preço = 271,59 / 0,95.
+    assert "Total (R$)" in text
+    assert "Subtotal" in text
+    assert "R$ 285,88" in text
+    for label in ("Custos diretos", "Lucro e BDI", "Impostos"):
+        assert label in text
+    assert "86,36 %" in text
+
+
+def test_export_formats_iso_dates_and_status(revision):
+    revision.update(situacao="emitido", emitido_em="2026-11-16T15:04:48+00:00",
+                    valido_ate="2026-12-16")
+    data, _, _ = export_orcamento_document({"codigo": "ORC-0007"}, revision, "pdf")
+    text = _pdf_text(data)
+    assert "16/11/2026" in text
+    assert "16/12/2026" in text
+    assert "Emitido" in text
+    assert "2026-12-16" not in text
+
+
+def test_pdf_numbers_pages_with_total(revision):
+    data, _, _ = export_orcamento_document({"codigo": "ORC-0007"}, revision, "pdf")
+    reader = PdfReader(BytesIO(data))
+    assert f"Página 1 de {len(reader.pages)}" in _pdf_text(data)
+
+
+def test_section_discount_is_stated_next_to_the_subtotal(revision):
+    revision["dfp"]["calculation_version"] = 2
+    revision["dfp"]["equipamentos"]["discount_percent"] = 10
+    data, _, _ = export_orcamento_document({"codigo": "ORC-0007"}, revision, "docx")
+    text = _docx_text(data)
+    assert "Desconto aplicado (10,00 %)" in text
+    assert "R$ 222,21" in text

@@ -30,9 +30,10 @@ const comparable = (catalogo) => JSON.stringify({
   ...Object.fromEntries(GRUPOS.map(({ group }) => [group, catalogo?.[group] || []])),
 });
 
-export default function CatalogoPanel({ catalogo, currentUserId, historico = [], busy, onSave }) {
+/** `embedded`: dentro de um diálogo o conteúdo fica sempre aberto, sem o botão de expandir. */
+export default function CatalogoPanel({ catalogo, currentUserId, embedded = false, historico = [], busy, onDirtyChange, onSave }) {
   const reducedMotion = useReducedMotion();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [draft, setDraft] = useState(() => withKeys(catalogo));
   const [errors, setErrors] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -51,6 +52,8 @@ export default function CatalogoPanel({ catalogo, currentUserId, historico = [],
   const clean = useMemo(() => withoutKeys(draft), [draft]);
   const dirty = comparable(clean) !== comparable(catalogo);
   const disabled = busy || saving;
+  // Quem hospeda o painel (o diálogo) precisa saber se fechar descartaria um rascunho.
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty, onDirtyChange]);
 
   const update = (group, key, field, value) => setDraft((current) => ({ ...current,
     [group]: (current[group] || []).map((item) => item._key === key ? { ...item, [field]: value } : item) }));
@@ -69,11 +72,13 @@ export default function CatalogoPanel({ catalogo, currentUserId, historico = [],
 
   return (
     <div className="orc-catalogo" data-open={open || undefined}>
-      <button aria-controls={regionId} aria-expanded={open} className="orc-disclosure" onClick={() => setOpen((value) => !value)} type="button">
-        <span>Configurações de salários e itens reutilizáveis</span>
-        {dirty && <span className="orc-dirty-badge">Alterações não salvas</span>}
-        <ChevronDown aria-hidden="true" className="orc-disclosure__chevron" />
-      </button>
+      {!embedded && (
+        <button aria-controls={regionId} aria-expanded={open} className="orc-disclosure" onClick={() => setOpen((value) => !value)} type="button">
+          <span>Configurações de salários e itens reutilizáveis</span>
+          {dirty && <span className="orc-dirty-badge">Alterações não salvas</span>}
+          <ChevronDown aria-hidden="true" className="orc-disclosure__chevron" />
+        </button>
+      )}
       <AnimatePresence initial={false}>
         {open && (
           <motion.div
@@ -114,6 +119,7 @@ export default function CatalogoPanel({ catalogo, currentUserId, historico = [],
               </fieldset>
             ))}
             <div className="orc-button-row orc-catalogo__actions">
+              {embedded && dirty && <span className="orc-dirty-badge">Alterações não salvas</span>}
               {dirty && <button className="orc-btn" disabled={disabled} onClick={() => { setDraft(withKeys(catalogo)); setErrors([]); }} type="button">Descartar alterações</button>}
               <button className="orc-btn orc-btn--primary" disabled={disabled || !dirty} onClick={save} type="button">
                 {saving && <Loader2 className="orc-spin" aria-hidden="true" />} Salvar catálogo

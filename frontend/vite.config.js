@@ -27,7 +27,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // AIDEAL_API_TARGET aponta o proxy para um backend local em outra porta.
+        target: process.env.AIDEAL_API_TARGET || 'http://localhost:8000',
         changeOrigin: true,
       },
     },

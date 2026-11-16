@@ -1,8 +1,9 @@
 import React, { forwardRef, useId, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
-  ArrowUpRight, Calculator, ChevronDown, Download, GitBranch, History, Loader2, Lock, Pencil, Send,
+  ArrowUpRight, ChevronDown, Download, GitBranch, History, Loader2, Lock, Pencil, Send,
 } from 'lucide-react';
+import CompositionBar from './CompositionBar';
 import { GoFlowWindow } from '../goflow-window';
 import { SITUACOES, limitarRevisoesVisiveis, transicoesDisponiveis } from '../orcamentoModel';
 import { listItemMotion, springSoft } from './orcamentoMotion';
@@ -62,18 +63,25 @@ const BudgetCard = forwardRef(function BudgetCard({
   // Rascunho editável: editar é a ação principal. Fora dele, quem edita parte de uma nova revisão.
   const newRevisionIsPrimary = canEdit && !editable;
   const isExporting = (format) => exporting.has(`${current?.id}:${format}`);
+  const price = budget.dfpSummary.precoTotalFaturamento;
 
   return (
     <GoFlowWindow
+      actions={(
+        <div className="orc-card-figure">
+          <strong title={formatMoney(price)}>{formatMoney(price)}</strong>
+          <span>{current?.modalidade === 'HH' && current?.dfp?.hh ? 'total estimado do contrato (HH)' : 'preço de faturamento'}</span>
+        </div>
+      )}
       activationLabel={`Abrir ${budget.codigo}, ${budget.contratante}`}
       aria-busy={busy || undefined}
       as="li"
       className="orc-card"
       data-readonly={readOnly || undefined}
+      data-situacao={current?.vencida ? 'vencida' : current?.situacao}
       eyebrow={`${budget.codigo}-R${current?.numero ?? 0}`}
-      icon={Calculator}
       interactive
-      motionProps={{ layout: reducedMotion ? false : 'position', ...listItemMotion(reducedMotion, index) }}
+      motionProps={{ layout: reducedMotion ? false : 'position', whileHover: undefined, ...listItemMotion(reducedMotion, index) }}
       onActivate={() => onOpen(budget)}
       ref={ref}
       title={budget.contratante}
@@ -83,16 +91,17 @@ const BudgetCard = forwardRef(function BudgetCard({
           {current && <StatusBadge budgetId={budget.id} revision={current} />}
           {readOnly && <span className="orc-readonly-tag" title="O editor abre somente para consulta"><Lock aria-hidden="true" /> Somente leitura</span>}
         </div>
-        <strong title={formatMoney(budget.dfpSummary.precoTotalFaturamento)}>{formatMoney(budget.dfpSummary.precoTotalFaturamento)}</strong>
-        <span>{current?.modalidade === 'HH' && current?.dfp?.hh ? 'total estimado do contrato (HH)' : 'preço de faturamento'}</span>
+        <dl className="orc-card-meta">
+          <MetaItem label="Modalidade" value={current?.modalidade || 'Pendente'} />
+          <MetaItem label="Região da Obra" value={current?.regiao || 'Pendente'} />
+          <MetaItem label="Prazo" value={current?.prazoExecucaoDias ? `${current.prazoExecucaoDias} dias` : 'Pendente'} />
+          <MetaItem label="Validade" value={formatDate(current?.validoAte) || 'Ainda não emitido'} />
+        </dl>
+        <CompositionBar className="orc-card-comp" summary={budget.dfpSummary} />
       </div>
-      <dl className="orc-card-meta">
-        <MetaItem label="Revisão atual" value={current?.numero ?? '—'} />
-        <MetaItem label="Modalidade" value={current?.modalidade || 'Pendente'} />
-        <MetaItem label="Região da Obra" value={current?.regiao || 'Pendente'} />
-        <MetaItem label="Validade" value={formatDate(current?.validoAte) || 'Ainda não emitido'} />
-      </dl>
+      {current?.escopo && <p className="orc-card-scope" title={current.escopo}>{current.escopo}</p>}
       {budget.cabecalhoPendente.length > 0 && <p className="orc-pending">Cabeçalho pendente: {budget.cabecalhoPendente.join(', ')}.</p>}
+      <div className="orc-card-foot">
       <div aria-label={`Histórico de ${budget.codigo}`} className="orc-history" onClick={stop} role="group">
         <span><History aria-hidden="true" /> Revisões</span>
         <div>
@@ -124,6 +133,7 @@ const BudgetCard = forwardRef(function BudgetCard({
           Mais ações <ChevronDown aria-hidden="true" />
         </button>
       </div>
+      </div>
       <AnimatePresence initial={false}>
         {moreOpen && (
           <motion.div
@@ -137,10 +147,10 @@ const BudgetCard = forwardRef(function BudgetCard({
           >
             <div className="orc-card-more__row">
               <button className="orc-btn" onClick={() => onHistory(budget)} type="button"><History aria-hidden="true" /> Histórico de edição</button>
-              {current && ['docx', 'pdf'].map((format) => (
+              {current && ['pdf', 'docx'].map((format) => (
                 <button aria-busy={isExporting(format) || undefined} className="orc-btn" disabled={isExporting(format)} key={format} onClick={() => onExport(current, format)} type="button">
                   {isExporting(format) ? <Loader2 className="orc-spin" aria-hidden="true" /> : <Download aria-hidden="true" />}
-                  {isExporting(format) ? `Exportando ${format.toUpperCase()}…` : `Exportar ${format.toUpperCase()}`}
+                  {isExporting(format) ? `Gerando ${format.toUpperCase()}…` : `Proposta em ${format.toUpperCase()}`}
                 </button>
               ))}
               {canEdit && !newRevisionIsPrimary && (

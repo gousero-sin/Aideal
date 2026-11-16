@@ -16,6 +16,7 @@ test('cria, abre por clique e persiste um snapshot DFP completo em goflow-window
   const contratante = `Contratante DFP E2E ${Date.now()}`;
   await loginAsOwner(page);
 
+  await page.getByRole('button', { name: 'Novo orçamento', exact: true }).click();
   const createWindow = page.locator('.orc-create-window');
   await expect(createWindow.getByLabel('Modalidade do Trabalho').locator('option')).toHaveText([
     'Selecione', 'HH', 'Spot', 'Rotina', 'm²',
@@ -110,7 +111,8 @@ test('carteira e editor são responsivos em viewport móvel', async ({ page }) =
 
   const firstCard = page.locator('.orc-card').first();
   if (await firstCard.count()) {
-    await firstCard.getByRole('button', { name: /^Abrir / }).click();
+    // No celular o centro do cartão é ocupado pelas ações; o clique vai no cabeçalho.
+    await firstCard.getByRole('button', { name: /^Abrir / }).click({ position: { x: 24, y: 24 } });
     const editor = page.locator('.orc-editor-dialog');
     await expect(editor).toBeVisible();
     await expect(editor).toHaveCSS('width', '390px');

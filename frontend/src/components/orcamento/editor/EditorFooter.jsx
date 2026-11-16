@@ -4,7 +4,7 @@ import { GoFlowWindow } from '../../goflow-window';
 import AnimatedValue from './AnimatedValue';
 import { pluralize } from './editorState';
 
-const EXPORT_FORMATS = ['docx', 'pdf'];
+const EXPORT_FORMATS = ['pdf', 'docx'];
 
 /**
  * Rodapé fixo do editor: estado das alterações, preço total, erro do servidor (sempre à vista,
@@ -29,7 +29,7 @@ export default function EditorFooter({
     if (serverError) errorRef.current?.focus({ preventScroll: true });
   }, [serverError]);
   const exportBlocked = dirty || Boolean(exporting);
-  const exportHint = dirty ? 'Salve a revisão para exportar com as alterações.' : undefined;
+  const exportHint = dirty ? 'Salve a revisão para gerar a proposta com as alterações.' : undefined;
 
   return (
     <GoFlowWindow className="orc-editor-footer" title="Finalizar edição">
@@ -46,7 +46,7 @@ export default function EditorFooter({
           {issueCount > 0 && <span className="orc-save-state" data-state="invalid">{pluralize(issueCount, 'pendência', 'pendências')} para revisar</span>}
           <span className="orc-editor-footer__total"><small>{totalLabel}</small><strong><AnimatedValue value={total} /></strong></span>
         </div>
-        <p>{canEdit ? 'Revise as premissas antes de salvar.' : 'Esta revisão está disponível somente para consulta.'}{exportHint && ` ${exportHint}`}</p>
+        {(!canEdit || exportHint) && <p>{canEdit ? exportHint : 'Esta revisão está disponível somente para consulta.'}</p>}
         <div className="orc-button-row">
           <button className="orc-btn" disabled={busy} onClick={onClose} type="button">Fechar</button>
           {EXPORT_FORMATS.map((format) => {
@@ -62,7 +62,7 @@ export default function EditorFooter({
                 type="button"
               >
                 {running ? <Loader2 aria-hidden="true" className="orc-spin" /> : <Download aria-hidden="true" />}
-                Exportar {format.toUpperCase()} salvo
+                Proposta em {format.toUpperCase()}
               </button>
             );
           })}

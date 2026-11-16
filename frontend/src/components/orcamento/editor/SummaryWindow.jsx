@@ -3,6 +3,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AlertTriangle, BadgeDollarSign, ChevronDown, ChevronUp } from 'lucide-react';
 import { GoFlowWindow } from '../../goflow-window';
 import AnimatedValue from './AnimatedValue';
+import CompositionBar from '../CompositionBar';
 import { changedSummaryEntries } from './editorState';
 import { formatMoney } from './editorShared';
 
@@ -85,6 +86,7 @@ export default function SummaryWindow({ hhSummary, summary, warnings }) {
           ))}
         </ul>
       )}
+      <CompositionBar className="orc-summary-comp" legend summary={summary} />
       <dl className="orc-summary-grid" id={contentId}>
         <AnimatePresence initial={false}>
           {!collapsed && items.map(([label, value]) => {

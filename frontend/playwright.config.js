@@ -11,7 +11,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: '../backend/.venv/bin/python -m uvicorn app.main:app --app-dir ../backend --host 127.0.0.1 --port 8011',
+    // AIDEAL_E2E_PYTHON aponta para outro interpretador (ex.: venv fora da pasta sincronizada).
+    command: `${process.env.AIDEAL_E2E_PYTHON || '../backend/.venv/bin/python'} -m uvicorn app.main:app --app-dir ../backend --host 127.0.0.1 --port 8011`,
     url: 'http://127.0.0.1:8011/health',
     reuseExistingServer: false,
     timeout: 120_000,

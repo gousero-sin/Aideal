@@ -877,3 +877,70 @@ export const rotuloResponsavel = (userId, currentUserId) => {
   if (id.toLowerCase() === 'sistema') return 'Sistema';
   return `Usuário ${id.length > 8 ? `${id.slice(0, 8)}…` : id}`;
 };
+
+// Partes do preço, na ordem em que a faixa de composição é desenhada (painel e proposta).
+export const PARTES_DO_PRECO = Object.freeze([
+  Object.freeze({ key: 'diretos', label: 'Custos diretos' }),
+  Object.freeze({ key: 'indiretos', label: 'Custos indiretos' }),
+  Object.freeze({ key: 'lucro', label: 'Lucro e BDI' }),
+  Object.freeze({ key: 'impostos', label: 'Impostos' }),
+]);
+
+/**
+ * Divide o preço de faturamento em custos diretos, indiretos, lucro e impostos (o que sobra
+ * do preço depois dos custos). Sem preço, não há composição a mostrar.
+ * @param {{ custosDiretosTotal?: number, custosIndiretosTotal?: number, lucroTotal?: number, precoTotalFaturamento?: number }} summary
+ * @returns {{ key: string, label: string, valor: number, share: number }[]}
+ */
+export const composicaoDoPreco = (summary) => {
+  const preco = Number(summary?.precoTotalFaturamento) || 0;
+  if (preco <= 0) return [];
+  const valores = {
+    diretos: Number(summary?.custosDiretosTotal) || 0,
+    indiretos: Number(summary?.custosIndiretosTotal) || 0,
+    lucro: Number(summary?.lucroTotal) || 0,
+  };
+  valores.impostos = Math.max(preco - valores.diretos - valores.indiretos - valores.lucro, 0);
+  return PARTES_DO_PRECO
+    .map(({ key, label }) => ({ key, label, valor: valores[key], share: valores[key] / preco }))
+    .filter((parte) => parte.valor > 0);
+};
+
+const ETAPAS_FUNIL = Object.freeze([
+  Object.freeze({ filtro: 'em_curso', label: 'Em curso' }),
+  Object.freeze({ filtro: 'pronto_para_proposta', label: 'Prontos para proposta' }),
+  Object.freeze({ filtro: 'emitido', label: 'Emitidos' }),
+]);
+
+/**
+ * Etapas da carteira com quantidade, valor somado e fatia do valor ativo. Inativos ficam de
+ * fora: o funil mostra o que ainda pode virar contrato.
+ * @returns {{ filtro: string, label: string, quantidade: number, valor: number, share: number }[]}
+ */
+export const funilCarteira = (orcamentos) => {
+  const lista = Array.isArray(orcamentos) ? orcamentos : [];
+  const etapas = ETAPAS_FUNIL.map(({ filtro, label }) => {
+    const itens = lista.filter((item) => correspondeSituacao(item, filtro));
+    return {
+      filtro,
+      label,
+      quantidade: itens.length,
+      valor: itens.reduce((acc, item) => acc + (Number(item?.dfpSummary?.precoTotalFaturamento) || 0), 0),
+    };
+  });
+  const total = etapas.reduce((acc, etapa) => acc + etapa.valor, 0);
+  return etapas.map((etapa) => ({ ...etapa, share: total > 0 ? etapa.valor / total : 0 }));
+};
+
+/** Valor abreviado para leitura rápida: R$ 1,4 mi, R$ 746 mil, R$ 980. */
+export const formatarValorCompacto = (valor) => {
+  const numero = Number(valor) || 0;
+  const abs = Math.abs(numero);
+  const casas = (divisor) => (numero / divisor).toLocaleString('pt-BR', {
+    maximumFractionDigits: abs / divisor >= 100 ? 0 : 1,
+  });
+  if (abs >= 1e9) return `R$ ${casas(1e9)} bi`;
+  if (abs >= 1e6) return `R$ ${casas(1e6)} mi`;
+  if (abs >= 1e3) return `R$ ${casas(1e3)} mil`;
+  return `R$ ${numero.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}`;
+};

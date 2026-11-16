@@ -34,6 +34,7 @@ test('criação seleciona estado e cidade no campo Região da Obra', async ({ pa
   await page.getByLabel('Usuario').fill('Eduardo');
   await page.getByLabel('Senha').fill('senha-admin-e2e-segura');
   await page.getByRole('button', { name: 'Entrar', exact: true }).click();
+  await page.getByRole('button', { name: 'Novo orçamento', exact: true }).click();
   const createForm = page.locator('.orc-create-window form');
   await expect(createForm.getByRole('group', { name: 'Região da Obra' })).toBeVisible();
   await expect(createForm.getByRole('textbox', { name: 'Região da Obra' })).toHaveCount(0);
@@ -149,6 +150,7 @@ test('reaproveitar orçamento existente cria o novo sem recusa do código DFP', 
   await page.reload();
   await expect(page.getByRole('heading', { name: 'Central de Orçamentos' })).toBeVisible();
 
+  await page.getByRole('button', { name: 'Novo orçamento', exact: true }).click();
   await page.getByLabel('Preencher a partir de orçamento existente').selectOption(budget.id);
   const novo = `Reaproveitado ${Date.now()}`;
   await page.getByLabel('Contratante', { exact: true }).fill(novo);
